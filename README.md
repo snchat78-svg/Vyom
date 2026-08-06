@@ -1,2 +1,3 @@
 # Vyom
-Vyom AI 
+
+AI project repository.
