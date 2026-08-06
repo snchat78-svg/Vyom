@@ -1,3 +1,0 @@
-# Vyom
-
-AI project repository.
