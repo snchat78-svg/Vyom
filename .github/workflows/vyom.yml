@@ -9,16 +9,13 @@ on:
     branches:
       - main
 
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-
   build:
-
     runs-on: windows-latest
 
     steps:
-
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -31,12 +28,14 @@ jobs:
         run: python --version
 
       - name: Verify Project
+        shell: cmd
         run: |
           echo ============================
           echo VYOM AI BUILD STARTED
           echo ============================
 
       - name: List Project Files
+        shell: cmd
         run: dir
 
       - name: Upload Project Artifact
