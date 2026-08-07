@@ -1,0 +1,46 @@
+name: Vyom AI CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+workflow_dispatch:
+
+jobs:
+
+  build:
+
+    runs-on: windows-latest
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Show Python Version
+        run: python --version
+
+      - name: Verify Project
+        run: |
+          echo ============================
+          echo VYOM AI BUILD STARTED
+          echo ============================
+
+      - name: List Project Files
+        run: dir
+
+      - name: Upload Project Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_Project
+          path: .
