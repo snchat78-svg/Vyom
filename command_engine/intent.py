@@ -1,6 +1,6 @@
 """
 Project : Vyom AI
-Version : 0.2
+Version : 0.7
 Module  : Intent Engine
 """
 
@@ -20,6 +20,12 @@ class IntentEngine:
             return {
                 "intent": "close_app",
                 "target": command.replace("close", "").strip()
+            }
+
+        if "search" in command:
+            return {
+                "intent": "search_file",
+                "target": command.replace("search", "").strip()
             }
 
         return {
