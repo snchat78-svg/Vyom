@@ -1,6 +1,6 @@
 """
 Project : Vyom AI
-Version : 0.1
+Version : 0.2
 Module  : Brain
 """
 
@@ -8,8 +8,9 @@ from ai_core.logger import log
 
 class Brain:
 
-    def think(self, command):
+    def think(self, data):
 
-        log(f"Received Command : {command}")
+        log(f"Intent : {data['intent']}")
+        log(f"Target : {data['target']}")
 
-        return f"Command Accepted : {command}"
+        return f"Intent = {data['intent']} | Target = {data['target']}"
