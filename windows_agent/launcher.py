@@ -1,72 +1,190 @@
 """
 Project : Vyom AI
-Version : 0.8
-Module : Windows Launcher
+Version : 0.9
+Module  : Universal Windows Launcher
 """
 
 import os
 import subprocess
-
-from tools.app_registry import get_app
+import shutil
 
 
 class WindowsLauncher:
 
-    def open_app(self, target):
+    def __init__(self):
+        self.app_directories = [
+            os.path.join(
+                os.environ.get("APPDATA", ""),
+                "Microsoft",
+                "Windows",
+                "Start Menu",
+                "Programs"
+            ),
 
-        target = target.strip()
+            os.path.join(
+                os.environ.get("PROGRAMDATA", ""),
+                "Microsoft",
+                "Windows",
+                "Start Menu",
+                "Programs"
+            ),
 
-        if not target:
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "Desktop"
+            ),
 
-            return "Please specify an application or file."
-
-        # -----------------------------------------
-        # 1. Direct existing path
-        # -----------------------------------------
-
-        if os.path.exists(target):
-
-            try:
-
-                os.startfile(target)
-
-                return f"{target} opened successfully."
-
-            except Exception as e:
-
-                return f"Error opening {target}: {e}"
-
-        # -----------------------------------------
-        # 2. Search installed application
-        # -----------------------------------------
-
-        app = get_app(target)
-
-        if app:
-
-            try:
-
-                os.startfile(app)
-
-                return f"{target} opened successfully."
-
-            except Exception as e:
-
-                return f"Error opening {target}: {e}"
-
-        # -----------------------------------------
-        # 3. Windows Shell
-        # -----------------------------------------
-
-        try:
-
-            subprocess.Popen(
-                ["cmd", "/c", "start", "", target],
-                shell=False
+            os.path.join(
+                os.environ.get("PUBLIC", ""),
+                "Desktop"
             )
+        ]
 
-            return f"{target} opening requested."
+    def open_app(self, app_name):
 
-        except Exception as e:
+        app_name = app_name.strip().lower()
 
-            return f"Application or file '{target}' could not be opened. Error: {e}"
+        if not app_name:
+            return "Application name is empty."
+
+        # ---------------------------------------------
+        # WINDOWS SPECIAL COMMANDS
+        # ---------------------------------------------
+
+        special_apps = {
+            "notepad": "notepad.exe",
+            "calculator": "calc.exe",
+            "calc": "calc.exe",
+            "paint": "mspaint.exe",
+            "cmd": "cmd.exe",
+            "command prompt": "cmd.exe",
+            "explorer": "explorer.exe",
+            "file explorer": "explorer.exe",
+            "windows explorer": "explorer.exe"
+        }
+
+        if app_name in special_apps:
+
+            try:
+                subprocess.Popen(special_apps[app_name])
+
+                return f"{app_name} opened successfully."
+
+            except Exception as e:
+
+                return f"Error opening {app_name}: {e}"
+
+        # ---------------------------------------------
+        # DIRECT WINDOWS PATH
+        # ---------------------------------------------
+
+        if os.path.exists(app_name):
+
+            try:
+                os.startfile(app_name)
+
+                return f"{app_name} opened successfully."
+
+            except Exception as e:
+
+                return f"Error opening {app_name}: {e}"
+
+        # ---------------------------------------------
+        # SEARCH APPLICATION SHORTCUTS
+        # ---------------------------------------------
+
+        result = self._find_shortcut(app_name)
+
+        if result:
+
+            try:
+                os.startfile(result)
+
+                return f"{app_name} opened successfully."
+
+            except Exception as e:
+
+                return f"Error opening {app_name}: {e}"
+
+        # ---------------------------------------------
+        # SEARCH WINDOWS PATH
+        # ---------------------------------------------
+
+        executable = shutil.which(app_name)
+
+        if executable:
+
+            try:
+                subprocess.Popen(executable)
+
+                return f"{app_name} opened successfully."
+
+            except Exception as e:
+
+                return f"Error opening {app_name}: {e}"
+
+        # ---------------------------------------------
+        # TRY EXE NAME
+        # ---------------------------------------------
+
+        if not app_name.endswith(".exe"):
+
+            executable = shutil.which(app_name + ".exe")
+
+            if executable:
+
+                try:
+                    subprocess.Popen(executable)
+
+                    return f"{app_name} opened successfully."
+
+                except Exception as e:
+
+                    return f"Error opening {app_name}: {e}"
+
+        # ---------------------------------------------
+        # NOT FOUND
+        # ---------------------------------------------
+
+        return (
+            f"Application '{app_name}' was not found. "
+            f"Vyom could not find a Windows shortcut or executable."
+        )
+
+    # =================================================
+    # FIND APPLICATION SHORTCUT
+    # =================================================
+
+    def _find_shortcut(self, app_name):
+
+        extensions = [
+            ".lnk",
+            ".url",
+            ".exe"
+        ]
+
+        for directory in self.app_directories:
+
+            if not os.path.exists(directory):
+                continue
+
+            for root, dirs, files in os.walk(directory):
+
+                for file in files:
+
+                    file_lower = file.lower()
+
+                    for extension in extensions:
+
+                        if not file_lower.endswith(extension):
+                            continue
+
+                        name = file_lower[:-len(extension)].strip()
+
+                        if name == app_name:
+                            return os.path.join(root, file)
+
+                        if app_name in name:
+                            return os.path.join(root, file)
+
+        return None
