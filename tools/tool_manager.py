@@ -1,7 +1,7 @@
 """
 Project : Vyom AI
-Version : 0.7
-Module  : Tool Manager
+Version : 0.8
+Module : Tool Manager
 """
 
 from windows_agent.launcher import WindowsLauncher
@@ -19,19 +19,73 @@ class ToolManager:
 
     def execute(self, intent):
 
-        if intent["intent"] == "open_app":
-            return self.launcher.open_app(intent["target"])
+        intent_name = intent.get("intent", "")
+        target = intent.get("target", "").strip()
 
-        elif intent["intent"] == "close_app":
-            return self.process_manager.close_app(intent["target"])
+        # -------------------------------------------------
+        # OPEN APPLICATION
+        # -------------------------------------------------
 
-        elif intent["intent"] == "search_file":
+        if intent_name == "open_app":
 
-            results = self.file_manager.search(intent["target"])
+            return self.launcher.open_app(target)
+
+        # -------------------------------------------------
+        # CLOSE APPLICATION
+        # -------------------------------------------------
+
+        elif intent_name == "close_app":
+
+            return self.process_manager.close_app(target)
+
+        # -------------------------------------------------
+        # SEARCH FILE
+        # -------------------------------------------------
+
+        elif intent_name == "search_file":
+
+            results = self.file_manager.search(target)
 
             if not results:
-                return "File not found."
+
+                return f"File not found: {target}"
 
             return "\n".join(results)
 
-        return f"No tool available for {intent['intent']}"
+        # -------------------------------------------------
+        # OPEN FILE
+        # -------------------------------------------------
+
+        elif intent_name == "open_file":
+
+            return self.file_manager.open_file(target)
+
+        # -------------------------------------------------
+        # SEARCH AND OPEN FILE
+        # -------------------------------------------------
+
+        elif intent_name == "search_and_open_file":
+
+            return self.file_manager.search_and_open(target)
+
+        # -------------------------------------------------
+        # OPEN FILE OR APPLICATION
+        # -------------------------------------------------
+
+        elif intent_name == "open":
+
+            # First try Windows application launcher
+            result = self.launcher.open_app(target)
+
+            if "could not be found" not in result.lower():
+
+                return result
+
+            # If it was not an application, search for a file
+            return self.file_manager.search_and_open(target)
+
+        # -------------------------------------------------
+        # UNKNOWN INTENT
+        # -------------------------------------------------
+
+        return f"No tool available for {intent_name}"
