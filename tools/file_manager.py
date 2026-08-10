@@ -1,7 +1,7 @@
 """
 Project : Vyom AI
-Version : 0.8
-Module : File Manager
+Version : 0.9
+Module  : File Manager
 """
 
 import os
@@ -9,89 +9,196 @@ import os
 
 class FileManager:
 
-    def search(self, filename, start_path="C:\\"):
+    def __init__(self):
+
+        self.search_locations = [
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "Desktop"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "Documents"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "Downloads"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "Pictures"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "Videos"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "Music"
+            )
+        ]
+
+        self.blocked_directories = [
+            "$recycle.bin",
+            "system volume information",
+            "windows\\winsxs",
+            "windows\\servicing",
+            "windows\\system32",
+            "windows\\softwaredistribution"
+        ]
+
+    # =================================================
+    # SEARCH FILE
+    # =================================================
+
+    def search(self, filename, start_path=None):
+
+        filename = filename.strip().lower()
+
+        if not filename:
+            return []
 
         results = []
 
-        filename = filename.strip()
+        locations = []
 
-        if not filename:
-            return results
+        # User specifically requested location
+        if start_path:
+
+            locations.append(start_path)
+
+        # Normal user folders
+        locations.extend(self.search_locations)
+
+        # Remove duplicate paths
+        checked = set()
+
+        for location in locations:
+
+            if not location:
+                continue
+
+            location = os.path.abspath(location)
+
+            if location.lower() in checked:
+                continue
+
+            checked.add(location.lower())
+
+            if not os.path.exists(location):
+                continue
+
+            self._search_directory(
+                location,
+                filename,
+                results
+            )
+
+            if len(results) >= 10:
+                break
+
+        return results[:10]
+
+    # =================================================
+    # DIRECTORY SEARCH
+    # =================================================
+
+    def _search_directory(
+        self,
+        directory,
+        filename,
+        results
+    ):
+
+        if len(results) >= 10:
+            return
 
         try:
 
-            for root, dirs, files in os.walk(start_path):
+            for root, dirs, files in os.walk(
+                directory,
+                onerror=lambda error: None
+            ):
 
-                # Ignore folders that commonly cause unnecessary
-                # access problems or very large searches.
+                # Remove blocked directories
                 dirs[:] = [
                     d for d in dirs
-                    if d.lower() not in [
-                        "$recycle.bin",
-                        "system volume information"
-                    ]
+                    if not self._is_blocked(
+                        os.path.join(root, d)
+                    )
                 ]
 
                 for file in files:
 
-                    if filename.lower() in file.lower():
+                    if filename in file.lower():
 
-                        full_path = os.path.join(root, file)
+                        full_path = os.path.join(
+                            root,
+                            file
+                        )
 
                         results.append(full_path)
 
-                        # Maximum 10 results
                         if len(results) >= 10:
+                            return
 
-                            return results
-
-        except (PermissionError, OSError):
-
+        except Exception:
             pass
 
-        return results
+    # =================================================
+    # BLOCK SYSTEM DIRECTORIES
+    # =================================================
 
-    # -----------------------------------------------------
-    # Open file or folder using Windows default application
-    # -----------------------------------------------------
+    def _is_blocked(self, path):
 
-    def open_file(self, file_path):
+        path_lower = path.lower()
 
-        file_path = file_path.strip()
+        for blocked in self.blocked_directories:
 
-        if not file_path:
+            if blocked in path_lower:
+                return True
 
-            return "Please specify a file or folder."
+        return False
 
-        if not os.path.exists(file_path):
+    # =================================================
+    # OPEN FILE
+    # =================================================
 
-            return f"File or folder not found: {file_path}"
+    def open_file(self, filepath):
+
+        if not filepath:
+            return "File path is empty."
+
+        if not os.path.exists(filepath):
+            return f"File not found: {filepath}"
 
         try:
 
-            # Windows opens the file with its registered
-            # default application.
-            os.startfile(file_path)
+            os.startfile(filepath)
 
-            return f"Opened successfully: {file_path}"
+            return f"File opened successfully: {filepath}"
 
         except Exception as e:
 
-            return f"Error opening {file_path}: {e}"
+            return f"Error opening file: {e}"
 
-    # -----------------------------------------------------
-    # Search and open the first matching file
-    # -----------------------------------------------------
+    # =================================================
+    # SEARCH AND OPEN
+    # =================================================
 
-    def search_and_open(self, filename, start_path="C:\\"):
+    def search_and_open(self, filename):
 
-        results = self.search(
-            filename,
-            start_path
-        )
+        results = self.search(filename)
 
         if not results:
+            return f"File '{filename}' was not found."
 
-            return f"File not found: {filename}"
+        filepath = results[0]
 
-        return self.open_file(results[0])
+        return self.open_file(filepath)
