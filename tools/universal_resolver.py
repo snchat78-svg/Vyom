@@ -141,6 +141,32 @@ class UniversalResolver:
 
         try:
 
+            # -----------------------------------------
+            # Windows AppsFolder URI
+            # -----------------------------------------
+
+            if isinstance(path, str):
+
+                if path.lower().startswith(
+                    "shell:appsfolder\\"
+                ):
+
+                    subprocess.Popen(
+                        [
+                            "explorer.exe",
+                            path
+                        ]
+                    )
+
+                    return (
+                        True,
+                        f"Opened successfully: {path}"
+                    )
+
+            # -----------------------------------------
+            # Normal Windows path
+            # -----------------------------------------
+
             os.startfile(path)
 
             return (
@@ -232,7 +258,10 @@ class UniversalResolver:
                             file
                         )[0].strip().lower()
 
+                        # ---------------------------------
                         # Exact match first
+                        # ---------------------------------
+
                         if filename == target_name:
 
                             full_path = os.path.join(
@@ -247,7 +276,10 @@ class UniversalResolver:
                                     full_path
                                 )
 
+                        # ---------------------------------
                         # Partial match
+                        # ---------------------------------
+
                         elif target_name in filename:
 
                             full_path = os.path.join(
@@ -271,10 +303,16 @@ class UniversalResolver:
         return results
 
     # =================================================
-    # WINDOWS APPSFOLDER SEARCH
+    # WINDOWS START APPS SCAN
     #
-    # This is for Windows built-in / Store apps
-    # such as Maps, Camera, Calendar, Bing etc.
+    # Uses Get-StartApps dynamically.
+    #
+    # No application names are hard-coded.
+    #
+    # Returns:
+    #     shell:AppsFolder\AppID
+    #
+    # These paths can be opened by Windows Explorer.
     # =================================================
 
     def search_windows_apps(self, target):
@@ -288,25 +326,29 @@ class UniversalResolver:
         results = []
 
         # -------------------------------------------------
-        # PowerShell script
+        # PowerShell:
         #
-        # Uses Windows Shell AppsFolder.
-        # This avoids manually registering every app.
+        # Get-StartApps returns:
+        #
+        # Name
+        # AppID
+        #
+        # We ask PowerShell to return both values.
         # -------------------------------------------------
 
         script = r'''
-$shell = New-Object -ComObject Shell.Application
-$folder = $shell.Namespace("shell:AppsFolder")
+$ErrorActionPreference = "SilentlyContinue"
 
-if ($folder -ne $null) {
+if (Get-Command Get-StartApps -ErrorAction SilentlyContinue) {
 
-    foreach ($item in $folder.Items()) {
+    Get-StartApps |
+    ForEach-Object {
 
-        $name = $item.Name
+        if ($_.Name -and $_.AppID) {
 
-        if ($name -ne $null) {
-
-            Write-Output $name
+            Write-Output (
+                $_.Name + "`t" + $_.AppID
+            )
         }
     }
 }
@@ -334,13 +376,31 @@ if ($folder -ne $null) {
 
             if process.returncode != 0:
 
-                return []
+                return self.search_windows_apps_fallback(
+                    target
+                )
 
             for line in stdout.splitlines():
 
-                app_name = line.strip()
+                line = line.strip()
 
-                if not app_name:
+                if not line:
+
+                    continue
+
+                parts = line.split(
+                    "\t",
+                    1
+                )
+
+                if len(parts) != 2:
+
+                    continue
+
+                app_name = parts[0].strip()
+                app_id = parts[1].strip()
+
+                if not app_name or not app_id:
 
                     continue
 
@@ -348,22 +408,217 @@ if ($folder -ne $null) {
                     app_name.lower().strip()
                 )
 
+                # -----------------------------------------
                 # Exact match
+                # -----------------------------------------
+
                 if app_normalized == target_name:
+
+                    app_path = (
+                        "shell:AppsFolder\\"
+                        + app_id
+                    )
+
+                    result = {
+                        "name": app_name,
+                        "app_id": app_id,
+                        "path": app_path
+                    }
 
                     results.insert(
                         0,
-                        app_name
+                        result
                     )
 
+                # -----------------------------------------
                 # Partial match
+                # -----------------------------------------
+
                 elif target_name in app_normalized:
 
-                    if app_name not in results:
+                    app_path = (
+                        "shell:AppsFolder\\"
+                        + app_id
+                    )
 
-                        results.append(
-                            app_name
-                        )
+                    result = {
+                        "name": app_name,
+                        "app_id": app_id,
+                        "path": app_path
+                    }
+
+                    already_exists = False
+
+                    for existing in results:
+
+                        if (
+                            existing["app_id"]
+                            == app_id
+                        ):
+
+                            already_exists = True
+                            break
+
+                    if not already_exists:
+
+                        results.append(result)
+
+        except (
+            subprocess.TimeoutExpired,
+            OSError,
+            Exception
+        ):
+
+            return self.search_windows_apps_fallback(
+                target
+            )
+
+        return results[:20]
+
+    # =================================================
+    # WINDOWS APPS FALLBACK
+    #
+    # Used when Get-StartApps is unavailable.
+    #
+    # Uses:
+    #     shell:AppsFolder
+    #
+    # This keeps Vyom compatible with different
+    # Windows environments.
+    # =================================================
+
+    def search_windows_apps_fallback(
+        self,
+        target
+    ):
+
+        target_name = self.normalize(target)
+
+        if not target_name:
+
+            return []
+
+        results = []
+
+        script = r'''
+$shell = New-Object -ComObject Shell.Application
+
+$folder = $shell.Namespace(
+    "shell:AppsFolder"
+)
+
+if ($folder -ne $null) {
+
+    foreach ($item in $folder.Items()) {
+
+        $name = $item.Name
+
+        $path = $item.Path
+
+        if (
+            $name -and
+            $path
+        ) {
+
+            Write-Output (
+                $name + "`t" + $path
+            )
+        }
+    }
+}
+'''
+
+        try:
+
+            process = subprocess.Popen(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+
+            stdout, stderr = process.communicate(
+                timeout=15
+            )
+
+            for line in stdout.splitlines():
+
+                line = line.strip()
+
+                if not line:
+
+                    continue
+
+                parts = line.split(
+                    "\t",
+                    1
+                )
+
+                if len(parts) != 2:
+
+                    continue
+
+                app_name = parts[0].strip()
+                app_path = parts[1].strip()
+
+                if not app_name or not app_path:
+
+                    continue
+
+                app_normalized = (
+                    app_name.lower().strip()
+                )
+
+                if (
+                    app_normalized
+                    == target_name
+                    or
+                    target_name
+                    in app_normalized
+                ):
+
+                    result = {
+                        "name": app_name,
+                        "app_id": "",
+                        "path": app_path
+                    }
+
+                    duplicate = False
+
+                    for existing in results:
+
+                        if (
+                            existing["path"]
+                            == app_path
+                        ):
+
+                            duplicate = True
+                            break
+
+                    if not duplicate:
+
+                        if (
+                            app_normalized
+                            == target_name
+                        ):
+
+                            results.insert(
+                                0,
+                                result
+                            )
+
+                        else:
+
+                            results.append(
+                                result
+                            )
 
         except (
             subprocess.TimeoutExpired,
@@ -376,132 +631,124 @@ if ($folder -ne $null) {
         return results[:20]
 
     # =================================================
+    # OPEN WINDOWS APP BY APPID
+    # =================================================
+
+    def open_windows_app_by_path(
+        self,
+        app_path
+    ):
+
+        if not app_path:
+
+            return (
+                False,
+                "Invalid Windows app path."
+            )
+
+        try:
+
+            subprocess.Popen(
+                [
+                    "explorer.exe",
+                    app_path
+                ]
+            )
+
+            return (
+                True,
+                f"Opened successfully: {app_path}"
+            )
+
+        except Exception as e:
+
+            return (
+                False,
+                f"Error opening Windows app: {e}"
+            )
+
+    # =================================================
     # OPEN WINDOWS APP
+    #
+    # Scans first.
+    #
+    # Does NOT hard-code Bing, Maps, Calendar etc.
     # =================================================
 
     def open_windows_app(self, target):
 
-        target_name = self.normalize(target)
+        results = self.search_windows_apps(
+            target
+        )
 
-        if not target_name:
+        if not results:
 
             return None
 
         # -------------------------------------------------
-        # PowerShell script
-        #
-        # Finds the application in shell:AppsFolder
-        # and invokes it.
+        # ONE APP
         # -------------------------------------------------
 
-        script = r'''
-param(
-    [string]$Target
-)
+        if len(results) == 1:
 
-$shell = New-Object -ComObject Shell.Application
-$folder = $shell.Namespace("shell:AppsFolder")
+            app = results[0]
 
-if ($folder -eq $null) {
-    exit 2
-}
-
-$targetLower = $Target.ToLower()
-
-foreach ($item in $folder.Items()) {
-
-    $name = $item.Name
-
-    if ($name -ne $null) {
-
-        $nameLower = $name.ToLower()
-
-        if (
-            $nameLower -eq $targetLower
-            -or
-            $nameLower.Contains($targetLower)
-        ) {
-
-            try {
-
-                $item.InvokeVerb()
-
-                Write-Output "SUCCESS"
-                Write-Output $name
-
-                exit 0
-
-            }
-            catch {
-
-                exit 3
-            }
-        }
-    }
-}
-
-exit 1
-'''
-
-        try:
-
-            process = subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    script,
-                    "-Target",
-                    target_name
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
+            success, message = (
+                self.open_windows_app_by_path(
+                    app["path"]
+                )
             )
 
-            stdout, stderr = process.communicate(
-                timeout=15
-            )
-
-            if (
-                process.returncode == 0
-                and "SUCCESS" in stdout
-            ):
-
-                lines = [
-                    line.strip()
-                    for line in stdout.splitlines()
-                    if line.strip()
-                ]
-
-                app_name = target
-
-                if len(lines) >= 2:
-
-                    app_name = lines[-1]
+            if success:
 
                 return (
                     True,
-                    f"Opened Windows app: {app_name}"
+                    f"Opened Windows app: "
+                    f"{app['name']}"
                 )
 
-        except (
-            subprocess.TimeoutExpired,
-            OSError,
-            Exception
+            return (
+                False,
+                message
+            )
+
+        # -------------------------------------------------
+        # MULTIPLE APPS
+        # -------------------------------------------------
+
+        message = (
+            f"Multiple Windows apps found "
+            f"for '{target}':\n"
+        )
+
+        for index, app in enumerate(
+            results,
+            start=1
         ):
 
-            pass
+            message += (
+                f"{index}. "
+                f"{app['name']}\n"
+            )
 
-        return None
+        message += (
+            "\nPlease select a number."
+        )
+
+        return (
+            False,
+            message,
+            results
+        )
 
     # =================================================
     # COMMON FILE / FOLDER SEARCH
     # =================================================
 
-    def search_common_locations(self, target):
+    def search_common_locations(
+        self,
+        target
+    ):
 
         target_original = (
             target
@@ -571,7 +818,10 @@ exit 1
                             )[0]
                         )
 
+                        # ---------------------------------
                         # Exact filename
+                        # ---------------------------------
+
                         if (
                             file_lower
                             == target_original
@@ -589,7 +839,10 @@ exit 1
                                     full_path
                                 )
 
-                        # Target without extension
+                        # ---------------------------------
+                        # Filename without extension
+                        # ---------------------------------
+
                         elif (
                             filename_without_ext
                             == target_name
@@ -606,10 +859,12 @@ exit 1
                                     full_path
                                 )
 
-                        # If user specifically gave an extension
+                        # ---------------------------------
+                        # Explicit extension
+                        # ---------------------------------
+
                         elif (
-                            target_original
-                            .endswith(
+                            target_original.endswith(
                                 tuple(
                                     self.file_extensions
                                 )
@@ -645,6 +900,13 @@ exit 1
 
     # =================================================
     # FIND EVERYTHING
+    #
+    # NOTE:
+    # Windows Apps are intentionally not mixed into
+    # this normal filesystem result list.
+    #
+    # This prevents an App result from accidentally
+    # becoming a normal file/folder selection.
     # =================================================
 
     def find(self, target):
@@ -684,7 +946,7 @@ exit 1
             )
 
         # -------------------------------------------------
-        # 3. START MENU
+        # 3. START MENU .LNK / .EXE
         # -------------------------------------------------
 
         start_results = self.search_start_menu(
@@ -725,13 +987,23 @@ exit 1
 
         if not target:
 
-            return "Please tell me what you want to open."
+            return (
+                "Please tell me what you want "
+                "to open."
+            )
 
         # -------------------------------------------------
-        # FIRST: NORMAL FILE / FOLDER / EXE / START MENU
+        # FIRST:
+        # Normal file / folder / EXE / LNK
         # -------------------------------------------------
 
-        results = self.find(target)
+        results = self.find(
+            target
+        )
+
+        # -------------------------------------------------
+        # ONE NORMAL RESULT
+        # -------------------------------------------------
 
         if len(results) == 1:
 
@@ -770,7 +1042,8 @@ exit 1
             return message
 
         # -------------------------------------------------
-        # SECOND: WINDOWS BUILT-IN / STORE APP
+        # SECOND:
+        # WINDOWS START APPS
         # -------------------------------------------------
 
         windows_app_result = (
@@ -781,11 +1054,31 @@ exit 1
 
         if windows_app_result:
 
-            success, message = (
-                windows_app_result
-            )
+            # ---------------------------------------------
+            # One app
+            # ---------------------------------------------
 
-            if success:
+            if len(windows_app_result) == 2:
+
+                success, message = (
+                    windows_app_result
+                )
+
+                if success:
+
+                    return message
+
+                return message
+
+            # ---------------------------------------------
+            # Multiple apps
+            # ---------------------------------------------
+
+            if len(windows_app_result) == 3:
+
+                success, message, app_results = (
+                    windows_app_result
+                )
 
                 return message
 
@@ -802,15 +1095,27 @@ exit 1
     # SEARCH AND OPEN
     # =================================================
 
-    def search_and_open(self, target):
+    def search_and_open(
+        self,
+        target
+    ):
 
         target = target.strip()
 
         if not target:
 
-            return "Please tell me what you want to open."
+            return (
+                "Please tell me what you want "
+                "to open."
+            )
 
-        results = self.find(target)
+        # -------------------------------------------------
+        # NORMAL FILE / FOLDER / APP SEARCH
+        # -------------------------------------------------
+
+        results = self.find(
+            target
+        )
 
         # -------------------------------------------------
         # ONE NORMAL RESULT
@@ -827,7 +1132,7 @@ exit 1
                 return message
 
         # -------------------------------------------------
-        # MULTIPLE RESULTS
+        # MULTIPLE NORMAL RESULTS
         # -------------------------------------------------
 
         if len(results) > 1:
@@ -853,7 +1158,7 @@ exit 1
             return message
 
         # -------------------------------------------------
-        # WINDOWS APP
+        # WINDOWS START APPS
         # -------------------------------------------------
 
         windows_app_result = (
@@ -864,11 +1169,23 @@ exit 1
 
         if windows_app_result:
 
-            success, message = (
-                windows_app_result
-            )
+            if len(windows_app_result) == 2:
 
-            if success:
+                success, message = (
+                    windows_app_result
+                )
+
+                if success:
+
+                    return message
+
+                return message
+
+            if len(windows_app_result) == 3:
+
+                success, message, app_results = (
+                    windows_app_result
+                )
 
                 return message
 
@@ -879,9 +1196,17 @@ exit 1
 
     # =================================================
     # OPEN SELECTED RESULT
+    #
+    # Supports:
+    #     Normal Windows paths
+    #     shell:AppsFolder paths
     # =================================================
 
-    def open_selected(self, results, number):
+    def open_selected(
+        self,
+        results,
+        number
+    ):
 
         try:
 
@@ -889,7 +1214,9 @@ exit 1
 
         except ValueError:
 
-            return "Please enter a valid number."
+            return (
+                "Please enter a valid number."
+            )
 
         if (
             index < 0
@@ -898,10 +1225,47 @@ exit 1
 
             return "Invalid selection."
 
-        path = results[index]
+        selected = results[index]
+
+        # -------------------------------------------------
+        # Windows App dictionary
+        # -------------------------------------------------
+
+        if isinstance(
+            selected,
+            dict
+        ):
+
+            app_path = selected.get(
+                "path"
+            )
+
+            app_name = selected.get(
+                "name",
+                "Windows app"
+            )
+
+            success, message = (
+                self.open_windows_app_by_path(
+                    app_path
+                )
+            )
+
+            if success:
+
+                return (
+                    f"Opened Windows app: "
+                    f"{app_name}"
+                )
+
+            return message
+
+        # -------------------------------------------------
+        # Normal path
+        # -------------------------------------------------
 
         success, message = self._open(
-            path
+            selected
         )
 
         return message
