@@ -18,6 +18,26 @@ class IntentEngine:
             }
 
         # -------------------------------------------------
+        # FIND AND OPEN FILE
+        # -------------------------------------------------
+
+        open_search_words = [
+            "find and open ",
+            "search and open "
+        ]
+
+        for word in open_search_words:
+
+            if command.startswith(word):
+
+                target = command[len(word):].strip()
+
+                return {
+                    "intent": "find_and_open",
+                    "target": target
+                }
+
+        # -------------------------------------------------
         # CLOSE APPLICATION
         # -------------------------------------------------
 
@@ -60,26 +80,6 @@ class IntentEngine:
                 }
 
         # -------------------------------------------------
-        # SEARCH AND OPEN FILE
-        # -------------------------------------------------
-
-        open_search_words = [
-            "find and open ",
-            "search and open "
-        ]
-
-        for word in open_search_words:
-
-            if command.startswith(word):
-
-                target = command[len(word):].strip()
-
-                return {
-                    "intent": "search_and_open_file",
-                    "target": target
-                }
-
-        # -------------------------------------------------
         # OPEN APPLICATION / FILE
         # -------------------------------------------------
 
@@ -97,12 +97,12 @@ class IntentEngine:
                 target = command[len(word):].strip()
 
                 return {
-                    "intent": "open",
+                    "intent": "open_app",
                     "target": target
                 }
 
         # -------------------------------------------------
-        # DIRECT FILE EXTENSIONS
+        # DIRECT FILE
         # -------------------------------------------------
 
         file_extensions = [
@@ -135,10 +135,10 @@ class IntentEngine:
                 }
 
         # -------------------------------------------------
-        # UNKNOWN COMMAND
+        # UNKNOWN
         # -------------------------------------------------
 
         return {
             "intent": "unknown",
             "target": command
-                }
+        }
