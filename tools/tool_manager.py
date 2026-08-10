@@ -1,7 +1,7 @@
 """
 Project : Vyom AI
-Version : 0.8
-Module : Tool Manager
+Version : 0.9
+Module  : Tool Manager
 """
 
 from windows_agent.launcher import WindowsLauncher
@@ -17,30 +17,47 @@ class ToolManager:
         self.process_manager = ProcessManager()
         self.file_manager = FileManager()
 
+    # =================================================
+    # EXECUTE INTENT
+    # =================================================
+
     def execute(self, intent):
 
         intent_type = intent.get("intent")
         target = intent.get("target", "").strip()
 
-        # -----------------------------------------
+        # -------------------------------------------------
         # OPEN APPLICATION / FILE
-        # -----------------------------------------
+        # -------------------------------------------------
 
-        if intent_type in ["open", "open_app", "open_file"]:
+        if intent_type == "open":
 
-            return self.launcher.open_app(target)
+            # First try application / shortcut
+            result = self.launcher.open_app(target)
 
-        # -----------------------------------------
-        # CLOSE APPLICATION
-        # -----------------------------------------
+            # If application was not found,
+            # search for a file with the same name.
+            if "was not found" in result.lower():
 
-        if intent_type == "close_app":
+                return self.file_manager.search_and_open(
+                    target
+                )
 
-            return self.process_manager.close_app(target)
+            return result
 
-        # -----------------------------------------
+        # -------------------------------------------------
+        # OPEN FILE
+        # -------------------------------------------------
+
+        if intent_type == "open_file":
+
+            return self.file_manager.search_and_open(
+                target
+            )
+
+        # -------------------------------------------------
         # SEARCH FILE
-        # -----------------------------------------
+        # -------------------------------------------------
 
         if intent_type == "search_file":
 
@@ -48,28 +65,39 @@ class ToolManager:
 
             if not results:
 
-                return f"File '{target}' not found."
+                return f"File '{target}' was not found."
 
             return "\n".join(results)
 
-        # -----------------------------------------
+        # -------------------------------------------------
         # SEARCH AND OPEN FILE
-        # -----------------------------------------
+        # -------------------------------------------------
 
         if intent_type == "search_and_open_file":
 
-            results = self.file_manager.search(target)
+            return self.file_manager.search_and_open(
+                target
+            )
 
-            if not results:
+        # -------------------------------------------------
+        # CLOSE APPLICATION
+        # -------------------------------------------------
 
-                return f"File '{target}' not found."
+        if intent_type == "close_app":
 
-            first_file = results[0]
+            return self.process_manager.close_app(
+                target
+            )
 
-            return self.launcher.open_app(first_file)
-
-        # -----------------------------------------
+        # -------------------------------------------------
         # UNKNOWN
-        # -----------------------------------------
+        # -------------------------------------------------
 
-        return f"I don't know how to perform '{intent_type}'."
+        if intent_type == "unknown":
+
+            return (
+                f"I don't understand the command: "
+                f"{target}"
+            )
+
+        return f"No tool available for {intent_type}"
