@@ -12,34 +12,15 @@ class IntentEngine:
         command = command.strip().lower()
 
         if not command:
+
             return {
                 "intent": "unknown",
                 "target": ""
             }
 
-        # -------------------------------------------------
-        # FIND AND OPEN FILE
-        # -------------------------------------------------
-
-        open_search_words = [
-            "find and open ",
-            "search and open "
-        ]
-
-        for word in open_search_words:
-
-            if command.startswith(word):
-
-                target = command[len(word):].strip()
-
-                return {
-                    "intent": "find_and_open",
-                    "target": target
-                }
-
-        # -------------------------------------------------
-        # CLOSE APPLICATION
-        # -------------------------------------------------
+        # -----------------------------------------
+        # CLOSE
+        # -----------------------------------------
 
         close_words = [
             "close ",
@@ -58,9 +39,29 @@ class IntentEngine:
                     "target": target
                 }
 
-        # -------------------------------------------------
-        # SEARCH FILE
-        # -------------------------------------------------
+        # -----------------------------------------
+        # FIND AND OPEN
+        # -----------------------------------------
+
+        open_search_words = [
+            "find and open ",
+            "search and open "
+        ]
+
+        for word in open_search_words:
+
+            if command.startswith(word):
+
+                target = command[len(word):].strip()
+
+                return {
+                    "intent": "search_and_open_file",
+                    "target": target
+                }
+
+        # -----------------------------------------
+        # SEARCH
+        # -----------------------------------------
 
         search_words = [
             "search ",
@@ -79,9 +80,9 @@ class IntentEngine:
                     "target": target
                 }
 
-        # -------------------------------------------------
-        # OPEN APPLICATION / FILE
-        # -------------------------------------------------
+        # -----------------------------------------
+        # OPEN
+        # -----------------------------------------
 
         open_words = [
             "open ",
@@ -97,13 +98,13 @@ class IntentEngine:
                 target = command[len(word):].strip()
 
                 return {
-                    "intent": "open_app",
+                    "intent": "open",
                     "target": target
                 }
 
-        # -------------------------------------------------
+        # -----------------------------------------
         # DIRECT FILE
-        # -------------------------------------------------
+        # -----------------------------------------
 
         file_extensions = [
             ".txt",
@@ -134,11 +135,11 @@ class IntentEngine:
                     "target": command
                 }
 
-        # -------------------------------------------------
+        # -----------------------------------------
         # UNKNOWN
-        # -------------------------------------------------
+        # -----------------------------------------
 
         return {
             "intent": "unknown",
             "target": command
-        }
+                }
