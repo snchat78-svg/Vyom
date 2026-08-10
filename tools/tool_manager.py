@@ -19,73 +19,57 @@ class ToolManager:
 
     def execute(self, intent):
 
-        intent_name = intent.get("intent", "")
+        intent_type = intent.get("intent")
         target = intent.get("target", "").strip()
 
-        # -------------------------------------------------
-        # OPEN APPLICATION
-        # -------------------------------------------------
+        # -----------------------------------------
+        # OPEN APPLICATION / FILE
+        # -----------------------------------------
 
-        if intent_name == "open_app":
+        if intent_type in ["open", "open_app", "open_file"]:
 
             return self.launcher.open_app(target)
 
-        # -------------------------------------------------
+        # -----------------------------------------
         # CLOSE APPLICATION
-        # -------------------------------------------------
+        # -----------------------------------------
 
-        elif intent_name == "close_app":
+        if intent_type == "close_app":
 
             return self.process_manager.close_app(target)
 
-        # -------------------------------------------------
+        # -----------------------------------------
         # SEARCH FILE
-        # -------------------------------------------------
+        # -----------------------------------------
 
-        elif intent_name == "search_file":
+        if intent_type == "search_file":
 
             results = self.file_manager.search(target)
 
             if not results:
 
-                return f"File not found: {target}"
+                return f"File '{target}' not found."
 
             return "\n".join(results)
 
-        # -------------------------------------------------
-        # OPEN FILE
-        # -------------------------------------------------
-
-        elif intent_name == "open_file":
-
-            return self.file_manager.open_file(target)
-
-        # -------------------------------------------------
+        # -----------------------------------------
         # SEARCH AND OPEN FILE
-        # -------------------------------------------------
+        # -----------------------------------------
 
-        elif intent_name == "search_and_open_file":
+        if intent_type == "search_and_open_file":
 
-            return self.file_manager.search_and_open(target)
+            results = self.file_manager.search(target)
 
-        # -------------------------------------------------
-        # OPEN FILE OR APPLICATION
-        # -------------------------------------------------
+            if not results:
 
-        elif intent_name == "open":
+                return f"File '{target}' not found."
 
-            # First try Windows application launcher
-            result = self.launcher.open_app(target)
+            first_file = results[0]
 
-            if "could not be found" not in result.lower():
+            return self.launcher.open_app(first_file)
 
-                return result
+        # -----------------------------------------
+        # UNKNOWN
+        # -----------------------------------------
 
-            # If it was not an application, search for a file
-            return self.file_manager.search_and_open(target)
-
-        # -------------------------------------------------
-        # UNKNOWN INTENT
-        # -------------------------------------------------
-
-        return f"No tool available for {intent_name}"
+        return f"I don't know how to perform '{intent_type}'."
