@@ -1,356 +1,41 @@
 """
 Project : Vyom AI
-Version : 0.9
-Module : Universal Windows Resolver
+Version : 0.10
+Module : Tool Manager
 
 Purpose:
-    Find and open Windows applications, files,
-    folders and Windows shortcuts without
-    manually registering every application.
+    Connect Vyom intents with:
+    - Universal Windows Resolver
+    - File Manager
+    - Process Manager
+    - Selection Memory
 """
 
-import os
-import shutil
+from windows_agent.process_manager import ProcessManager
+from tools.file_manager import FileManager
+from tools.universal_resolver import UniversalResolver
+from memory.selection_manager import SelectionManager
 
 
-class UniversalResolver:
+class ToolManager:
 
     def __init__(self):
 
-        self.start_menu_paths = [
-            os.path.join(
-                os.environ.get("APPDATA", ""),
-                "Microsoft",
-                "Windows",
-                "Start Menu",
-                "Programs"
-            ),
-
-            os.path.join(
-                os.environ.get("PROGRAMDATA", ""),
-                "Microsoft",
-                "Windows",
-                "Start Menu",
-                "Programs"
-            )
-        ]
-
-        self.common_paths = [
-            os.path.join(
-                os.environ.get("USERPROFILE", ""),
-                "Desktop"
-            ),
-
-            os.path.join(
-                os.environ.get("USERPROFILE", ""),
-                "Documents"
-            ),
-
-            os.path.join(
-                os.environ.get("USERPROFILE", ""),
-                "Downloads"
-            ),
-
-            os.path.join(
-                os.environ.get("USERPROFILE", ""),
-                "Pictures"
-            ),
-
-            os.path.join(
-                os.environ.get("USERPROFILE", ""),
-                "Videos"
-            ),
-
-            os.path.join(
-                os.environ.get("USERPROFILE", ""),
-                "Music"
-            )
-        ]
+        self.process_manager = ProcessManager()
+        self.file_manager = FileManager()
+        self.resolver = UniversalResolver()
+        self.selection_manager = SelectionManager()
 
     # =================================================
-    # NORMALIZE
+    # SAVE AND DISPLAY MULTIPLE RESULTS
     # =================================================
 
-    def normalize(self, name):
+    def _save_multiple_results(self, target, results):
 
-        name = name.strip().strip('"').strip("'").lower()
-
-        if name.endswith(".exe"):
-
-            name = name[:-4]
-
-        return name.strip()
-
-    # =================================================
-    # OPEN WINDOWS TARGET
-    # =================================================
-
-    def _open(self, path):
-
-        try:
-
-            os.startfile(path)
-
-            return True, f"Opened successfully: {path}"
-
-        except Exception as e:
-
-            return False, f"Error opening '{path}': {e}"
-
-    # =================================================
-    # EXACT PATH
-    # =================================================
-
-    def find_exact_path(self, target):
-
-        target = target.strip().strip('"').strip("'")
-
-        if os.path.exists(target):
-
-            return target
-
-        return None
-
-    # =================================================
-    # WINDOWS PATH / EXE
-    # =================================================
-
-    def find_in_path(self, target):
-
-        name = self.normalize(target)
-
-        result = shutil.which(name)
-
-        if result:
-
-            return result
-
-        result = shutil.which(name + ".exe")
-
-        if result:
-
-            return result
-
-        return None
-
-    # =================================================
-    # START MENU APPLICATION SEARCH
-    # =================================================
-
-    def search_start_menu(self, target):
-
-        target_name = self.normalize(target)
-
-        results = []
-
-        for start_path in self.start_menu_paths:
-
-            if not os.path.exists(start_path):
-
-                continue
-
-            try:
-
-                for root, dirs, files in os.walk(start_path):
-
-                    for file in files:
-
-                        lower_file = file.lower()
-
-                        if not (
-                            lower_file.endswith(".lnk")
-                            or lower_file.endswith(".exe")
-                        ):
-
-                            continue
-
-                        filename = os.path.splitext(
-                            file
-                        )[0].lower().strip()
-
-                        if (
-                            filename == target_name
-                            or target_name in filename
-                        ):
-
-                            full_path = os.path.join(
-                                root,
-                                file
-                            )
-
-                            if full_path not in results:
-
-                                results.append(full_path)
-
-            except (PermissionError, OSError):
-
-                continue
-
-        return results
-
-    # =================================================
-    # COMMON FILE / FOLDER SEARCH
-    # =================================================
-
-    def search_common_locations(self, target):
-
-        target_name = target.strip().strip('"').strip("'").lower()
-
-        results = []
-
-        for base_path in self.common_paths:
-
-            if not os.path.exists(base_path):
-
-                continue
-
-            try:
-
-                for root, dirs, files in os.walk(
-                    base_path,
-                    onerror=lambda error: None
-                ):
-
-                    # -------------------------------
-                    # FOLDERS
-                    # -------------------------------
-
-                    for directory in dirs:
-
-                        if directory.lower() == target_name:
-
-                            full_path = os.path.join(
-                                root,
-                                directory
-                            )
-
-                            if full_path not in results:
-
-                                results.append(full_path)
-
-                    # -------------------------------
-                    # FILES
-                    # -------------------------------
-
-                    for file in files:
-
-                        if file.lower() == target_name:
-
-                            full_path = os.path.join(
-                                root,
-                                file
-                            )
-
-                            if full_path not in results:
-
-                                results.append(full_path)
-
-                    if len(results) >= 20:
-
-                        return results
-
-            except (PermissionError, OSError):
-
-                continue
-
-        return results
-
-    # =================================================
-    # FIND EVERYTHING
-    # =================================================
-
-    def find(self, target):
-
-        target = target.strip()
-
-        if not target:
-
-            return []
-
-        results = []
-
-        # ---------------------------------------------
-        # 1. EXACT PATH
-        # ---------------------------------------------
-
-        exact = self.find_exact_path(target)
-
-        if exact:
-
-            return [exact]
-
-        # ---------------------------------------------
-        # 2. WINDOWS PATH
-        # ---------------------------------------------
-
-        path_result = self.find_in_path(target)
-
-        if path_result:
-
-            results.append(path_result)
-
-        # ---------------------------------------------
-        # 3. START MENU
-        # ---------------------------------------------
-
-        start_results = self.search_start_menu(target)
-
-        for item in start_results:
-
-            if item not in results:
-
-                results.append(item)
-
-        # ---------------------------------------------
-        # 4. USER FOLDERS
-        # ---------------------------------------------
-
-        common_results = self.search_common_locations(
-            target
-        )
-
-        for item in common_results:
-
-            if item not in results:
-
-                results.append(item)
-
-        return results[:20]
-
-    # =================================================
-    # OPEN
-    # =================================================
-
-    def open(self, target):
-
-        results = self.find(target)
-
-        if not results:
-
-            return (
-                f"I could not find "
-                f"'{target}'."
-            )
-
-        # ---------------------------------------------
-        # ONLY ONE RESULT
-        # ---------------------------------------------
-
-        if len(results) == 1:
-
-            success, message = self._open(
-                results[0]
-            )
-
-            return message
-
-        # ---------------------------------------------
-        # MULTIPLE RESULTS
-        # ---------------------------------------------
+        self.selection_manager.save(results)
 
         message = (
-            f"Multiple items found for "
-            f"'{target}':\n"
+            f"Multiple items found for '{target}':\n"
         )
 
         for index, path in enumerate(
@@ -367,78 +52,240 @@ class UniversalResolver:
         )
 
         return message
+
+    # =================================================
+    # OPEN TARGET
+    # =================================================
+
+    def _open_target(self, target):
+
+        results = self.resolver.find(target)
+
+        if not results:
+
+            self.selection_manager.clear()
+
+            return (
+                f"I could not find "
+                f"'{target}'."
+            )
+
+        # -------------------------------------------------
+        # ONE RESULT
+        # -------------------------------------------------
+
+        if len(results) == 1:
+
+            self.selection_manager.clear()
+
+            return self.resolver.open_selected(
+                results,
+                1
+            )
+
+        # -------------------------------------------------
+        # MULTIPLE RESULTS
+        # -------------------------------------------------
+
+        return self._save_multiple_results(
+            target,
+            results
+        )
 
     # =================================================
     # SEARCH AND OPEN
     # =================================================
 
-    def search_and_open(self, target):
+    def _search_and_open(self, target):
 
-        results = self.find(target)
+        results = self.resolver.find(target)
 
         if not results:
+
+            self.selection_manager.clear()
 
             return (
                 f"I could not find "
                 f"'{target}'."
             )
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # ONE RESULT
-        # ---------------------------------------------
+        # -------------------------------------------------
 
         if len(results) == 1:
 
-            success, message = self._open(
-                results[0]
+            self.selection_manager.clear()
+
+            return self.resolver.open_selected(
+                results,
+                1
             )
 
-            return message
-
-        # ---------------------------------------------
+        # -------------------------------------------------
         # MULTIPLE RESULTS
-        # ---------------------------------------------
+        # -------------------------------------------------
 
-        message = (
-            f"I found multiple items "
-            f"for '{target}':\n"
+        return self._save_multiple_results(
+            target,
+            results
         )
 
-        for index, path in enumerate(
+    # =================================================
+    # HANDLE NUMBER SELECTION
+    # =================================================
+
+    def _handle_selection(self, number):
+
+        if not self.selection_manager.has_results():
+
+            return (
+                "There is no pending selection."
+            )
+
+        selected_path = self.selection_manager.get(
+            number
+        )
+
+        if selected_path is None:
+
+            return (
+                "Invalid selection. "
+                "Please choose a valid number."
+            )
+
+        results = self.selection_manager.results
+
+        result = self.resolver.open_selected(
             results,
-            start=1
+            number
+        )
+
+        self.selection_manager.clear()
+
+        return result
+
+    # =================================================
+    # EXECUTE INTENT
+    # =================================================
+
+    def execute(self, intent):
+
+        intent_type = intent.get(
+            "intent",
+            "unknown"
+        )
+
+        target = intent.get(
+            "target",
+            ""
+        ).strip()
+
+        # -------------------------------------------------
+        # NUMBER SELECTION
+        # -------------------------------------------------
+
+        if (
+            intent_type == "unknown"
+            and target.isdigit()
         ):
 
-            message += (
-                f"{index}. {path}\n"
+            return self._handle_selection(
+                target
             )
 
-        message += (
-            "\nPlease select a number."
+        # -------------------------------------------------
+        # OPEN APPLICATION / FILE / FOLDER
+        # -------------------------------------------------
+
+        if intent_type == "open":
+
+            return self._open_target(
+                target
+            )
+
+        # -------------------------------------------------
+        # OPEN FILE
+        # -------------------------------------------------
+
+        if intent_type == "open_file":
+
+            return self._open_target(
+                target
+            )
+
+        # -------------------------------------------------
+        # SEARCH AND OPEN
+        # -------------------------------------------------
+
+        if intent_type == "search_and_open_file":
+
+            return self._search_and_open(
+                target
+            )
+
+        # -------------------------------------------------
+        # SEARCH FILE
+        # -------------------------------------------------
+
+        if intent_type == "search_file":
+
+            results = self.file_manager.search(
+                target
+            )
+
+            if not results:
+
+                self.selection_manager.clear()
+
+                return (
+                    f"File '{target}' "
+                    f"was not found."
+                )
+
+            # ONE RESULT
+
+            if len(results) == 1:
+
+                self.selection_manager.clear()
+
+                return results[0]
+
+            # MULTIPLE RESULTS
+
+            return self._save_multiple_results(
+                target,
+                results
+            )
+
+        # -------------------------------------------------
+        # CLOSE APPLICATION
+        # -------------------------------------------------
+
+        if intent_type == "close_app":
+
+            self.selection_manager.clear()
+
+            return self.process_manager.close_app(
+                target
+            )
+
+        # -------------------------------------------------
+        # UNKNOWN COMMAND
+        # -------------------------------------------------
+
+        if intent_type == "unknown":
+
+            return (
+                f"I don't understand the command: "
+                f"{target}"
+            )
+
+        # -------------------------------------------------
+        # UNSUPPORTED INTENT
+        # -------------------------------------------------
+
+        return (
+            f"No tool available for "
+            f"'{intent_type}'."
         )
-
-        return message
-
-    # =================================================
-    # OPEN SELECTED RESULT
-    # =================================================
-
-    def open_selected(self, results, number):
-
-        try:
-
-            index = int(number) - 1
-
-        except ValueError:
-
-            return "Please enter a valid number."
-
-        if index < 0 or index >= len(results):
-
-            return "Invalid selection."
-
-        path = results[index]
-
-        success, message = self._open(path)
-
-        return message
