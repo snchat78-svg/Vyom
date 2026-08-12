@@ -81,8 +81,6 @@ class ToolManager:
         self.selection_manager = SelectionManager()
 
         # -----------------------------------------------------
-        # IMPORTANT
-        #
         # Remember which tool produced the current selection.
         #
         # Possible values:
@@ -294,10 +292,17 @@ class ToolManager:
 
         # -----------------------------------------------------
         # Common file extensions
+        #
+        # All these files must go through the resolver,
+        # not the application launcher.
         # -----------------------------------------------------
 
         file_extensions = (
+
+            # -------------------------------------------------
             # Images
+            # -------------------------------------------------
+
             ".jpg",
             ".jpeg",
             ".png",
@@ -306,61 +311,144 @@ class ToolManager:
             ".webp",
             ".tif",
             ".tiff",
+            ".ico",
+            ".svg",
+            ".raw",
+            ".heic",
+            ".heif",
 
+            # -------------------------------------------------
             # Documents
+            # -------------------------------------------------
+
             ".pdf",
             ".doc",
             ".docx",
+            ".docm",
+            ".dot",
+            ".dotx",
             ".xls",
             ".xlsx",
+            ".xlsm",
+            ".xlt",
+            ".xltx",
             ".ppt",
             ".pptx",
+            ".pptm",
+            ".pps",
+            ".ppsx",
             ".txt",
             ".rtf",
             ".csv",
+            ".tsv",
+            ".odt",
+            ".ods",
+            ".odp",
+            ".pages",
+            ".numbers",
+            ".key",
 
+            # -------------------------------------------------
             # Audio
+            # -------------------------------------------------
+
             ".mp3",
             ".wav",
             ".wma",
             ".aac",
             ".m4a",
             ".flac",
+            ".ogg",
+            ".oga",
+            ".opus",
+            ".mid",
+            ".midi",
+            ".aiff",
+            ".aif",
 
+            # -------------------------------------------------
             # Video
+            # -------------------------------------------------
+
             ".mp4",
             ".avi",
             ".mkv",
             ".mov",
             ".wmv",
             ".3gp",
+            ".mpeg",
+            ".mpg",
+            ".m4v",
+            ".webm",
+            ".flv",
+            ".ts",
+            ".mts",
+            ".m2ts",
 
-            # Archive
+            # -------------------------------------------------
+            # Archives
+            # -------------------------------------------------
+
             ".zip",
             ".rar",
             ".7z",
             ".tar",
             ".gz",
+            ".bz2",
+            ".xz",
+            ".iso",
 
+            # -------------------------------------------------
             # Web
+            # -------------------------------------------------
+
             ".html",
             ".htm",
+            ".mht",
+            ".mhtml",
 
-            # Code
+            # -------------------------------------------------
+            # Code / Text
+            # -------------------------------------------------
+
             ".py",
             ".dart",
             ".java",
             ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
             ".json",
             ".xml",
             ".css",
+            ".scss",
+            ".sass",
+            ".less",
+            ".c",
+            ".cpp",
+            ".h",
+            ".hpp",
+            ".cs",
+            ".php",
+            ".sql",
+            ".sh",
+            ".yaml",
+            ".yml",
+            ".ini",
+            ".cfg",
+            ".log",
 
-            # Windows
+            # -------------------------------------------------
+            # Windows files
+            # -------------------------------------------------
+
             ".exe",
             ".com",
             ".bat",
             ".cmd",
-            ".lnk"
+            ".lnk",
+            ".msi",
+            ".url"
         )
 
         lower_target = target.lower()
@@ -378,9 +466,8 @@ class ToolManager:
     # =========================================================
     # OPEN USING UNIVERSAL RESOLVER
     #
-    # This is the OLD file/folder path.
-    #
-    # Do not send normal files to Application Launcher.
+    # File / Folder / Document / Audio / Video / Image
+    # are handled here.
     # =========================================================
 
     def _open_resolver_target(
@@ -509,8 +596,6 @@ class ToolManager:
 
         # -----------------------------------------------------
         # SUGGESTIONS
-        #
-        # Convert suggestions into records.
         # -----------------------------------------------------
 
         suggestions = response.get(
@@ -560,14 +645,20 @@ class ToolManager:
     # =========================================================
     # UNIVERSAL OPEN
     #
-    # IMPORTANT:
+    # FILE/FOLDER/DOCUMENT/MEDIA -> UniversalResolver
     #
-    # FILE/FOLDER  -> UniversalResolver FIRST
+    # APPLICATION -> UniversalAppLauncher
     #
-    # APPLICATION   -> UniversalAppLauncher FIRST
+    # Examples:
     #
-    # This prevents JPG/PDF/MP3/FOLDER etc. from being
-    # incorrectly treated as applications.
+    #     open song.mp3
+    #     open document.pdf
+    #     open photo.jpg
+    #     open video.mp4
+    #     open Downloads
+    #     open Facebook
+    #
+    # MP3/PDF/JPG/MP4/FOLDER etc. are NOT treated as apps.
     # =========================================================
 
     def _open_target(
@@ -602,6 +693,14 @@ class ToolManager:
         # STEP 2
         #
         # Application Launcher
+        #
+        # This handles application names such as:
+        #
+        #     Facebook
+        #     Chrome
+        #     WhatsApp
+        #     Notepad
+        #     Calculator
         # =====================================================
 
         launcher_response = self.app_launcher.open(
@@ -634,7 +733,8 @@ class ToolManager:
             #
             # STOP here.
             #
-            # Do not send the same target to resolver.
+            # Do not send the same application target to
+            # resolver when the launcher already found choices.
             # -------------------------------------------------
 
             if launcher_response.get(
@@ -666,7 +766,7 @@ class ToolManager:
         #
         # Give UniversalResolver a chance.
         #
-        # This preserves old behaviour for:
+        # Preserves old behaviour for:
         #
         #     shortcuts
         #     folders
@@ -796,8 +896,6 @@ class ToolManager:
     # =========================================================
     # HANDLE NUMBER SELECTION
     #
-    # VERY IMPORTANT:
-    #
     # We use selection_source instead of guessing based on
     # whether the result is a dictionary.
     # =========================================================
@@ -845,7 +943,6 @@ class ToolManager:
                 result
             )
 
-            # Clear only after processing
             self._clear_selection()
 
             return message
@@ -872,9 +969,10 @@ class ToolManager:
         # =====================================================
         # FILE SELECTION
         #
-        # Currently FileManager results are normally returned
-        # directly for one result. Multiple file search results
-        # are kept compatible with UniversalResolver.
+        # FileManager results are normally returned as paths.
+        #
+        # UniversalResolver remains responsible for opening
+        # them so existing behaviour is preserved.
         # =====================================================
 
         if source == "file":
@@ -895,9 +993,6 @@ class ToolManager:
         # =====================================================
         # SAFETY FALLBACK
         # =====================================================
-
-        # If source somehow disappeared, determine by result
-        # type instead of blindly using Application Launcher.
 
         if isinstance(
             selected,
@@ -979,7 +1074,7 @@ class ToolManager:
         #
         # Automatically decides:
         #
-        # File/Folder -> Resolver
+        # File/Folder/Media/Document -> Resolver
         # Application -> App Launcher
         # =====================================================
 
@@ -994,8 +1089,18 @@ class ToolManager:
         #
         # ALWAYS use resolver.
         #
-        # This is important for JPG, PNG, PDF, MP3, MP4,
-        # DOCX, folders etc.
+        # Supports:
+        #
+        # JPG
+        # PNG
+        # PDF
+        # MP3
+        # MP4
+        # DOCX
+        # XLSX
+        # PPTX
+        # folders
+        # etc.
         # =====================================================
 
         if intent_type == "open_file":
@@ -1041,11 +1146,6 @@ class ToolManager:
 
                 self._clear_selection()
 
-                # Try resolver to actually open the result.
-                #
-                # If FileManager already returns a path, resolver
-                # should preserve normal Windows file opening.
-
                 result = results[0]
 
                 resolver_results = self.resolver.find(
@@ -1061,6 +1161,37 @@ class ToolManager:
 
                     return self._result_to_message(
                         opened
+                    )
+
+                # -------------------------------------------------
+                # Direct Windows fallback
+                #
+                # If UniversalResolver does not recognize a
+                # valid FileManager path, open it directly.
+                #
+                # This keeps MP3, PDF, DOCX, images, videos etc.
+                # working.
+                # -------------------------------------------------
+
+                try:
+
+                    if os.path.exists(
+                        str(result)
+                    ):
+
+                        os.startfile(
+                            str(result)
+                        )
+
+                        return (
+                            f"File opened successfully: "
+                            f"{result}"
+                        )
+
+                except Exception as e:
+
+                    return (
+                        f"Error opening file: {e}"
                     )
 
                 return str(
@@ -1111,4 +1242,4 @@ class ToolManager:
         return (
             f"No tool available for "
             f"'{intent_type}'."
-                )
+            )
