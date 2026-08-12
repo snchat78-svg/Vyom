@@ -35,6 +35,43 @@ IMPORTANT:
     Application opening and File/Folder opening are kept
     separate so that adding UniversalAppLauncher does not
     break the old file/folder functionality.
+
+    IMPORTANT FIX:
+
+    Application Launcher is tried first for application names.
+
+    If Application Launcher cannot actually open the target,
+    UniversalResolver gets a chance before launcher
+    suggestions are displayed.
+
+    This preserves old behaviour for:
+
+        JPG
+        JPEG
+        PNG
+        PDF
+        MP3
+        WAV
+        MP4
+        DOC
+        DOCX
+        XLS
+        XLSX
+        PPT
+        PPTX
+        folders
+        files without extension
+        shortcuts
+        normal Windows paths
+
+    while also supporting applications such as:
+
+        Facebook
+        Chrome
+        WhatsApp
+        Notepad
+        Calculator
+        etc.
 """
 
 import os
@@ -259,7 +296,9 @@ class ToolManager:
 
         try:
 
-            if os.path.exists(target):
+            if os.path.exists(
+                target
+            ):
 
                 return True
 
@@ -293,8 +332,7 @@ class ToolManager:
         # -----------------------------------------------------
         # Common file extensions
         #
-        # All these files must go through the resolver,
-        # not the application launcher.
+        # All these files must go through UniversalResolver.
         # -----------------------------------------------------
 
         file_extensions = (
@@ -464,9 +502,61 @@ class ToolManager:
         return False
 
     # =========================================================
+    # DIRECT WINDOWS OPEN FALLBACK
+    #
+    # Used only when UniversalResolver has a valid path but
+    # cannot open/resolve it correctly.
+    #
+    # This helps preserve old Windows behaviour for:
+    #
+    # JPG
+    # MP3
+    # PDF
+    # DOCX
+    # MP4
+    # folders
+    # etc.
+    # =========================================================
+
+    def _direct_windows_open(
+        self,
+        target
+    ):
+
+        if not target:
+
+            return None
+
+        try:
+
+            if os.path.exists(
+                str(target)
+            ):
+
+                os.startfile(
+                    str(target)
+                )
+
+                return (
+                    f"Opened successfully: "
+                    f"{target}"
+                )
+
+        except Exception as e:
+
+            return (
+                f"Error opening "
+                f"'{target}': {e}"
+            )
+
+        return None
+
+    # =========================================================
     # OPEN USING UNIVERSAL RESOLVER
     #
-    # File / Folder / Document / Audio / Video / Image
+    # This is the old file/folder path.
+    #
+    # Files, folders, documents, audio, video and images
     # are handled here.
     # =========================================================
 
@@ -484,11 +574,32 @@ class ToolManager:
                 "you want me to open."
             )
 
+        # -----------------------------------------------------
+        # First try UniversalResolver.
+        # -----------------------------------------------------
+
         results = self.resolver.find(
             target
         )
 
+        # -----------------------------------------------------
+        # Resolver did not find anything.
+        #
+        # If target itself is an existing Windows path,
+        # use direct Windows opening as fallback.
+        # -----------------------------------------------------
+
         if not results:
+
+            direct_result = self._direct_windows_open(
+                target
+            )
+
+            if direct_result:
+
+                self._clear_selection()
+
+                return direct_result
 
             self._clear_selection()
 
@@ -596,12 +707,67 @@ class ToolManager:
 
         # -----------------------------------------------------
         # SUGGESTIONS
+        #
+        # Suggestions are not treated as confirmed apps.
+        #
+        # IMPORTANT:
+        #
+        # We do NOT immediately display suggestions here.
+        # The universal resolver must get a chance first.
         # -----------------------------------------------------
 
         suggestions = response.get(
             "suggestions",
             []
         )
+
+        # -----------------------------------------------------
+        # Try resolver before showing suggestions.
+        #
+        # This fixes:
+        #
+        #     open pic samu
+        #
+        # where Application Launcher may return:
+        #
+        #     Pictures
+        #     PC Settings
+        #     Scan
+        #
+        # while UniversalResolver can find:
+        #
+        #     pic samu.jpg
+        # -----------------------------------------------------
+
+        resolver_results = self.resolver.find(
+            target
+        )
+
+        if resolver_results:
+
+            if len(resolver_results) == 1:
+
+                self._clear_selection()
+
+                result = self.resolver.open_selected(
+                    resolver_results,
+                    1
+                )
+
+                return self._result_to_message(
+                    result
+                )
+
+            return self._save_multiple_results(
+                target,
+                resolver_results,
+                source="resolver"
+            )
+
+        # -----------------------------------------------------
+        # Only after resolver fails, show application
+        # suggestions.
+        # -----------------------------------------------------
 
         if suggestions:
 
@@ -645,20 +811,17 @@ class ToolManager:
     # =========================================================
     # UNIVERSAL OPEN
     #
-    # FILE/FOLDER/DOCUMENT/MEDIA -> UniversalResolver
+    # IMPORTANT ORDER:
     #
-    # APPLICATION -> UniversalAppLauncher
+    # 1. Obvious file/folder/path -> Resolver
     #
-    # Examples:
+    # 2. Application Launcher -> exact application
     #
-    #     open song.mp3
-    #     open document.pdf
-    #     open photo.jpg
-    #     open video.mp4
-    #     open Downloads
-    #     open Facebook
+    # 3. If launcher only gives suggestions -> Resolver
     #
-    # MP3/PDF/JPG/MP4/FOLDER etc. are NOT treated as apps.
+    # 4. If resolver also fails -> show app suggestions
+    #
+    # This combines the old and new behaviour.
     # =========================================================
 
     def _open_target(
@@ -694,84 +857,184 @@ class ToolManager:
         #
         # Application Launcher
         #
-        # This handles application names such as:
+        # This allows:
         #
         #     Facebook
         #     Chrome
         #     WhatsApp
         #     Notepad
         #     Calculator
+        #
+        # to open normally.
         # =====================================================
 
         launcher_response = self.app_launcher.open(
             target
         )
 
-        if isinstance(
+        # -----------------------------------------------------
+        # Non-dictionary response
+        # -----------------------------------------------------
+
+        if not isinstance(
             launcher_response,
             dict
         ):
 
             # -------------------------------------------------
-            # Application opened
+            # Even if launcher returns a text response,
+            # preserve old resolver behaviour.
             # -------------------------------------------------
 
-            if launcher_response.get(
-                "success",
-                False
-            ):
+            resolver_result = self._open_resolver_target(
+                target
+            )
 
-                self._clear_selection()
+            return resolver_result
 
-                return launcher_response.get(
-                    "message",
-                    f"Opened {target}."
-                )
+        # =====================================================
+        # APPLICATION OPENED SUCCESSFULLY
+        # =====================================================
 
-            # -------------------------------------------------
-            # Multiple applications
-            #
-            # STOP here.
-            #
-            # Do not send the same application target to
-            # resolver when the launcher already found choices.
-            # -------------------------------------------------
+        if launcher_response.get(
+            "success",
+            False
+        ):
 
-            if launcher_response.get(
-                "results"
-            ):
+            self._clear_selection()
 
-                return self._handle_launcher_response(
-                    target,
-                    launcher_response
-                )
-
-            # -------------------------------------------------
-            # Suggestions
-            # -------------------------------------------------
-
-            if launcher_response.get(
-                "suggestions"
-            ):
-
-                return self._handle_launcher_response(
-                    target,
-                    launcher_response
-                )
+            return launcher_response.get(
+                "message",
+                f"Opened {target}."
+            )
 
         # =====================================================
         # STEP 3
         #
-        # Application launcher could not find it.
+        # APPLICATION LAUNCHER FOUND MULTIPLE REAL
+        # APPLICATION RECORDS
         #
-        # Give UniversalResolver a chance.
+        # These are actual application records, not merely
+        # suggestions.
+        # =====================================================
+
+        application_results = launcher_response.get(
+            "results",
+            []
+        )
+
+        if application_results:
+
+            return self._handle_launcher_response(
+                target,
+                launcher_response
+            )
+
+        # =====================================================
+        # STEP 4
         #
-        # Preserves old behaviour for:
+        # LAUNCHER FAILED OR ONLY RETURNED SUGGESTIONS
         #
-        #     shortcuts
-        #     folders
-        #     files without extension
-        #     shell targets
+        # IMPORTANT FIX:
+        #
+        # DO NOT STOP HERE.
+        #
+        # Give the old UniversalResolver a chance.
+        #
+        # This is what fixes:
+        #
+        #     open pic samu
+        #     open my song
+        #     open my document
+        #     open pictures
+        #     open folder name
+        #
+        # when the target has no extension.
+        # =====================================================
+
+        resolver_results = self.resolver.find(
+            target
+        )
+
+        if resolver_results:
+
+            # -------------------------------------------------
+            # ONE RESOLVER RESULT
+            # -------------------------------------------------
+
+            if len(resolver_results) == 1:
+
+                self._clear_selection()
+
+                result = self.resolver.open_selected(
+                    resolver_results,
+                    1
+                )
+
+                return self._result_to_message(
+                    result
+                )
+
+            # -------------------------------------------------
+            # MULTIPLE RESOLVER RESULTS
+            # -------------------------------------------------
+
+            return self._save_multiple_results(
+                target,
+                resolver_results,
+                source="resolver"
+            )
+
+        # =====================================================
+        # STEP 5
+        #
+        # ONLY NOW DISPLAY APPLICATION SUGGESTIONS.
+        #
+        # Example:
+        #
+        #     open calc
+        #
+        # if exact application wasn't found but launcher
+        # has useful suggestions.
+        # =====================================================
+
+        suggestions = launcher_response.get(
+            "suggestions",
+            []
+        )
+
+        if suggestions:
+
+            suggestion_results = []
+
+            for name in suggestions:
+
+                if not name:
+
+                    continue
+
+                suggestion_results.append(
+                    {
+                        "name": str(name),
+                        "path": "",
+                        "app_id": "",
+                        "aumid": "",
+                        "type": "suggestion"
+                    }
+                )
+
+            if suggestion_results:
+
+                return self._save_multiple_results(
+                    target,
+                    suggestion_results,
+                    source="app"
+                )
+
+        # =====================================================
+        # STEP 6
+        #
+        # FINAL FALLBACK
         # =====================================================
 
         return self._open_resolver_target(
@@ -832,12 +1095,50 @@ class ToolManager:
 
         # -----------------------------------------------------
         # Suggestions
+        #
+        # IMPORTANT:
+        #
+        # Suggestions alone do not prove that the target is
+        # an application.
+        #
+        # Therefore try UniversalResolver first.
         # -----------------------------------------------------
 
         suggestions = response.get(
             "suggestions",
             []
         )
+
+        resolver_results = self.resolver.find(
+            target
+        )
+
+        if resolver_results:
+
+            if len(resolver_results) == 1:
+
+                self._clear_selection()
+
+                result = self.resolver.open_selected(
+                    resolver_results,
+                    1
+                )
+
+                return self._result_to_message(
+                    result
+                )
+
+            return self._save_multiple_results(
+                target,
+                resolver_results,
+                source="resolver"
+            )
+
+        # -----------------------------------------------------
+        # Resolver also failed.
+        #
+        # Now convert suggestions into selectable records.
+        # -----------------------------------------------------
 
         if suggestions:
 
@@ -895,6 +1196,8 @@ class ToolManager:
 
     # =========================================================
     # HANDLE NUMBER SELECTION
+    #
+    # IMPORTANT:
     #
     # We use selection_source instead of guessing based on
     # whether the result is a dictionary.
@@ -969,7 +1272,7 @@ class ToolManager:
         # =====================================================
         # FILE SELECTION
         #
-        # FileManager results are normally returned as paths.
+        # FileManager results are normally paths.
         #
         # UniversalResolver remains responsible for opening
         # them so existing behaviour is preserved.
@@ -1148,6 +1451,10 @@ class ToolManager:
 
                 result = results[0]
 
+                # -------------------------------------------------
+                # First try UniversalResolver.
+                # -------------------------------------------------
+
                 resolver_results = self.resolver.find(
                     str(result)
                 )
@@ -1169,30 +1476,26 @@ class ToolManager:
                 # If UniversalResolver does not recognize a
                 # valid FileManager path, open it directly.
                 #
-                # This keeps MP3, PDF, DOCX, images, videos etc.
+                # This keeps:
+                #
+                # MP3
+                # PDF
+                # DOCX
+                # JPG
+                # PNG
+                # MP4
+                # etc.
+                #
                 # working.
                 # -------------------------------------------------
 
-                try:
+                direct_result = self._direct_windows_open(
+                    str(result)
+                )
 
-                    if os.path.exists(
-                        str(result)
-                    ):
+                if direct_result:
 
-                        os.startfile(
-                            str(result)
-                        )
-
-                        return (
-                            f"File opened successfully: "
-                            f"{result}"
-                        )
-
-                except Exception as e:
-
-                    return (
-                        f"Error opening file: {e}"
-                    )
+                    return direct_result
 
                 return str(
                     result
@@ -1242,4 +1545,4 @@ class ToolManager:
         return (
             f"No tool available for "
             f"'{intent_type}'."
-            )
+        )
