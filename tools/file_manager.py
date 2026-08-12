@@ -1,10 +1,11 @@
 """
 Project : Vyom AI
-Version : 0.9
+Version : 0.10
 Module  : File Manager
 """
 
 import os
+import ctypes
 
 
 class FileManager:
@@ -41,6 +42,43 @@ class FileManager:
             os.path.join(
                 os.environ.get("USERPROFILE", ""),
                 "Music"
+            ),
+
+            # OneDrive common folders
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "OneDrive",
+                "Desktop"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "OneDrive",
+                "Documents"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "OneDrive",
+                "Downloads"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "OneDrive",
+                "Pictures"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "OneDrive",
+                "Videos"
+            ),
+
+            os.path.join(
+                os.environ.get("USERPROFILE", ""),
+                "OneDrive",
+                "Music"
             )
         ]
 
@@ -53,45 +91,86 @@ class FileManager:
             "windows\\softwaredistribution"
         ]
 
+        self.max_results = 10
+
     # =================================================
     # SEARCH FILE
     # =================================================
 
-    def search(self, filename, start_path=None):
+    def search(
+        self,
+        filename,
+        start_path=None
+    ):
 
-        filename = filename.strip().lower()
+        if filename is None:
+
+            return []
+
+        filename = str(
+            filename
+        ).strip().lower()
 
         if not filename:
+
             return []
 
         results = []
 
         locations = []
 
+        # -------------------------------------------------
         # User specifically requested location
+        # -------------------------------------------------
+
         if start_path:
 
-            locations.append(start_path)
+            locations.append(
+                start_path
+            )
 
+        # -------------------------------------------------
         # Normal user folders
-        locations.extend(self.search_locations)
+        # -------------------------------------------------
 
+        locations.extend(
+            self.search_locations
+        )
+
+        # -------------------------------------------------
         # Remove duplicate paths
+        # -------------------------------------------------
+
         checked = set()
 
         for location in locations:
 
             if not location:
+
                 continue
 
-            location = os.path.abspath(location)
+            try:
 
-            if location.lower() in checked:
+                location = os.path.abspath(
+                    location
+                )
+
+            except Exception:
+
                 continue
 
-            checked.add(location.lower())
+            key = location.lower()
 
-            if not os.path.exists(location):
+            if key in checked:
+
+                continue
+
+            checked.add(key)
+
+            if not os.path.exists(
+                location
+            ):
+
                 continue
 
             self._search_directory(
@@ -100,10 +179,13 @@ class FileManager:
                 results
             )
 
-            if len(results) >= 10:
+            if len(results) >= self.max_results:
+
                 break
 
-        return results[:10]
+        return results[
+            :self.max_results
+        ]
 
     # =================================================
     # DIRECTORY SEARCH
@@ -116,7 +198,8 @@ class FileManager:
         results
     ):
 
-        if len(results) >= 10:
+        if len(results) >= self.max_results:
+
             return
 
         try:
@@ -126,11 +209,18 @@ class FileManager:
                 onerror=lambda error: None
             ):
 
+                # -------------------------------------------------
                 # Remove blocked directories
+                # -------------------------------------------------
+
                 dirs[:] = [
-                    d for d in dirs
+                    d
+                    for d in dirs
                     if not self._is_blocked(
-                        os.path.join(root, d)
+                        os.path.join(
+                            root,
+                            d
+                        )
                     )
                 ]
 
@@ -143,62 +233,187 @@ class FileManager:
                             file
                         )
 
-                        results.append(full_path)
+                        # -----------------------------------------
+                        # Avoid duplicate result
+                        # -----------------------------------------
 
-                        if len(results) >= 10:
+                        if full_path.lower() not in [
+                            item.lower()
+                            for item in results
+                        ]:
+
+                            results.append(
+                                full_path
+                            )
+
+                        if len(results) >= self.max_results:
+
                             return
 
         except Exception:
+
             pass
 
     # =================================================
     # BLOCK SYSTEM DIRECTORIES
     # =================================================
 
-    def _is_blocked(self, path):
+    def _is_blocked(
+        self,
+        path
+    ):
 
-        path_lower = path.lower()
+        path_lower = str(
+            path
+        ).lower()
 
         for blocked in self.blocked_directories:
 
             if blocked in path_lower:
+
                 return True
 
         return False
 
     # =================================================
     # OPEN FILE
+    #
+    # Windows default application is used.
+    #
+    # JPG  -> Default Image Viewer
+    # PNG  -> Default Image Viewer
+    # MP3  -> Default Music Player
+    # MP4  -> Default Video Player
+    # PDF  -> Default PDF Reader
+    # DOCX -> Default Word application
     # =================================================
 
-    def open_file(self, filepath):
+    def open_file(
+        self,
+        filepath
+    ):
 
         if not filepath:
-            return "File path is empty."
 
-        if not os.path.exists(filepath):
-            return f"File not found: {filepath}"
+            return (
+                "File path is empty."
+            )
+
+        filepath = str(
+            filepath
+        ).strip().strip('"').strip("'")
+
+        if not os.path.exists(
+            filepath
+        ):
+
+            return (
+                f"File not found: "
+                f"{filepath}"
+            )
+
+        # =================================================
+        # METHOD 1
+        # os.startfile
+        # =================================================
 
         try:
 
-            os.startfile(filepath)
+            os.startfile(
+                filepath
+            )
 
-            return f"File opened successfully: {filepath}"
+            return (
+                f"File opened successfully: "
+                f"{filepath}"
+            )
 
-        except Exception as e:
+        except Exception as first_error:
 
-            return f"Error opening file: {e}"
+            # =================================================
+            # METHOD 2
+            # Windows ShellExecute
+            # =================================================
+
+            try:
+
+                result = (
+                    ctypes.windll.shell32.ShellExecuteW(
+                        None,
+                        "open",
+                        filepath,
+                        None,
+                        None,
+                        1
+                    )
+                )
+
+                if result > 32:
+
+                    return (
+                        f"File opened successfully: "
+                        f"{filepath}"
+                    )
+
+            except Exception:
+                pass
+
+            return (
+                f"Error opening file: "
+                f"{first_error}"
+            )
 
     # =================================================
     # SEARCH AND OPEN
     # =================================================
 
-    def search_and_open(self, filename):
+    def search_and_open(
+        self,
+        filename
+    ):
 
-        results = self.search(filename)
+        results = self.search(
+            filename
+        )
 
         if not results:
-            return f"File '{filename}' was not found."
 
-        filepath = results[0]
+            return (
+                f"File '{filename}' "
+                f"was not found."
+            )
 
-        return self.open_file(filepath)
+        # -------------------------------------------------
+        # One result
+        # -------------------------------------------------
+
+        if len(results) == 1:
+
+            return self.open_file(
+                results[0]
+            )
+
+        # -------------------------------------------------
+        # Multiple results
+        # -------------------------------------------------
+
+        message = (
+            f"Multiple files found "
+            f"for '{filename}':\n"
+        )
+
+        for index, filepath in enumerate(
+            results,
+            start=1
+        ):
+
+            message += (
+                f"{index}. "
+                f"{filepath}\n"
+            )
+
+        message += (
+            "\nPlease select a number."
+        )
+
+        return message
