@@ -15,6 +15,7 @@ Designed for:
 import os
 import shutil
 import subprocess
+import difflib
 
 
 class UniversalResolver:
@@ -113,6 +114,14 @@ class UniversalResolver:
             ".rar",
             ".7z"
         ]
+
+        # -------------------------------------------------
+        # PENDING RESULTS
+        #
+        # Used when user must select a number.
+        # -------------------------------------------------
+
+        self.pending_results = []
 
     # =================================================
     # NORMALIZE NAME
@@ -222,362 +231,7 @@ class UniversalResolver:
         return None
 
     # =================================================
-    # GET START APPS
-    #
-    # IMPORTANT:
-    #
-    # Windows itself provides the application list.
-    #
-    # No application is hard-coded.
-    #
-    # Example output:
-    #
-    # Travel    Microsoft.WindowsMaps_...
-    # Weather   Microsoft.BingWeather_...
-    # Mail      ...
-    #
-    # Get-StartApps returns:
-    #     Name
-    #     AppID
-    # =================================================
-
-    def get_start_apps(self):
-
-        script = r'''
-$ErrorActionPreference = "SilentlyContinue"
-
-try {
-
-    if (
-        Get-Command Get-StartApps `
-        -ErrorAction SilentlyContinue
-    ) {
-
-        Get-StartApps |
-        ForEach-Object {
-
-            if (
-                $_.Name -ne $null -and
-                $_.AppID -ne $null
-            ) {
-
-                Write-Output (
-                    $_.Name + "`t" + $_.AppID
-                )
-            }
-        }
-    }
-
-}
-catch {
-
-    exit 1
-}
-'''
-
-        try:
-
-            process = subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    script
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-
-            stdout, stderr = process.communicate(
-                timeout=15
-            )
-
-            if process.returncode != 0:
-
-                return []
-
-            apps = []
-
-            for line in stdout.splitlines():
-
-                line = line.strip()
-
-                if not line:
-
-                    continue
-
-                parts = line.split(
-                    "\t",
-                    1
-                )
-
-                if len(parts) != 2:
-
-                    continue
-
-                name = parts[0].strip()
-                app_id = parts[1].strip()
-
-                if not name or not app_id:
-
-                    continue
-
-                apps.append(
-                    {
-                        "name": name,
-                        "app_id": app_id,
-                        "path": (
-                            "shell:AppsFolder\\"
-                            + app_id
-                        )
-                    }
-                )
-
-            return apps
-
-        except (
-            subprocess.TimeoutExpired,
-            OSError,
-            Exception
-        ):
-
-            return []
-
-    # =================================================
-    # FIND START APP
-    #
-    # Dynamic scan.
-    #
-    # 1. Exact match
-    # 2. Unique partial match
-    #
-    # No hard-coded application names.
-    # =================================================
-
-    def find_start_app(self, target):
-
-        target_name = self.normalize(
-            target
-        )
-
-        if not target_name:
-
-            return None
-
-        apps = self.get_start_apps()
-
-        if not apps:
-
-            return None
-
-        # -------------------------------------------------
-        # EXACT MATCH
-        # -------------------------------------------------
-
-        for app in apps:
-
-            app_name = self.normalize(
-                app["name"]
-            )
-
-            if app_name == target_name:
-
-                return app
-
-        # -------------------------------------------------
-        # PARTIAL MATCH
-        # -------------------------------------------------
-
-        partial_matches = []
-
-        for app in apps:
-
-            app_name = self.normalize(
-                app["name"]
-            )
-
-            if target_name in app_name:
-
-                partial_matches.append(
-                    app
-                )
-
-        # -------------------------------------------------
-        # ONLY ONE PARTIAL MATCH
-        # -------------------------------------------------
-
-        if len(partial_matches) == 1:
-
-            return partial_matches[0]
-
-        # -------------------------------------------------
-        # MULTIPLE PARTIAL MATCHES
-        #
-        # Do not randomly open an application.
-        # -------------------------------------------------
-
-        return None
-
-    # =================================================
-    # OPEN START APP
-    #
-    # IMPORTANT FIX
-    #
-    # Uses the actual AppID returned by Get-StartApps.
-    #
-    # Several launch methods are attempted.
-    # =================================================
-
-    def open_start_app(self, target):
-
-        app = self.find_start_app(
-            target
-        )
-
-        if not app:
-
-            return None
-
-        app_name = app["name"]
-        app_id = app["app_id"]
-
-        shell_path = (
-            "shell:AppsFolder\\"
-            + app_id
-        )
-
-        # -------------------------------------------------
-        # METHOD 1
-        #
-        # Direct Explorer launch.
-        # -------------------------------------------------
-
-        try:
-
-            process = subprocess.Popen(
-                [
-                    "explorer.exe",
-                    shell_path
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-
-            if process is not None:
-
-                return (
-                    True,
-                    f"Opened Windows app: {app_name}"
-                )
-
-        except (
-            OSError,
-            Exception
-        ):
-
-            pass
-
-        # -------------------------------------------------
-        # METHOD 2
-        #
-        # os.startfile()
-        # -------------------------------------------------
-
-        try:
-
-            os.startfile(
-                shell_path
-            )
-
-            return (
-                True,
-                f"Opened Windows app: {app_name}"
-            )
-
-        except (
-            OSError,
-            Exception
-        ):
-
-            pass
-
-        # -------------------------------------------------
-        # METHOD 3
-        #
-        # PowerShell Start-Process
-        #
-        # IMPORTANT:
-        # AppID is passed correctly through a script
-        # parameter block.
-        # -------------------------------------------------
-
-        script = r'''
-param(
-    [string]$AppID
-)
-
-$ErrorActionPreference = "Stop"
-
-try {
-
-    $target = "shell:AppsFolder\" + $AppID
-
-    Start-Process `
-        -FilePath "explorer.exe" `
-        -ArgumentList $target
-
-    exit 0
-
-}
-catch {
-
-    exit 1
-}
-'''
-
-        try:
-
-            process = subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    "& { " + script + " }",
-                    app_id
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-
-            stdout, stderr = process.communicate(
-                timeout=10
-            )
-
-            if process.returncode == 0:
-
-                return (
-                    True,
-                    f"Opened Windows app: {app_name}"
-                )
-
-        except (
-            subprocess.TimeoutExpired,
-            OSError,
-            Exception
-        ):
-
-            pass
-
-        return None
-
-    # =================================================
-    # START MENU SHORTCUT SEARCH
+    # START MENU SEARCH
     # =================================================
 
     def search_start_menu(self, target):
@@ -618,16 +272,16 @@ catch {
                             file
                         )[0].strip().lower()
 
+                        full_path = os.path.join(
+                            root,
+                            file
+                        )
+
                         # ---------------------------------
                         # Exact match
                         # ---------------------------------
 
                         if filename == target_name:
-
-                            full_path = os.path.join(
-                                root,
-                                file
-                            )
 
                             if full_path not in results:
 
@@ -641,11 +295,6 @@ catch {
                         # ---------------------------------
 
                         elif target_name in filename:
-
-                            full_path = os.path.join(
-                                root,
-                                file
-                            )
 
                             if full_path not in results:
 
@@ -663,52 +312,73 @@ catch {
         return results
 
     # =================================================
-    # WINDOWS APPSFOLDER SEARCH
+    # DIRECT WINDOWS APPSFOLDER SCAN
     #
-    # OLD CODE PRESERVED
+    # IMPORTANT:
     #
-    # This is the fallback if Get-StartApps is
-    # unavailable on a particular Windows environment.
+    # This is the main Windows App scanner.
+    #
+    # It directly uses:
+    #
+    #     shell:AppsFolder
+    #
+    # This is especially important for:
+    #
+    # Windows 8
+    # Windows 8.1
+    # Windows 10
+    # Windows 11
+    #
+    # It does NOT require hard-coded app names.
     # =================================================
 
-    def search_windows_apps(
-        self,
-        target
-    ):
-
-        target_name = self.normalize(
-            target
-        )
-
-        if not target_name:
-
-            return []
-
-        results = []
+    def scan_apps_folder(self):
 
         script = r'''
 $ErrorActionPreference = "SilentlyContinue"
 
-if (
-    Get-Command Get-StartApps `
-    -ErrorAction SilentlyContinue
-) {
+try {
 
-    Get-StartApps |
-    ForEach-Object {
+    $shell = New-Object -ComObject Shell.Application
 
-        if (
-            $_.Name -and
-            $_.AppID
-        ) {
+    $folder = $shell.Namespace("shell:AppsFolder")
 
-            Write-Output (
-                $_.Name + "`t" + $_.AppID
-            )
+    if ($folder -eq $null) {
+        exit 2
+    }
+
+    foreach ($item in $folder.Items()) {
+
+        try {
+
+            $name = $item.Name
+            $path = $item.Path
+
+            if ($name) {
+
+                if (-not $path) {
+                    $path = ""
+                }
+
+                Write-Output (
+                    $name + "`t" + $path
+                )
+            }
+
+        }
+        catch {
+            continue
         }
     }
+
+}
+catch {
+
+    exit 1
 }
 '''
+
+        apps = []
 
         try:
 
@@ -727,16 +397,12 @@ if (
             )
 
             stdout, stderr = process.communicate(
-                timeout=15
+                timeout=20
             )
 
             if process.returncode != 0:
 
-                return (
-                    self.search_windows_apps_fallback(
-                        target
-                    )
-                )
+                return []
 
             for line in stdout.splitlines():
 
@@ -751,66 +417,44 @@ if (
                     1
                 )
 
-                if len(parts) != 2:
+                if len(parts) == 1:
+
+                    app_name = parts[0].strip()
+                    app_path = ""
+
+                else:
+
+                    app_name = parts[0].strip()
+                    app_path = parts[1].strip()
+
+                if not app_name:
 
                     continue
 
-                app_name = parts[0].strip()
-                app_id = parts[1].strip()
+                duplicate = False
 
-                if not app_name or not app_id:
+                for existing in apps:
+
+                    if (
+                        existing["name"].lower()
+                        ==
+                        app_name.lower()
+                    ):
+
+                        duplicate = True
+                        break
+
+                if duplicate:
 
                     continue
 
-                app_normalized = (
-                    app_name.lower().strip()
+                apps.append(
+                    {
+                        "name": app_name,
+                        "path": app_path,
+                        "app_id": ""
+                    }
                 )
-
-                app_path = (
-                    "shell:AppsFolder\\"
-                    + app_id
-                )
-
-                result = {
-                    "name": app_name,
-                    "app_id": app_id,
-                    "path": app_path
-                }
-
-                # -----------------------------------------
-                # Exact match
-                # -----------------------------------------
-
-                if app_normalized == target_name:
-
-                    results.insert(
-                        0,
-                        result
-                    )
-
-                # -----------------------------------------
-                # Partial match
-                # -----------------------------------------
-
-                elif target_name in app_normalized:
-
-                    duplicate = False
-
-                    for existing in results:
-
-                        if (
-                            existing["app_id"]
-                            == app_id
-                        ):
-
-                            duplicate = True
-                            break
-
-                    if not duplicate:
-
-                        results.append(
-                            result
-                        )
 
         except (
             subprocess.TimeoutExpired,
@@ -818,63 +462,43 @@ if (
             Exception
         ):
 
-            return (
-                self.search_windows_apps_fallback(
-                    target
-                )
-            )
-
-        return results[:20]
-
-    # =================================================
-    # WINDOWS APPS FALLBACK
-    #
-    # OLD CODE PRESERVED
-    #
-    # Uses shell:AppsFolder through Shell.Application.
-    # =================================================
-
-    def search_windows_apps_fallback(
-        self,
-        target
-    ):
-
-        target_name = self.normalize(
-            target
-        )
-
-        if not target_name:
-
             return []
 
-        results = []
+        return apps
+
+    # =================================================
+    # GET START APPS
+    #
+    # Additional scanner.
+    #
+    # This is NOT the only method anymore.
+    # =================================================
+
+    def get_start_apps(self):
 
         script = r'''
 $ErrorActionPreference = "SilentlyContinue"
 
 try {
 
-    $shell = New-Object `
-        -ComObject Shell.Application
+    if (
+        Get-Command Get-StartApps
+        -ErrorAction SilentlyContinue
+    ) {
 
-    $folder = $shell.Namespace(
-        "shell:AppsFolder"
-    )
+        Get-StartApps |
+        ForEach-Object {
 
-    if ($folder -ne $null) {
-
-        foreach ($item in $folder.Items()) {
-
-            $name = $item.Name
-            $path = $item.Path
+            $name = $_.Name
+            $appId = $_.AppID
 
             if (
                 $name -and
-                $path
+                $appId
             ) {
 
                 Write-Output (
-                    $name + "`t" + $path
+                    $name + "`t" + $appId
                 )
             }
         }
@@ -887,6 +511,8 @@ catch {
 }
 '''
 
+        apps = []
+
         try:
 
             process = subprocess.Popen(
@@ -904,8 +530,12 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=15
+                timeout=20
             )
+
+            if process.returncode != 0:
+
+                return []
 
             for line in stdout.splitlines():
 
@@ -924,60 +554,23 @@ catch {
 
                     continue
 
-                app_name = parts[0].strip()
-                app_path = parts[1].strip()
+                name = parts[0].strip()
+                app_id = parts[1].strip()
 
-                if not app_name or not app_path:
+                if not name or not app_id:
 
                     continue
 
-                app_normalized = (
-                    app_name.lower().strip()
-                )
-
-                if (
-                    app_normalized
-                    == target_name
-                    or
-                    target_name
-                    in app_normalized
-                ):
-
-                    result = {
-                        "name": app_name,
-                        "app_id": "",
-                        "path": app_path
+                apps.append(
+                    {
+                        "name": name,
+                        "app_id": app_id,
+                        "path": (
+                            "shell:AppsFolder\\"
+                            + app_id
+                        )
                     }
-
-                    duplicate = False
-
-                    for existing in results:
-
-                        if (
-                            existing["path"]
-                            == app_path
-                        ):
-
-                            duplicate = True
-                            break
-
-                    if not duplicate:
-
-                        if (
-                            app_normalized
-                            == target_name
-                        ):
-
-                            results.insert(
-                                0,
-                                result
-                            )
-
-                        else:
-
-                            results.append(
-                                result
-                            )
+                )
 
         except (
             subprocess.TimeoutExpired,
@@ -987,12 +580,468 @@ catch {
 
             return []
 
+        return apps
+
+    # =================================================
+    # FIND WINDOWS APP
+    #
+    # Uses AppsFolder FIRST.
+    # Then Get-StartApps.
+    #
+    # Exact match has highest priority.
+    # =================================================
+
+    def search_windows_apps(self, target):
+
+        target_name = self.normalize(
+            target
+        )
+
+        if not target_name:
+
+            return []
+
+        results = []
+
+        # -------------------------------------------------
+        # 1. DIRECT AppsFolder SCAN
+        # -------------------------------------------------
+
+        apps_folder_apps = (
+            self.scan_apps_folder()
+        )
+
+        # -------------------------------------------------
+        # EXACT MATCH
+        # -------------------------------------------------
+
+        for app in apps_folder_apps:
+
+            app_name = self.normalize(
+                app["name"]
+            )
+
+            if app_name == target_name:
+
+                result = {
+                    "name": app["name"],
+                    "app_id": app.get(
+                        "app_id",
+                        ""
+                    ),
+                    "path": app.get(
+                        "path",
+                        ""
+                    ),
+                    "source": "appsfolder"
+                }
+
+                return [result]
+
+        # -------------------------------------------------
+        # PARTIAL MATCH
+        # -------------------------------------------------
+
+        for app in apps_folder_apps:
+
+            app_name = self.normalize(
+                app["name"]
+            )
+
+            if target_name in app_name:
+
+                result = {
+                    "name": app["name"],
+                    "app_id": app.get(
+                        "app_id",
+                        ""
+                    ),
+                    "path": app.get(
+                        "path",
+                        ""
+                    ),
+                    "source": "appsfolder"
+                }
+
+                duplicate = False
+
+                for existing in results:
+
+                    if (
+                        existing["name"].lower()
+                        ==
+                        result["name"].lower()
+                    ):
+
+                        duplicate = True
+                        break
+
+                if not duplicate:
+
+                    results.append(
+                        result
+                    )
+
+        # -------------------------------------------------
+        # 2. Get-StartApps
+        # -------------------------------------------------
+
+        start_apps = (
+            self.get_start_apps()
+        )
+
+        # -------------------------------------------------
+        # EXACT MATCH FROM Get-StartApps
+        # -------------------------------------------------
+
+        for app in start_apps:
+
+            app_name = self.normalize(
+                app["name"]
+            )
+
+            if app_name == target_name:
+
+                result = {
+                    "name": app["name"],
+                    "app_id": app.get(
+                        "app_id",
+                        ""
+                    ),
+                    "path": app.get(
+                        "path",
+                        ""
+                    ),
+                    "source": "get-startapps"
+                }
+
+                return [result]
+
+        # -------------------------------------------------
+        # PARTIAL MATCH FROM Get-StartApps
+        # -------------------------------------------------
+
+        for app in start_apps:
+
+            app_name = self.normalize(
+                app["name"]
+            )
+
+            if target_name in app_name:
+
+                result = {
+                    "name": app["name"],
+                    "app_id": app.get(
+                        "app_id",
+                        ""
+                    ),
+                    "path": app.get(
+                        "path",
+                        ""
+                    ),
+                    "source": "get-startapps"
+                }
+
+                duplicate = False
+
+                for existing in results:
+
+                    if (
+                        existing["name"].lower()
+                        ==
+                        result["name"].lower()
+                    ):
+
+                        duplicate = True
+                        break
+
+                if not duplicate:
+
+                    results.append(
+                        result
+                    )
+
         return results[:20]
 
     # =================================================
-    # OPEN WINDOWS APP BY PATH
+    # DIRECTLY OPEN WINDOWS APP
     #
-    # OLD FUNCTION PRESERVED
+    # This is the important Windows 8.1 fix.
+    #
+    # Instead of relying only on:
+    #
+    # explorer.exe shell:AppsFolder\AppID
+    #
+    # we directly ask Windows Shell:
+    #
+    #     item.InvokeVerb()
+    #
+    # to launch the actual App.
+    # =================================================
+
+    def open_windows_app_direct(
+        self,
+        target
+    ):
+
+        target_name = self.normalize(
+            target
+        )
+
+        if not target_name:
+
+            return None
+
+        script = r'''
+$ErrorActionPreference = "SilentlyContinue"
+
+param(
+    [string]$Target
+)
+
+try {
+
+    $shell = New-Object -ComObject Shell.Application
+
+    $folder = $shell.Namespace(
+        "shell:AppsFolder"
+    )
+
+    if ($folder -eq $null) {
+        exit 2
+    }
+
+    $targetLower = $Target.ToLower()
+
+    $partial = @()
+
+    foreach ($item in $folder.Items()) {
+
+        try {
+
+            $name = $item.Name
+
+            if (-not $name) {
+                continue
+            }
+
+            $nameLower = $name.ToLower()
+
+            # -----------------------------------------
+            # EXACT MATCH
+            # -----------------------------------------
+
+            if ($nameLower -eq $targetLower) {
+
+                try {
+
+                    $item.InvokeVerb()
+
+                    Write-Output "SUCCESS"
+                    Write-Output $name
+
+                    exit 0
+
+                }
+                catch {
+
+                    try {
+
+                        $item.InvokeVerb("open")
+
+                        Write-Output "SUCCESS"
+                        Write-Output $name
+
+                        exit 0
+
+                    }
+                    catch {
+
+                        continue
+                    }
+                }
+            }
+
+            # -----------------------------------------
+            # PARTIAL MATCH
+            # -----------------------------------------
+
+            if ($nameLower.Contains($targetLower)) {
+
+                $partial += $item
+            }
+
+        }
+        catch {
+
+            continue
+        }
+    }
+
+    # ---------------------------------------------
+    # If exactly one partial app exists
+    # ---------------------------------------------
+
+    if ($partial.Count -eq 1) {
+
+        $item = $partial[0]
+
+        try {
+
+            $item.InvokeVerb()
+
+            Write-Output "SUCCESS"
+            Write-Output $item.Name
+
+            exit 0
+
+        }
+        catch {
+
+            try {
+
+                $item.InvokeVerb("open")
+
+                Write-Output "SUCCESS"
+                Write-Output $item.Name
+
+                exit 0
+
+            }
+            catch {
+
+                exit 3
+            }
+        }
+    }
+
+    # ---------------------------------------------
+    # Multiple partial matches
+    # ---------------------------------------------
+
+    if ($partial.Count -gt 1) {
+
+        Write-Output "MULTIPLE"
+
+        foreach ($item in $partial) {
+
+            Write-Output $item.Name
+        }
+
+        exit 4
+    }
+
+}
+catch {
+
+    exit 5
+}
+
+exit 1
+'''
+
+        try:
+
+            process = subprocess.Popen(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script,
+                    "-Target",
+                    target_name
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+
+            stdout, stderr = process.communicate(
+                timeout=20
+            )
+
+            lines = [
+                line.strip()
+                for line in stdout.splitlines()
+                if line.strip()
+            ]
+
+            if (
+                process.returncode == 0
+                and
+                len(lines) >= 2
+                and
+                lines[0] == "SUCCESS"
+            ):
+
+                app_name = lines[1]
+
+                return (
+                    True,
+                    f"Opened Windows app: {app_name}"
+                )
+
+            # -----------------------------------------
+            # Multiple partial Apps
+            # -----------------------------------------
+
+            if (
+                process.returncode == 4
+                and
+                len(lines) >= 2
+                and
+                lines[0] == "MULTIPLE"
+            ):
+
+                multiple = []
+
+                for name in lines[1:]:
+
+                    if name not in multiple:
+
+                        multiple.append(
+                            {
+                                "name": name,
+                                "app_id": "",
+                                "path": "",
+                                "source": "appsfolder"
+                            }
+                        )
+
+                return (
+                    False,
+                    f"Multiple Windows apps found "
+                    f"for '{target}':\n"
+                    +
+                    "\n".join(
+                        [
+                            f"{i}. {app['name']}"
+                            for i, app
+                            in enumerate(
+                                multiple,
+                                start=1
+                            )
+                        ]
+                    )
+                    +
+                    "\n\nPlease select a number.",
+                    multiple
+                )
+
+        except (
+            subprocess.TimeoutExpired,
+            OSError,
+            Exception
+        ):
+
+            pass
+
+        return None
+
+    # =================================================
+    # OPEN WINDOWS APP BY PATH
     # =================================================
 
     def open_windows_app_by_path(
@@ -1007,43 +1056,13 @@ catch {
                 "Invalid Windows app path."
             )
 
-        # -------------------------------------------------
-        # METHOD 1
-        # -------------------------------------------------
-
         try:
 
-            process = subprocess.Popen(
+            subprocess.Popen(
                 [
                     "explorer.exe",
                     app_path
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-
-            if process is not None:
-
-                return (
-                    True,
-                    f"Opened successfully: {app_path}"
-                )
-
-        except (
-            OSError,
-            Exception
-        ):
-
-            pass
-
-        # -------------------------------------------------
-        # METHOD 2
-        # -------------------------------------------------
-
-        try:
-
-            os.startfile(
-                app_path
+                ]
             )
 
             return (
@@ -1061,61 +1080,35 @@ catch {
     # =================================================
     # OPEN WINDOWS APP
     #
-    # IMPORTANT:
+    # First:
+    #     Direct AppsFolder InvokeVerb
     #
-    # 1. First use Get-StartApps
-    # 2. If unavailable/fails, use old AppsFolder
-    # 3. No hard-coded app names
+    # Then:
+    #     Scanner + AppID
     # =================================================
 
-    def open_windows_app(
-        self,
-        target
-    ):
+    def open_windows_app(self, target):
 
         # -------------------------------------------------
         # FIRST:
-        # New dynamic Get-StartApps scanner
+        # DIRECT SHELL AppsFolder INVOKE
+        #
+        # This fixes Windows 8 / 8.1 Store Apps.
         # -------------------------------------------------
 
-        start_app = self.find_start_app(
-            target
+        direct_result = (
+            self.open_windows_app_direct(
+                target
+            )
         )
 
-        if start_app:
+        if direct_result:
 
-            success, message = (
-                self.open_windows_app_by_path(
-                    start_app["path"]
-                )
-            )
-
-            if success:
-
-                return (
-                    True,
-                    f"Opened Windows app: "
-                    f"{start_app['name']}"
-                )
-
-            # If first launch method failed,
-            # use direct launcher.
-
-            direct_result = (
-                self.open_start_app(
-                    target
-                )
-            )
-
-            if direct_result:
-
-                return direct_result
+            return direct_result
 
         # -------------------------------------------------
         # SECOND:
-        # OLD WINDOWS APPSFOLDER SEARCH
-        #
-        # This keeps old functionality.
+        # SCAN APPS
         # -------------------------------------------------
 
         results = self.search_windows_apps(
@@ -1134,28 +1127,57 @@ catch {
 
             app = results[0]
 
-            success, message = (
-                self.open_windows_app_by_path(
-                    app["path"]
+            app_path = app.get(
+                "path",
+                ""
+            )
+
+            # ---------------------------------------------
+            # Try AppsFolder path
+            # ---------------------------------------------
+
+            if app_path:
+
+                success, message = (
+                    self.open_windows_app_by_path(
+                        app_path
+                    )
+                )
+
+                if success:
+
+                    return (
+                        True,
+                        f"Opened Windows app: "
+                        f"{app['name']}"
+                    )
+
+            # ---------------------------------------------
+            # If path failed, use PowerShell direct
+            # ---------------------------------------------
+
+            retry = (
+                self.open_windows_app_direct(
+                    app["name"]
                 )
             )
 
-            if success:
+            if retry:
 
-                return (
-                    True,
-                    f"Opened Windows app: "
-                    f"{app['name']}"
-                )
+                return retry
 
             return (
                 False,
-                message
+                f"Found Windows app "
+                f"'{app['name']}', "
+                f"but Windows could not open it."
             )
 
         # -------------------------------------------------
         # MULTIPLE APPS
         # -------------------------------------------------
+
+        self.pending_results = results
 
         message = (
             f"Multiple Windows apps found "
@@ -1342,14 +1364,337 @@ catch {
         return results
 
     # =================================================
+    # SIMILAR FILE / FOLDER SEARCH
+    #
+    # Used when exact spelling is not found.
+    #
+    # Example:
+    #
+    #   user: open weater
+    #
+    #   result:
+    #
+    #   Similar items found:
+    #   1. Weather
+    #   2. Weather Report.txt
+    #
+    # =================================================
+
+    def search_similar_files(
+        self,
+        target
+    ):
+
+        target_name = self.normalize(
+            target
+        )
+
+        if not target_name:
+
+            return []
+
+        candidates = []
+
+        # -------------------------------------------------
+        # START MENU
+        # -------------------------------------------------
+
+        start_results = []
+
+        for start_path in self.start_menu_paths:
+
+            if not os.path.exists(
+                start_path
+            ):
+
+                continue
+
+            try:
+
+                for root, dirs, files in os.walk(
+                    start_path
+                ):
+
+                    for file in files:
+
+                        lower_file = file.lower()
+
+                        if not (
+                            lower_file.endswith(".lnk")
+                            or
+                            lower_file.endswith(".exe")
+                        ):
+
+                            continue
+
+                        name = os.path.splitext(
+                            file
+                        )[0]
+
+                        candidates.append(
+                            {
+                                "name": name,
+                                "path": os.path.join(
+                                    root,
+                                    file
+                                ),
+                                "type": "path"
+                            }
+                        )
+
+            except (
+                PermissionError,
+                OSError
+            ):
+
+                continue
+
+        # -------------------------------------------------
+        # COMMON LOCATIONS
+        # -------------------------------------------------
+
+        for base_path in self.common_paths:
+
+            if not os.path.exists(
+                base_path
+            ):
+
+                continue
+
+            try:
+
+                for root, dirs, files in os.walk(
+                    base_path,
+                    onerror=lambda error: None
+                ):
+
+                    for directory in dirs:
+
+                        candidates.append(
+                            {
+                                "name": directory,
+                                "path": os.path.join(
+                                    root,
+                                    directory
+                                ),
+                                "type": "path"
+                            }
+                        )
+
+                    for file in files:
+
+                        candidates.append(
+                            {
+                                "name": file,
+                                "path": os.path.join(
+                                    root,
+                                    file
+                                ),
+                                "type": "path"
+                            }
+                        )
+
+            except (
+                PermissionError,
+                OSError
+            ):
+
+                continue
+
+        # -------------------------------------------------
+        # WINDOWS APPS
+        # -------------------------------------------------
+
+        apps = self.scan_apps_folder()
+
+        for app in apps:
+
+            candidates.append(
+                {
+                    "name": app["name"],
+                    "path": app.get(
+                        "path",
+                        ""
+                    ),
+                    "app_id": app.get(
+                        "app_id",
+                        ""
+                    ),
+                    "type": "windows_app"
+                }
+            )
+
+        # -------------------------------------------------
+        # CALCULATE SIMILARITY
+        # -------------------------------------------------
+
+        scored = []
+
+        for candidate in candidates:
+
+            candidate_name = (
+                self.normalize(
+                    candidate["name"]
+                )
+            )
+
+            if not candidate_name:
+
+                continue
+
+            # ---------------------------------------------
+            # Exact is not a "similar" result.
+            # ---------------------------------------------
+
+            if candidate_name == target_name:
+
+                continue
+
+            # ---------------------------------------------
+            # Similarity
+            # ---------------------------------------------
+
+            ratio = difflib.SequenceMatcher(
+                None,
+                target_name,
+                candidate_name
+            ).ratio()
+
+            # ---------------------------------------------
+            # Extra score when one contains another
+            # ---------------------------------------------
+
+            if (
+                target_name in candidate_name
+                or
+                candidate_name in target_name
+            ):
+
+                ratio += 0.15
+
+            # ---------------------------------------------
+            # First-letter / word similarity
+            # ---------------------------------------------
+
+            target_words = target_name.split()
+            candidate_words = candidate_name.split()
+
+            if target_words and candidate_words:
+
+                if (
+                    target_words[0][0]
+                    ==
+                    candidate_words[0][0]
+                ):
+
+                    ratio += 0.03
+
+            if ratio >= 0.45:
+
+                candidate_copy = dict(
+                    candidate
+                )
+
+                candidate_copy["score"] = ratio
+
+                scored.append(
+                    candidate_copy
+                )
+
+        # -------------------------------------------------
+        # SORT BY BEST MATCH
+        # -------------------------------------------------
+
+        scored.sort(
+            key=lambda item: item["score"],
+            reverse=True
+        )
+
+        # -------------------------------------------------
+        # REMOVE DUPLICATES
+        # -------------------------------------------------
+
+        final_results = []
+
+        seen = set()
+
+        for item in scored:
+
+            key = (
+                item["name"].lower(),
+                item.get(
+                    "path",
+                    ""
+                ).lower()
+                if isinstance(
+                    item.get("path", ""),
+                    str
+                )
+                else ""
+            )
+
+            if key in seen:
+
+                continue
+
+            seen.add(key)
+
+            final_results.append(
+                item
+            )
+
+            if len(final_results) >= 10:
+
+                break
+
+        return final_results
+
+    # =================================================
+    # DISPLAY SIMILAR RESULTS
+    # =================================================
+
+    def format_similar_results(
+        self,
+        target,
+        results
+    ):
+
+        if not results:
+
+            return (
+                f"I could not find "
+                f"'{target}'."
+            )
+
+        self.pending_results = results
+
+        message = (
+            f"I could not find an exact match "
+            f"for '{target}'.\n\n"
+            f"Similar items found:\n"
+        )
+
+        for index, item in enumerate(
+            results,
+            start=1
+        ):
+
+            message += (
+                f"{index}. "
+                f"{item['name']}\n"
+            )
+
+        message += (
+            "\nPlease select a number to open."
+        )
+
+        return message
+
+    # =================================================
     # FIND EVERYTHING
     #
-    # IMPORTANT:
-    #
-    # Windows Apps are NOT mixed into the normal
+    # Windows Apps are kept separate from normal
     # filesystem results.
-    #
-    # This preserves old behavior.
     # =================================================
 
     def find(self, target):
@@ -1442,28 +1787,50 @@ catch {
             )
 
         # -------------------------------------------------
+        # CLEAR OLD PENDING RESULTS
+        # -------------------------------------------------
+
+        self.pending_results = []
+
+        # -------------------------------------------------
         # FIRST:
-        # DYNAMIC WINDOWS APP SCAN
+        # EXACT NORMAL FILE / FOLDER / EXE / LNK
         #
-        # This is the important part.
+        # This keeps the old behavior.
+        # -------------------------------------------------
+
+        exact_path = self.find_exact_path(
+            target
+        )
+
+        if exact_path:
+
+            success, message = self._open(
+                exact_path
+            )
+
+            if success:
+
+                return message
+
+        # -------------------------------------------------
+        # SECOND:
+        # EXACT WINDOWS APP
         #
-        # Vyom scans the actual Windows application
-        # list before searching normal files.
+        # Direct AppsFolder scan.
         # -------------------------------------------------
 
         windows_app_result = (
-            self.open_windows_app(
+            self.open_windows_app_direct(
                 target
             )
         )
 
         if windows_app_result:
 
-            # ---------------------------------------------
-            # One app opened successfully
-            # ---------------------------------------------
-
-            if len(windows_app_result) == 2:
+            if len(
+                windows_app_result
+            ) == 2:
 
                 success, message = (
                     windows_app_result
@@ -1473,26 +1840,23 @@ catch {
 
                     return message
 
-                # Do not immediately stop if the app
-                # launcher itself failed.
-                #
-                # Normal file search will continue.
-
-            # ---------------------------------------------
-            # Multiple apps
-            # ---------------------------------------------
-
-            elif len(windows_app_result) == 3:
+            elif len(
+                windows_app_result
+            ) == 3:
 
                 success, message, app_results = (
                     windows_app_result
                 )
 
+                self.pending_results = (
+                    app_results
+                )
+
                 return message
 
         # -------------------------------------------------
-        # SECOND:
-        # NORMAL FILE / FOLDER / EXE / LNK
+        # THIRD:
+        # OLD NORMAL SEARCH
         # -------------------------------------------------
 
         results = self.find(
@@ -1519,6 +1883,8 @@ catch {
 
         if len(results) > 1:
 
+            self.pending_results = results
+
             message = (
                 f"Multiple items found for "
                 f"'{target}':\n"
@@ -1538,6 +1904,67 @@ catch {
             )
 
             return message
+
+        # -------------------------------------------------
+        # FOURTH:
+        # WINDOWS APP SCANNER
+        # -------------------------------------------------
+
+        windows_app_result = (
+            self.open_windows_app(
+                target
+            )
+        )
+
+        if windows_app_result:
+
+            if len(
+                windows_app_result
+            ) == 2:
+
+                success, message = (
+                    windows_app_result
+                )
+
+                if success:
+
+                    return message
+
+                return message
+
+            if len(
+                windows_app_result
+            ) == 3:
+
+                success, message, app_results = (
+                    windows_app_result
+                )
+
+                self.pending_results = (
+                    app_results
+                )
+
+                return message
+
+        # -------------------------------------------------
+        # FIFTH:
+        # SIMILAR SEARCH
+        #
+        # Typo / spelling mistake support.
+        # -------------------------------------------------
+
+        similar_results = (
+            self.search_similar_files(
+                target
+            )
+        )
+
+        if similar_results:
+
+            return self.format_similar_results(
+                target,
+                similar_results
+            )
 
         # -------------------------------------------------
         # NOTHING FOUND
@@ -1567,101 +1994,21 @@ catch {
             )
 
         # -------------------------------------------------
-        # FIRST:
-        # DYNAMIC WINDOWS APP SEARCH
+        # Use same resolver logic
         # -------------------------------------------------
 
-        windows_app_result = (
-            self.open_windows_app(
-                target
-            )
-        )
-
-        if windows_app_result:
-
-            if len(windows_app_result) == 2:
-
-                success, message = (
-                    windows_app_result
-                )
-
-                if success:
-
-                    return message
-
-            elif len(windows_app_result) == 3:
-
-                success, message, app_results = (
-                    windows_app_result
-                )
-
-                return message
-
-        # -------------------------------------------------
-        # SECOND:
-        # NORMAL FILE / FOLDER / EXE / LNK
-        # -------------------------------------------------
-
-        results = self.find(
+        return self.open(
             target
-        )
-
-        # -------------------------------------------------
-        # ONE NORMAL RESULT
-        # -------------------------------------------------
-
-        if len(results) == 1:
-
-            success, message = self._open(
-                results[0]
-            )
-
-            if success:
-
-                return message
-
-        # -------------------------------------------------
-        # MULTIPLE NORMAL RESULTS
-        # -------------------------------------------------
-
-        if len(results) > 1:
-
-            message = (
-                f"I found multiple items "
-                f"for '{target}':\n"
-            )
-
-            for index, path in enumerate(
-                results,
-                start=1
-            ):
-
-                message += (
-                    f"{index}. {path}\n"
-                )
-
-            message += (
-                "\nPlease select a number."
-            )
-
-            return message
-
-        # -------------------------------------------------
-        # NOTHING FOUND
-        # -------------------------------------------------
-
-        return (
-            f"I could not find "
-            f"'{target}'."
         )
 
     # =================================================
     # OPEN SELECTED RESULT
     #
     # Supports:
-    #     Normal Windows paths
-    #     Windows Apps dictionaries
-    #     shell:AppsFolder paths
+    #
+    #     Normal paths
+    #     Windows Apps
+    #     Similar results
     # =================================================
 
     def open_selected(
@@ -1698,29 +2045,108 @@ catch {
             dict
         ):
 
-            app_path = selected.get(
-                "path"
-            )
-
             app_name = selected.get(
                 "name",
                 "Windows app"
             )
 
-            success, message = (
-                self.open_windows_app_by_path(
-                    app_path
-                )
-            )
+            # ---------------------------------------------
+            # If this is a Windows App
+            # ---------------------------------------------
 
-            if success:
+            if (
+                selected.get("type")
+                == "windows_app"
+                or
+                selected.get("source")
+                == "appsfolder"
+                or
+                selected.get("source")
+                == "get-startapps"
+            ):
+
+                # -----------------------------------------
+                # Try stored path first
+                # -----------------------------------------
+
+                app_path = selected.get(
+                    "path",
+                    ""
+                )
+
+                if app_path:
+
+                    success, message = (
+                        self.open_windows_app_by_path(
+                            app_path
+                        )
+                    )
+
+                    if success:
+
+                        return (
+                            f"Opened Windows app: "
+                            f"{app_name}"
+                        )
+
+                # -----------------------------------------
+                # Most reliable fallback:
+                # find the app again and InvokeVerb
+                # -----------------------------------------
+
+                direct_result = (
+                    self.open_windows_app_direct(
+                        app_name
+                    )
+                )
+
+                if direct_result:
+
+                    if len(
+                        direct_result
+                    ) == 2:
+
+                        success, message = (
+                            direct_result
+                        )
+
+                        if success:
+
+                            return message
+
+                    elif len(
+                        direct_result
+                    ) == 3:
+
+                        return direct_result[1]
 
                 return (
-                    f"Opened Windows app: "
-                    f"{app_name}"
+                    f"Could not open Windows app "
+                    f"'{app_name}'."
                 )
 
-            return message
+            # ---------------------------------------------
+            # Similar normal file/folder
+            # ---------------------------------------------
+
+            normal_path = selected.get(
+                "path"
+            )
+
+            if normal_path:
+
+                success, message = (
+                    self._open(
+                        normal_path
+                    )
+                )
+
+                return message
+
+            return (
+                f"Could not open "
+                f"'{app_name}'."
+            )
 
         # -------------------------------------------------
         # Normal path
@@ -1731,3 +2157,28 @@ catch {
         )
 
         return message
+
+    # =================================================
+    # OPEN PENDING RESULT
+    #
+    # This helper allows the command engine to use:
+    #
+    #     open_selected(self.pending_results, number)
+    #
+    # =================================================
+
+    def open_pending(
+        self,
+        number
+    ):
+
+        if not self.pending_results:
+
+            return (
+                "There are no pending results."
+            )
+
+        return self.open_selected(
+            self.pending_results,
+            number
+    )
