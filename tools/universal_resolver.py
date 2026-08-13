@@ -2671,3 +2671,4 @@ catch {
         return self.open(
             selected_name
         )
+
