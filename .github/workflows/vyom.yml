@@ -8,110 +8,22 @@ jobs:
     runs-on: windows-latest
 
     steps:
-
-      # ======================================================
-      # 1. Checkout Vyom Repository
-      # ======================================================
-
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-
-      # ======================================================
-      # 2. Setup Python
-      # ======================================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-
-      # ======================================================
-      # 3. Install PyInstaller
-      # ======================================================
-
-      - name: Install PyInstaller
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller
-
-
-      # ======================================================
-      # 4. Verify Project Structure
-      # ======================================================
-
-      - name: Verify Vyom Project
-        shell: powershell
-        run: |
-          Write-Host "===== PROJECT ROOT ====="
-          Get-ChildItem
-
-          Write-Host ""
-          Write-Host "===== TOOLS FOLDER ====="
-          Get-ChildItem tools -Recurse
-
-          Write-Host ""
-          Write-Host "===== MAIN FILE ====="
-          Get-Item ai_core/main.py
-
-
-      # ======================================================
-      # 5. Build Vyom EXE
-      #
-      # IMPORTANT:
-      # --paths . tells PyInstaller that project root
-      # is also a Python import location.
-      #
-      # --collect-submodules ensures dynamically imported
-      # modules inside Vyom are included.
-      # ======================================================
+          pip install pyinstaller
 
       - name: Build Vyom EXE
-        shell: powershell
         run: |
-          python -m PyInstaller `
-            --onefile `
-            --clean `
-            --noconfirm `
-            --console `
-            --paths "." `
-            --collect-submodules tools `
-            --collect-submodules ai_core `
-            --collect-submodules command_engine `
-            --collect-submodules memory `
-            --collect-submodules windows_agent `
-            --collect-submodules android_agent `
-            --collect-submodules voice `
-            --collect-submodules vision `
-            --collect-submodules security `
-            --hidden-import tools.universal_app_launcher `
-            --name Vyom `
-            ai_core/main.py
-
-
-      # ======================================================
-      # 6. Verify EXE
-      # ======================================================
-
-      - name: Verify EXE
-        shell: powershell
-        run: |
-          Write-Host "===== DIST FOLDER ====="
-          Get-ChildItem dist
-
-          if (!(Test-Path "dist/Vyom.exe")) {
-              Write-Error "Vyom.exe was not created!"
-              exit 1
-          }
-
-          Write-Host ""
-          Write-Host "Vyom.exe successfully created."
-
-
-      # ======================================================
-      # 7. Upload EXE
-      # ======================================================
+          pyinstaller --onefile --paths "." --collect-submodules tools --hidden-import tools.universal_app_launcher ai_core/main.py --name Vyom
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
