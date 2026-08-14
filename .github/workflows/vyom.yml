@@ -8,21 +8,126 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+
+      # ======================================================
+      # 1. Checkout Vyom source code
+      # ======================================================
+
+      - name: Checkout Vyom
+        uses: actions/checkout@v4
+
+
+      # ======================================================
+      # 2. Setup Python
+      # ======================================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+
+      # ======================================================
+      # 3. Install PyInstaller
+      # ======================================================
+
       - name: Install PyInstaller
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
+          python -m pip install pyinstaller
+
+
+      # ======================================================
+      # 4. Verify important Vyom modules
+      #
+      # This prevents building an EXE when an important
+      # source module is missing.
+      # ======================================================
+
+      - name: Verify Vyom modules
+        shell: powershell
+        run: |
+          Write-Host "Checking Vyom project files..."
+
+          if (!(Test-Path "ai_core/main.py")) {
+            Write-Error "ai_core/main.py not found"
+            exit 1
+          }
+
+          if (!(Test-Path "tools/__init__.py")) {
+            Write-Error "tools/__init__.py not found"
+            exit 1
+          }
+
+          if (!(Test-Path "tools/universal_app_launcher.py")) {
+            Write-Error "tools/universal_app_launcher.py not found"
+            exit 1
+          }
+
+          if (!(Test-Path "tools/tool_manager.py")) {
+            Write-Error "tools/tool_manager.py not found"
+            exit 1
+          }
+
+          Write-Host "All important modules found."
+
+
+      # ======================================================
+      # 5. Build Vyom EXE
+      #
+      # --paths .
+      #     Allows PyInstaller to resolve the project root.
+      #
+      # --collect-submodules tools
+      #     IMPORTANT:
+      #     Includes tools.universal_app_launcher and other
+      #     modules inside tools.
+      #
+      # --collect-submodules command_engine
+      #     Includes command engine modules that may be
+      #     imported dynamically.
+      #
+      # --collect-submodules ai_core
+      #     Includes ai_core modules used by Vyom.
+      # ======================================================
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile ai_core/main.py --name Vyom
+          python -m PyInstaller `
+            --onefile `
+            --clean `
+            --noconfirm `
+            --paths "." `
+            --collect-submodules tools `
+            --collect-submodules command_engine `
+            --collect-submodules ai_core `
+            --hidden-import tools.universal_app_launcher `
+            --hidden-import tools.tool_manager `
+            --name Vyom `
+            ai_core/main.py
+
+
+      # ======================================================
+      # 6. Verify EXE was created
+      # ======================================================
+
+      - name: Verify EXE
+        shell: powershell
+        run: |
+          if (!(Test-Path "dist/Vyom.exe")) {
+            Write-Error "Vyom.exe was not created"
+            exit 1
+          }
+
+          Write-Host "Vyom.exe created successfully."
+
+          Get-Item "dist/Vyom.exe" |
+            Select-Object Name, Length, FullName
+
+
+      # ======================================================
+      # 7. Upload EXE
+      # ======================================================
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
