@@ -241,94 +241,106 @@ class UniversalAppLauncher:
     ):
 
         if not item:
-
             return
 
-        if isinstance(item, dict):
+        if not isinstance(item, dict):
+            item = {
+                "name": os.path.basename(str(item)),
+                "path": str(item),
+                "app_id": "",
+                "aumid": "",
+                "type": "unknown"
+            }
 
-            name = str(
-                item.get(
-                    "name",
-                    ""
-                )
-            ).lower()
+        name = str(
+            item.get("name", "")
+        ).strip()
 
-            path = str(
-                item.get(
-                    "path",
-                    ""
-                )
-            ).lower()
+        path = str(
+            item.get("path", "")
+        ).strip()
 
-            app_id = str(
-                item.get(
-                    "app_id",
-                    ""
-                )
-            ).lower()
+        app_id = str(
+            item.get("app_id", "")
+        ).strip()
 
-            for existing in results:
+        aumid = str(
+            item.get("aumid", "")
+        ).strip()
 
-                if not isinstance(
-                    existing,
-                    dict
-                ):
+        # ----------------------------------------------------
+        # NORMALIZED VALUES
+        # ----------------------------------------------------
 
-                    continue
+        name_key = self.normalize(name)
 
-                e_name = str(
-                    existing.get(
-                        "name",
-                        ""
-                    )
-                ).lower()
+        path_key = path.lower()
 
-                e_path = str(
-                    existing.get(
-                        "path",
-                        ""
-                    )
-                ).lower()
+        app_id_key = app_id.lower()
 
-                e_app_id = str(
-                    existing.get(
-                        "app_id",
-                        ""
-                    )
-                ).lower()
+        aumid_key = aumid.lower()
 
-                if (
-                    name
-                    and
-                    name == e_name
-                    and
-                    path == e_path
-                    and
-                    app_id == e_app_id
-                ):
-
-                    return
-
-            results.append(item)
-
-            return
-
-        # Normal string path
-
-        item_lower = str(
-            item
-        ).lower()
+        # ----------------------------------------------------
+        # DUPLICATE CHECK
+        #
+        # Same physical file/path = duplicate
+        # Same AUMID/AppID = duplicate application
+        #
+        # IMPORTANT:
+        # Same filename in different folders is NOT duplicate.
+        # User must be able to select between them.
+        # ----------------------------------------------------
 
         for existing in results:
 
-            if isinstance(
-                existing,
-                str
+            if not isinstance(existing, dict):
+                continue
+
+            existing_path = str(
+                existing.get("path", "")
+            ).strip().lower()
+
+            existing_app_id = str(
+                existing.get("app_id", "")
+            ).strip().lower()
+
+            existing_aumid = str(
+                existing.get("aumid", "")
+            ).strip().lower()
+
+            # Same real path
+            if (
+                path_key
+                and existing_path
+                and path_key == existing_path
             ):
+                return
 
-                if existing.lower() == item_lower:
+            # Same application ID
+            if (
+                app_id_key
+                and existing_app_id
+                and app_id_key == existing_app_id
+            ):
+                return
 
-                    return
+            if (
+                aumid_key
+                and existing_aumid
+                and aumid_key == existing_aumid
+            ):
+                return
+
+        # ----------------------------------------------------
+        # DO NOT REMOVE SAME-NAME FILES
+        #
+        # Example:
+        #
+        # Desktop\10th.jpg
+        # Documents\10th.jpg
+        #
+        # Both must remain selectable.
+        # ----------------------------------------------------
 
         results.append(item)
 
@@ -1130,7 +1142,6 @@ catch {
         )
 
         if not target:
-
             return []
 
         target_normalized = self.normalize(
@@ -1144,7 +1155,14 @@ catch {
         exact = []
         partial = []
 
+        # ----------------------------------------------------
+        # DATABASE SEARCH
+        # ----------------------------------------------------
+
         for app in database:
+
+            if not isinstance(app, dict):
+                continue
 
             app_name = self.normalize(
                 app.get(
@@ -1154,10 +1172,9 @@ catch {
             )
 
             if not app_name:
-
                 continue
 
-            # Exact
+            # Exact application name
             if app_name == target_normalized:
 
                 self._add_result(
@@ -1167,11 +1184,8 @@ catch {
 
                 continue
 
-            # Partial
-            if (
-                target_normalized
-                in app_name
-            ):
+            # Partial name
+            if target_normalized in app_name:
 
                 self._add_result(
                     partial,
@@ -1179,7 +1193,7 @@ catch {
                 )
 
         # ----------------------------------------------------
-        # PATH application
+        # PATH APPLICATION
         # ----------------------------------------------------
 
         path_result = self.find_path_application(
@@ -1202,7 +1216,10 @@ catch {
                 "type": "path"
             }
 
-            if self.normalize(path_name) == target_normalized:
+            if (
+                self.normalize(path_name)
+                == target_normalized
+            ):
 
                 self._add_result(
                     exact,
@@ -1217,7 +1234,9 @@ catch {
                 )
 
         # ----------------------------------------------------
-        # Program Files only when necessary
+        # PROGRAM FILES
+        #
+        # Only search when no exact application was found.
         # ----------------------------------------------------
 
         if not exact:
@@ -1230,31 +1249,53 @@ catch {
 
             for item in program_results:
 
-                if (
-                    self.normalize(
-                        item.get(
-                            "name",
-                            ""
-                        )
+                item_name = self.normalize(
+                    item.get(
+                        "name",
+                        ""
                     )
-                    == target_normalized
-                ):
+                )
+
+                if item_name == target_normalized:
 
                     self._add_result(
                         exact,
                         item
                     )
 
-                else:
+                elif (
+                    target_normalized
+                    in item_name
+                ):
 
                     self._add_result(
                         partial,
                         item
                     )
 
-        return (
-            exact + partial
-        )[:self.max_results]
+        # ----------------------------------------------------
+        # RESULT ORDER
+        #
+        # Exact matches always come first.
+        # ----------------------------------------------------
+
+        results = []
+
+        for item in exact:
+            self._add_result(
+                results,
+                item
+            )
+
+        for item in partial:
+            self._add_result(
+                results,
+                item
+            )
+
+        return results[
+            :self.max_results
+        ]
 
     # ========================================================
     # FIND SIMILAR APPLICATIONS
@@ -1408,17 +1449,36 @@ catch {
     # OPEN NORMAL PATH
     # ========================================================
 
-    def open_normal_path(
+        def open_normal_path(
         self,
         path
     ):
 
         if not path:
+            return False
 
+        path = str(path).strip()
+
+        if not path:
             return False
 
         # ----------------------------------------------------
-        # os.startfile
+        # 1. EXISTING FILE / FOLDER
+        #
+        # Windows default application handles:
+        # JPG
+        # JPEG
+        # PNG
+        # GIF
+        # BMP
+        # PDF
+        # MP3
+        # MP4
+        # DOC/DOCX
+        # XLS/XLSX
+        # ZIP
+        # FOLDERS
+        # etc.
         # ----------------------------------------------------
 
         try:
@@ -1430,11 +1490,10 @@ catch {
                 return True
 
         except Exception:
-
             pass
 
         # ----------------------------------------------------
-        # ShellExecute
+        # 2. SHELL EXECUTE
         # ----------------------------------------------------
 
         try:
@@ -1444,11 +1503,12 @@ catch {
                 return True
 
         except Exception:
-
             pass
 
         # ----------------------------------------------------
-        # CMD START
+        # 3. CMD START
+        #
+        # Important for folders and file associations.
         # ----------------------------------------------------
 
         try:
@@ -1470,7 +1530,6 @@ catch {
                 return True
 
         except Exception:
-
             pass
 
         return False
@@ -1485,13 +1544,12 @@ catch {
     # inside shell:AppsFolder and invoke its Open verb.
     # ========================================================
 
-    def open_appsfolder_by_name(
+        def open_appsfolder_by_name(
         self,
         target
     ):
 
         if not self.is_windows():
-
             return False
 
         target = self.clean_target(
@@ -1499,29 +1557,32 @@ catch {
         )
 
         if not target:
-
             return False
 
-        # Escape single quote for PowerShell
         safe_target = target.replace(
             "'",
             "''"
         )
 
+        # ----------------------------------------------------
+        # PowerShell searches AppsFolder by exact name
+        # and invokes the Open verb.
+        # ----------------------------------------------------
+
         script = r"""
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "SilentlyContinue"
 
 $target = '__TARGET__'
 
 $shell = New-Object -ComObject Shell.Application
 
-$folder = $shell.Namespace("shell:AppsFolder")
+$folder = $shell.Namespace(
+    "shell:AppsFolder"
+)
 
 if ($folder -eq $null) {
     exit 2
 }
-
-$found = $false
 
 foreach ($item in $folder.Items()) {
 
@@ -1529,17 +1590,18 @@ foreach ($item in $folder.Items()) {
 
         $name = [string]$item.Name
 
-        if ($name -and
+        if (
+            $name -and
             $name.Equals(
                 $target,
                 [System.StringComparison]::OrdinalIgnoreCase
-            )) {
-
-            $found = $true
+            )
+        ) {
 
             try {
 
                 $item.InvokeVerb("open")
+
                 exit 0
 
             }
@@ -1548,6 +1610,7 @@ foreach ($item in $folder.Items()) {
                 try {
 
                     $item.InvokeVerb()
+
                     exit 0
 
                 }
@@ -1556,17 +1619,14 @@ foreach ($item in $folder.Items()) {
                 }
             }
         }
+
     }
     catch {
 
     }
 }
 
-if (-not $found) {
-    exit 3
-}
-
-exit 4
+exit 3
 """
 
         script = script.replace(
@@ -1587,7 +1647,8 @@ exit 4
                     script
                 ],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                universal_newlines=True
             )
 
             stdout, stderr = process.communicate(
@@ -1598,11 +1659,7 @@ exit 4
                 process.returncode == 0
             )
 
-        except (
-            subprocess.TimeoutExpired,
-            OSError,
-            Exception
-        ):
+        except Exception:
 
             return False
 
@@ -1627,7 +1684,6 @@ exit 4
     ):
 
         if not self.is_windows():
-
             return False
 
         app_id = str(
@@ -1635,178 +1691,29 @@ exit 4
         ).strip()
 
         if not app_id:
+            return False
 
+        # ----------------------------------------------------
+        # Remove possible shell prefix
+        # ----------------------------------------------------
+
+        prefix = "shell:AppsFolder\\"
+
+        if app_id.lower().startswith(prefix.lower()):
+
+            app_id = app_id[
+                len(prefix):
+            ]
+
+        if not app_id:
             return False
 
         # ----------------------------------------------------
         # METHOD 1
         #
-        # Windows Shell COM
+        # Windows Explorer AppsFolder
         #
-        # This is the most important method for
-        # Windows 8 / 8.1 Modern / Store applications.
-        # ----------------------------------------------------
-
-        safe_app_id = app_id.replace(
-            "'",
-            "''"
-        )
-
-        script = r"""
-$ErrorActionPreference = "Stop"
-
-$target = '__APP_ID__'
-
-$shell = New-Object -ComObject Shell.Application
-
-$folder = $shell.Namespace(
-    "shell:AppsFolder"
-)
-
-if ($folder -eq $null) {
-    exit 2
-}
-
-foreach ($item in $folder.Items()) {
-
-    try {
-
-        $path = [string]$item.Path
-
-        if (
-            $path -and
-            $path.Equals(
-                $target,
-                [System.StringComparison]::OrdinalIgnoreCase
-            )
-        ) {
-
-            try {
-
-                $item.InvokeVerb("open")
-
-                exit 0
-            }
-            catch {
-
-                try {
-
-                    $item.InvokeVerb()
-
-                    exit 0
-                }
-                catch {
-
-                }
-            }
-        }
-
-    }
-    catch {
-
-    }
-}
-
-exit 3
-"""
-
-        script = script.replace(
-            "__APP_ID__",
-            safe_app_id
-        )
-
-        try:
-
-            process = subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    script
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-
-            stdout, stderr = process.communicate(
-                timeout=30
-            )
-
-            if process.returncode == 0:
-
-                return True
-
-        except (
-            subprocess.TimeoutExpired,
-            OSError,
-            Exception
-        ):
-
-            pass
-
-        # ----------------------------------------------------
-        # METHOD 2
-        #
-        # PowerShell Start-Process
-        #
-        # Do NOT depend on explorer.exe being available
-        # through PATH.
-        # ----------------------------------------------------
-
-        shell_path = (
-            "shell:AppsFolder\\"
-            + app_id
-        )
-
-        try:
-
-            process = subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    "Start-Process -FilePath "
-                    + "'"
-                    + shell_path.replace(
-                        "'",
-                        "''"
-                    )
-                    + "'"
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-
-            process.wait(
-                timeout=10
-            )
-
-            if process.returncode == 0:
-
-                return True
-
-        except (
-            subprocess.TimeoutExpired,
-            OSError,
-            Exception
-        ):
-
-            pass
-
-        # ----------------------------------------------------
-        # METHOD 3
-        #
-        # Absolute explorer.exe path.
-        #
-        # This avoids the PATH problem visible in your
-        # Windows 8.1 PowerShell screenshot.
+        # This is the primary method for Windows 8/8.1.
         # ----------------------------------------------------
 
         try:
@@ -1821,60 +1728,110 @@ exit 3
                 "explorer.exe"
             )
 
-            if os.path.exists(
-                explorer_path
-            ):
+            shell_target = (
+                "shell:AppsFolder\\"
+                + app_id
+            )
+
+            if os.path.exists(explorer_path):
 
                 process = subprocess.Popen(
                     [
                         explorer_path,
-                        shell_path
+                        shell_target
                     ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
 
-                if process is not None:
+                # Do not wait for Explorer.
+                # Explorer owns the application launch.
 
+                if process is not None:
                     return True
 
         except Exception:
-
             pass
 
         # ----------------------------------------------------
-        # METHOD 4
+        # METHOD 2
         #
-        # CMD START fallback
+        # ShellExecute
         # ----------------------------------------------------
 
         try:
 
-            subprocess.Popen(
+            shell_target = (
+                "shell:AppsFolder\\"
+                + app_id
+            )
+
+            if self.shell_execute(
+                shell_target
+            ):
+
+                return True
+
+        except Exception:
+            pass
+
+        # ----------------------------------------------------
+        # METHOD 3
+        #
+        # PowerShell + Start-Process
+        #
+        # Kept as fallback only.
+        # ----------------------------------------------------
+
+        try:
+
+            safe_target = (
+                "shell:AppsFolder\\"
+                + app_id
+            ).replace(
+                "'",
+                "''"
+            )
+
+            script = (
+                "$ErrorActionPreference='Stop';"
+                "Start-Process -FilePath '"
+                + safe_target
+                + "'"
+            )
+
+            process = subprocess.Popen(
                 [
-                    "cmd.exe",
-                    "/c",
-                    "start",
-                    "",
-                    shell_path
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
 
-            return True
+            process.wait(
+                timeout=10
+            )
+
+            if process.returncode == 0:
+                return True
 
         except Exception:
-
             pass
 
         return False
+
 
     # ========================================================
     # OPEN APPLICATION RECORD
     # ========================================================
 
-    def open_record(
+        def open_record(
         self,
         app
     ):
@@ -1886,36 +1843,67 @@ exit 3
 
             return False
 
-        name = app.get(
-            "name",
-            ""
-        )
+        name = str(
+            app.get(
+                "name",
+                ""
+            )
+        ).strip()
 
-        path = app.get(
-            "path",
-            ""
-        )
+        path = str(
+            app.get(
+                "path",
+                ""
+            )
+        ).strip()
 
-        app_id = app.get(
-            "app_id",
-            ""
-        )
+        app_id = str(
+            app.get(
+                "app_id",
+                ""
+            )
+        ).strip()
 
-        aumid = app.get(
-            "aumid",
-            ""
-        )
+        aumid = str(
+            app.get(
+                "aumid",
+                ""
+            )
+        ).strip()
 
-        app_type = app.get(
-            "type",
-            ""
-        )
+        app_type = str(
+            app.get(
+                "type",
+                ""
+            )
+        ).strip().lower()
 
-                # ----------------------------------------------------
-        # 1. AUMID / APPID
+        # ----------------------------------------------------
+        # 1. REAL FILE / FOLDER
         #
-        # Modern / Store applications
-        # Windows 8 / 8.1 / 10 / 11
+        # JPG / PDF / MP3 / DOC / ZIP / FOLDER etc.
+        # ----------------------------------------------------
+
+        if path:
+
+            if (
+                not path.lower().startswith(
+                    "shell:appsfolder\\"
+                )
+            ):
+
+                if os.path.exists(path):
+
+                    if self.open_normal_path(
+                        path
+                    ):
+
+                        return True
+
+        # ----------------------------------------------------
+        # 2. AUMID / APPID
+        #
+        # Modern / Store applications.
         # ----------------------------------------------------
 
         launch_ids = []
@@ -1923,19 +1911,15 @@ exit 3
         if aumid:
 
             launch_ids.append(
-                str(aumid).strip()
+                aumid
             )
 
         if app_id:
 
-            app_id_value = str(
-                app_id
-            ).strip()
-
-            if app_id_value and app_id_value not in launch_ids:
+            if app_id not in launch_ids:
 
                 launch_ids.append(
-                    app_id_value
+                    app_id
                 )
 
         for launch_id in launch_ids:
@@ -1946,31 +1930,33 @@ exit 3
 
                 return True
 
-
         # ----------------------------------------------------
-        # 2. AppsFolder direct path
+        # 3. shell:AppsFolder DIRECT PATH
         # ----------------------------------------------------
 
         if path:
 
+            prefix = "shell:AppsFolder\\"
+
             if path.lower().startswith(
-                "shell:appsfolder\\"
+                prefix.lower()
             ):
 
+                app_id_from_path = path[
+                    len(prefix):
+                ]
+
                 if self.open_by_aumid(
-                    path[
-                        len(
-                            "shell:AppsFolder\\"
-                        ):
-                    ]
+                    app_id_from_path
                 ):
 
                     return True
 
         # ----------------------------------------------------
-        # 3. AppsFolder by application name
+        # 4. AppsFolder NAME
         #
-        # Important Windows 8 fallback.
+        # Useful for Windows 8/8.1 applications whose
+        # AUMID/path information is incomplete.
         # ----------------------------------------------------
 
         if (
@@ -1991,25 +1977,19 @@ exit 3
                     return True
 
         # ----------------------------------------------------
-        # 4. Normal EXE/LNK/BAT/CMD
+        # 5. FINAL NORMAL PATH FALLBACK
         # ----------------------------------------------------
 
         if path:
 
-            if (
-                not path.lower().startswith(
-                    "shell:appsfolder\\"
-                )
+            if self.open_normal_path(
+                path
             ):
 
-                if self.open_normal_path(
-                    path
-                ):
-
-                    return True
+                return True
 
         # ----------------------------------------------------
-        # 5. Final AppsFolder name fallback
+        # 6. FINAL APPLICATION NAME FALLBACK
         # ----------------------------------------------------
 
         if name:
@@ -2021,7 +2001,6 @@ exit 3
                 return True
 
         return False
-
     # ========================================================
     # OPEN
     # ========================================================
