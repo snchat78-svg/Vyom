@@ -1606,8 +1606,19 @@ exit 4
 
             return False
 
-    # ========================================================
+        # ========================================================
     # OPEN BY AUMID / APPID
+    #
+    # Windows 8 / 8.1 / 10 / 11 compatible
+    #
+    # IMPORTANT:
+    #     First use Shell.Application + AppsFolder + InvokeVerb.
+    #
+    #     This is the method that works correctly on
+    #     Windows 8.1 for Modern / Store applications.
+    #
+    #     explorer.exe is used only as a fallback and is
+    #     called using its absolute Windows path.
     # ========================================================
 
     def open_by_aumid(
@@ -1615,77 +1626,226 @@ exit 4
         app_id
     ):
 
-        if not app_id:
+        if not self.is_windows():
 
             return False
 
         app_id = str(
-            app_id
+            app_id or ""
         ).strip()
 
         if not app_id:
 
             return False
 
-        shell_path = (
-            "shell:AppsFolder\\"
-            + app_id
+        # ----------------------------------------------------
+        # METHOD 1
+        #
+        # Windows Shell COM
+        #
+        # This is the most important method for
+        # Windows 8 / 8.1 Modern / Store applications.
+        # ----------------------------------------------------
+
+        safe_app_id = app_id.replace(
+            "'",
+            "''"
         )
 
-        # ----------------------------------------------------
-        # METHOD 1:
-        # explorer.exe
-        # ----------------------------------------------------
+        script = r"""
+$ErrorActionPreference = "Stop"
+
+$target = '__APP_ID__'
+
+$shell = New-Object -ComObject Shell.Application
+
+$folder = $shell.Namespace(
+    "shell:AppsFolder"
+)
+
+if ($folder -eq $null) {
+    exit 2
+}
+
+foreach ($item in $folder.Items()) {
+
+    try {
+
+        $path = [string]$item.Path
+
+        if (
+            $path -and
+            $path.Equals(
+                $target,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+
+            try {
+
+                $item.InvokeVerb("open")
+
+                exit 0
+            }
+            catch {
+
+                try {
+
+                    $item.InvokeVerb()
+
+                    exit 0
+                }
+                catch {
+
+                }
+            }
+        }
+
+    }
+    catch {
+
+    }
+}
+
+exit 3
+"""
+
+        script = script.replace(
+            "__APP_ID__",
+            safe_app_id
+        )
 
         try:
 
             process = subprocess.Popen(
                 [
-                    "explorer.exe",
-                    shell_path
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+
+            stdout, stderr = process.communicate(
+                timeout=30
+            )
+
+            if process.returncode == 0:
+
+                return True
+
+        except (
+            subprocess.TimeoutExpired,
+            OSError,
+            Exception
+        ):
+
+            pass
+
+        # ----------------------------------------------------
+        # METHOD 2
+        #
+        # PowerShell Start-Process
+        #
+        # Do NOT depend on explorer.exe being available
+        # through PATH.
+        # ----------------------------------------------------
+
+        shell_path = (
+            "shell:AppsFolder\\"
+            + app_id
+        )
+
+        try:
+
+            process = subprocess.Popen(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    "Start-Process -FilePath "
+                    + "'"
+                    + shell_path.replace(
+                        "'",
+                        "''"
+                    )
+                    + "'"
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
 
-            # Process creation itself succeeded
-            if process is not None:
+            process.wait(
+                timeout=10
+            )
+
+            if process.returncode == 0:
 
                 return True
 
-        except Exception:
+        except (
+            subprocess.TimeoutExpired,
+            OSError,
+            Exception
+        ):
 
             pass
 
         # ----------------------------------------------------
-        # METHOD 2:
-        # ShellExecute explorer.exe
+        # METHOD 3
+        #
+        # Absolute explorer.exe path.
+        #
+        # This avoids the PATH problem visible in your
+        # Windows 8.1 PowerShell screenshot.
         # ----------------------------------------------------
 
         try:
 
-            result = (
-                ctypes.windll.shell32.ShellExecuteW(
-                    None,
-                    "open",
-                    "explorer.exe",
-                    shell_path,
-                    None,
-                    1
-                )
+            windows_dir = os.environ.get(
+                "WINDIR",
+                r"C:\Windows"
             )
 
-            if result > 32:
+            explorer_path = os.path.join(
+                windows_dir,
+                "explorer.exe"
+            )
 
-                return True
+            if os.path.exists(
+                explorer_path
+            ):
+
+                process = subprocess.Popen(
+                    [
+                        explorer_path,
+                        shell_path
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+
+                if process is not None:
+
+                    return True
 
         except Exception:
 
             pass
 
         # ----------------------------------------------------
-        # METHOD 3:
-        # cmd START
+        # METHOD 4
+        #
+        # CMD START fallback
         # ----------------------------------------------------
 
         try:
@@ -1751,25 +1911,41 @@ exit 4
             ""
         )
 
-        # ----------------------------------------------------
+                # ----------------------------------------------------
         # 1. AUMID / APPID
+        #
+        # Modern / Store applications
+        # Windows 8 / 8.1 / 10 / 11
         # ----------------------------------------------------
+
+        launch_ids = []
 
         if aumid:
 
-            if self.open_by_aumid(
-                aumid
-            ):
-
-                return True
+            launch_ids.append(
+                str(aumid).strip()
+            )
 
         if app_id:
 
-            if self.open_by_aumid(
+            app_id_value = str(
                 app_id
+            ).strip()
+
+            if app_id_value and app_id_value not in launch_ids:
+
+                launch_ids.append(
+                    app_id_value
+                )
+
+        for launch_id in launch_ids:
+
+            if self.open_by_aumid(
+                launch_id
             ):
 
                 return True
+
 
         # ----------------------------------------------------
         # 2. AppsFolder direct path
