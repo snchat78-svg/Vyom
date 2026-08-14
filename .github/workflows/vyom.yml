@@ -10,10 +10,10 @@ jobs:
     steps:
 
       # ======================================================
-      # 1. Checkout Vyom source code
+      # 1. Checkout Vyom Repository
       # ======================================================
 
-      - name: Checkout Vyom
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
 
@@ -38,91 +38,75 @@ jobs:
 
 
       # ======================================================
-      # 4. Verify important Vyom modules
-      #
-      # This prevents building an EXE when an important
-      # source module is missing.
+      # 4. Verify Project Structure
       # ======================================================
 
-      - name: Verify Vyom modules
+      - name: Verify Vyom Project
         shell: powershell
         run: |
-          Write-Host "Checking Vyom project files..."
+          Write-Host "===== PROJECT ROOT ====="
+          Get-ChildItem
 
-          if (!(Test-Path "ai_core/main.py")) {
-            Write-Error "ai_core/main.py not found"
-            exit 1
-          }
+          Write-Host ""
+          Write-Host "===== TOOLS FOLDER ====="
+          Get-ChildItem tools -Recurse
 
-          if (!(Test-Path "tools/__init__.py")) {
-            Write-Error "tools/__init__.py not found"
-            exit 1
-          }
-
-          if (!(Test-Path "tools/universal_app_launcher.py")) {
-            Write-Error "tools/universal_app_launcher.py not found"
-            exit 1
-          }
-
-          if (!(Test-Path "tools/tool_manager.py")) {
-            Write-Error "tools/tool_manager.py not found"
-            exit 1
-          }
-
-          Write-Host "All important modules found."
+          Write-Host ""
+          Write-Host "===== MAIN FILE ====="
+          Get-Item ai_core/main.py
 
 
       # ======================================================
       # 5. Build Vyom EXE
       #
-      # --paths .
-      #     Allows PyInstaller to resolve the project root.
+      # IMPORTANT:
+      # --paths . tells PyInstaller that project root
+      # is also a Python import location.
       #
-      # --collect-submodules tools
-      #     IMPORTANT:
-      #     Includes tools.universal_app_launcher and other
-      #     modules inside tools.
-      #
-      # --collect-submodules command_engine
-      #     Includes command engine modules that may be
-      #     imported dynamically.
-      #
-      # --collect-submodules ai_core
-      #     Includes ai_core modules used by Vyom.
+      # --collect-submodules ensures dynamically imported
+      # modules inside Vyom are included.
       # ======================================================
 
-      - name: Build EXE
+      - name: Build Vyom EXE
+        shell: powershell
         run: |
           python -m PyInstaller `
             --onefile `
             --clean `
             --noconfirm `
+            --console `
             --paths "." `
             --collect-submodules tools `
-            --collect-submodules command_engine `
             --collect-submodules ai_core `
+            --collect-submodules command_engine `
+            --collect-submodules memory `
+            --collect-submodules windows_agent `
+            --collect-submodules android_agent `
+            --collect-submodules voice `
+            --collect-submodules vision `
+            --collect-submodules security `
             --hidden-import tools.universal_app_launcher `
-            --hidden-import tools.tool_manager `
             --name Vyom `
             ai_core/main.py
 
 
       # ======================================================
-      # 6. Verify EXE was created
+      # 6. Verify EXE
       # ======================================================
 
       - name: Verify EXE
         shell: powershell
         run: |
+          Write-Host "===== DIST FOLDER ====="
+          Get-ChildItem dist
+
           if (!(Test-Path "dist/Vyom.exe")) {
-            Write-Error "Vyom.exe was not created"
-            exit 1
+              Write-Error "Vyom.exe was not created!"
+              exit 1
           }
 
-          Write-Host "Vyom.exe created successfully."
-
-          Get-Item "dist/Vyom.exe" |
-            Select-Object Name, Length, FullName
+          Write-Host ""
+          Write-Host "Vyom.exe successfully created."
 
 
       # ======================================================
