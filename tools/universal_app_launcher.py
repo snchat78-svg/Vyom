@@ -1449,7 +1449,7 @@ catch {
     # OPEN NORMAL PATH
     # ========================================================
 
-def open_normal_path(
+    def open_normal_path(
         self,
         path
     ):
@@ -1544,7 +1544,7 @@ def open_normal_path(
     # inside shell:AppsFolder and invoke its Open verb.
     # ========================================================
 
-def open_appsfolder_by_name(
+    def open_appsfolder_by_name(
         self,
         target
     ):
@@ -1831,7 +1831,7 @@ exit 3
     # OPEN APPLICATION RECORD
     # ========================================================
 
-def open_record(
+    def open_record(
         self,
         app
     ):
