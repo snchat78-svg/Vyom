@@ -476,17 +476,13 @@ class UniversalAppLauncher:
 
         return results
 
-    # ========================================================
+        # ========================================================
     # GET START APPS
     #
-    # Windows PowerShell
+    # Windows 8 / 8.1 SAFE VERSION
     #
-    # Returns:
-    #     Name
-    #     AppID
-    #
-    # Example:
-    #     Camera    Microsoft.Camera_...
+    # Get-StartApps is not required here.
+    # AppsFolder is used as the primary Windows Shell source.
     # ========================================================
 
     def get_start_apps(self):
@@ -500,15 +496,31 @@ $ErrorActionPreference = "SilentlyContinue"
 
 try {
 
-    if (Get-Command Get-StartApps -ErrorAction SilentlyContinue) {
+    $shell = New-Object -ComObject Shell.Application
 
-        Get-StartApps | ForEach-Object {
+    $folder = $shell.Namespace(
+        "shell:::{4234d49b-0245-4df3-b780-3893943456e1}"
+    )
 
-            if ($_.Name -and $_.AppID) {
+    if ($folder -ne $null) {
 
-                Write-Output (
-                    $_.Name + "`t" + $_.AppID
-                )
+        foreach ($item in $folder.Items()) {
+
+            try {
+
+                $name = [string]$item.Name
+                $path = [string]$item.Path
+
+                if ($name) {
+
+                    Write-Output (
+                        $name + "`t" + $path
+                    )
+                }
+
+            }
+            catch {
+
             }
         }
     }
@@ -544,7 +556,7 @@ catch {
 
             for line in stdout.splitlines():
 
-                line = line.strip()
+                line = line.rstrip()
 
                 if not line:
 
@@ -555,31 +567,26 @@ catch {
                     1
                 )
 
-                if len(parts) != 2:
+                if len(parts) == 1:
 
-                    continue
+                    name = parts[0].strip()
+                    path = ""
 
-                name = parts[0].strip()
+                else:
 
-                app_id = parts[1].strip()
+                    name = parts[0].strip()
+                    path = parts[1].strip()
 
                 if not name:
-
-                    continue
-
-                if not app_id:
 
                     continue
 
                 results.append(
                     {
                         "name": name,
-                        "path": (
-                            "shell:AppsFolder\\"
-                            + app_id
-                        ),
-                        "app_id": app_id,
-                        "aumid": app_id,
+                        "path": path,
+                        "app_id": "",
+                        "aumid": path,
                         "type": "start_app"
                     }
                 )
@@ -1534,14 +1541,17 @@ catch {
 
         return False
 
-    # ========================================================
-    # OPEN APPSFOLDER ITEM THROUGH POWERSHELL
+        # ========================================================
+    # OPEN APPSFOLDER ITEM BY NAME
     #
-    # Very important fallback for Windows 8/8.1.
+    # Windows 8 / 8.1 compatible
     #
-    # Instead of assuming that Path is an EXE,
-    # ask Windows Shell itself to find the application
-    # inside shell:AppsFolder and invoke its Open verb.
+    # Process:
+    #
+    #   1. Search Shell AppsFolder
+    #   2. Find application by name
+    #   3. Read application Path / AUMID
+    #   4. Launch through explorer.exe
     # ========================================================
 
     def open_appsfolder_by_name(
@@ -1550,6 +1560,7 @@ catch {
     ):
 
         if not self.is_windows():
+
             return False
 
         target = self.clean_target(
@@ -1557,6 +1568,7 @@ catch {
         )
 
         if not target:
+
             return False
 
         safe_target = target.replace(
@@ -1564,66 +1576,56 @@ catch {
             "''"
         )
 
-        # ----------------------------------------------------
-        # PowerShell searches AppsFolder by exact name
-        # and invokes the Open verb.
-        # ----------------------------------------------------
-
         script = r"""
 $ErrorActionPreference = "SilentlyContinue"
 
 $target = '__TARGET__'
 
-$shell = New-Object -ComObject Shell.Application
+try {
 
-$folder = $shell.Namespace(
-    "shell:AppsFolder"
-)
+    $shell = New-Object -ComObject Shell.Application
 
-if ($folder -eq $null) {
-    exit 2
-}
+    $folder = $shell.Namespace(
+        "shell:::{4234d49b-0245-4df3-b780-3893943456e1}"
+    )
 
-foreach ($item in $folder.Items()) {
+    if ($folder -eq $null) {
 
-    try {
+        exit 2
+    }
 
-        $name = [string]$item.Name
+    foreach ($item in $folder.Items()) {
 
-        if (
-            $name -and
-            $name.Equals(
-                $target,
-                [System.StringComparison]::OrdinalIgnoreCase
-            )
-        ) {
+        try {
 
-            try {
+            $name = [string]$item.Name
+            $path = [string]$item.Path
 
-                $item.InvokeVerb("open")
+            if (
+                $name -and
+                $name.Equals(
+                    $target,
+                    [System.StringComparison]::OrdinalIgnoreCase
+                )
+            ) {
 
-                exit 0
+                if ($path) {
 
-            }
-            catch {
-
-                try {
-
-                    $item.InvokeVerb()
+                    Write-Output $path
 
                     exit 0
-
-                }
-                catch {
-
                 }
             }
+
         }
+        catch {
 
+        }
     }
-    catch {
 
-    }
+}
+catch {
+
 }
 
 exit 3
@@ -1655,27 +1657,65 @@ exit 3
                 timeout=30
             )
 
-            return (
-                process.returncode == 0
+            if process.returncode != 0:
+
+                return False
+
+            app_path = ""
+
+            for line in stdout.splitlines():
+
+                line = line.strip()
+
+                if line:
+
+                    app_path = line
+
+                    break
+
+            if not app_path:
+
+                return False
+
+            prefix = "shell:AppsFolder\\"
+
+            if app_path.lower().startswith(
+                prefix.lower()
+            ):
+
+                app_id = app_path[
+                    len(prefix):
+                ]
+
+                return self.open_by_aumid(
+                    app_id
+                )
+
+            if "!" in app_path:
+
+                return self.open_by_aumid(
+                    app_path
+                )
+
+            return self.open_normal_path(
+                app_path
             )
 
         except Exception:
 
             return False
 
-        # ========================================================
+
+           # ========================================================
     # OPEN BY AUMID / APPID
     #
-    # Windows 8 / 8.1 / 10 / 11 compatible
+    # Windows 8 / 8.1 / 10 / 11
     #
-    # IMPORTANT:
-    #     First use Shell.Application + AppsFolder + InvokeVerb.
+    # Primary:
+    #     explorer.exe shell:AppsFolder\<AUMID>
     #
-    #     This is the method that works correctly on
-    #     Windows 8.1 for Modern / Store applications.
-    #
-    #     explorer.exe is used only as a fallback and is
-    #     called using its absolute Windows path.
+    # Fallback:
+    #     ShellExecute
     # ========================================================
 
     def open_by_aumid(
@@ -1684,6 +1724,7 @@ exit 3
     ):
 
         if not self.is_windows():
+
             return False
 
         app_id = str(
@@ -1691,29 +1732,38 @@ exit 3
         ).strip()
 
         if not app_id:
+
             return False
 
         # ----------------------------------------------------
-        # Remove possible shell prefix
+        # Remove shell:AppsFolder prefix
         # ----------------------------------------------------
 
         prefix = "shell:AppsFolder\\"
 
-        if app_id.lower().startswith(prefix.lower()):
+        if app_id.lower().startswith(
+            prefix.lower()
+        ):
 
             app_id = app_id[
                 len(prefix):
             ]
 
         if not app_id:
+
             return False
+
+        shell_target = (
+            "shell:AppsFolder\\"
+            + app_id
+        )
 
         # ----------------------------------------------------
         # METHOD 1
         #
-        # Windows Explorer AppsFolder
+        # Windows Explorer
         #
-        # This is the primary method for Windows 8/8.1.
+        # This is the primary AUMID launch method.
         # ----------------------------------------------------
 
         try:
@@ -1728,12 +1778,9 @@ exit 3
                 "explorer.exe"
             )
 
-            shell_target = (
-                "shell:AppsFolder\\"
-                + app_id
-            )
-
-            if os.path.exists(explorer_path):
+            if os.path.exists(
+                explorer_path
+            ):
 
                 process = subprocess.Popen(
                     [
@@ -1744,27 +1791,21 @@ exit 3
                     stderr=subprocess.DEVNULL
                 )
 
-                # Do not wait for Explorer.
-                # Explorer owns the application launch.
-
                 if process is not None:
+
                     return True
 
         except Exception:
+
             pass
 
         # ----------------------------------------------------
         # METHOD 2
         #
-        # ShellExecute
+        # Windows ShellExecute
         # ----------------------------------------------------
 
         try:
-
-            shell_target = (
-                "shell:AppsFolder\\"
-                + app_id
-            )
 
             if self.shell_execute(
                 shell_target
@@ -1773,55 +1814,7 @@ exit 3
                 return True
 
         except Exception:
-            pass
 
-        # ----------------------------------------------------
-        # METHOD 3
-        #
-        # PowerShell + Start-Process
-        #
-        # Kept as fallback only.
-        # ----------------------------------------------------
-
-        try:
-
-            safe_target = (
-                "shell:AppsFolder\\"
-                + app_id
-            ).replace(
-                "'",
-                "''"
-            )
-
-            script = (
-                "$ErrorActionPreference='Stop';"
-                "Start-Process -FilePath '"
-                + safe_target
-                + "'"
-            )
-
-            process = subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    script
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-
-            process.wait(
-                timeout=10
-            )
-
-            if process.returncode == 0:
-                return True
-
-        except Exception:
             pass
 
         return False
