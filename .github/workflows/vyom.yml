@@ -8,6 +8,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -20,13 +21,41 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
+          pip install SpeechRecognition
+          pip install PyAudio
+
+      # ------------------------------------------------------
+      # EXISTING VYOM EXE
+      # ------------------------------------------------------
 
       - name: Build Vyom EXE
         run: |
-          pyinstaller --onefile --paths "." --collect-submodules tools --hidden-import tools.universal_app_launcher ai_core/main.py --name Vyom
+          pyinstaller --onefile --console --paths "." --collect-submodules tools --hidden-import tools.universal_app_launcher ai_core/main.py --name Vyom
 
-      - name: Upload EXE
+      # ------------------------------------------------------
+      # VOICE TEST EXE
+      # ------------------------------------------------------
+
+      - name: Build Vyom Voice Test EXE
+        run: |
+          pyinstaller --onefile --console --paths "." --collect-submodules voice --hidden-import voice.speech_to_text voice/exe_test.py --name Vyom_Voice_Test
+
+      # ------------------------------------------------------
+      # UPLOAD EXISTING VYOM
+      # ------------------------------------------------------
+
+      - name: Upload Vyom EXE
         uses: actions/upload-artifact@v4
         with:
           name: Vyom_EXE
           path: dist/Vyom.exe
+
+      # ------------------------------------------------------
+      # UPLOAD VOICE TEST
+      # ------------------------------------------------------
+
+      - name: Upload Voice Test EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_Voice_EXE
+          path: dist/Vyom_Voice_Test.exe
