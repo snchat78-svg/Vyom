@@ -4,111 +4,158 @@
 # Version : 0.1
 #
 # Purpose:
-#     Standalone EXE test entry point for Vyom Voice.
+#     Standalone Voice Test for Vyom EXE
+#
+# Flow:
+#     Microphone -> Speech To Text -> Display Text
 #
 # IMPORTANT:
-#     This file does not replace main.py.
-#     It is only used for Windows EXE testing.
+#     This file does NOT modify existing Vyom command logic.
 # ============================================================
 
-from voice.voice_controller import VoiceController
+import sys
+import os
 
+# ------------------------------------------------------------
+# Make project root available
+# ------------------------------------------------------------
+
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(
+        0,
+        PROJECT_ROOT
+    )
+
+
+# ------------------------------------------------------------
+# Import Speech To Text
+# ------------------------------------------------------------
+
+try:
+
+    from voice.speech_to_text import SpeechToText
+
+except Exception as error:
+
+    print("")
+    print("Vyom : Could not load SpeechToText.")
+    print("Reason :", error)
+    print("")
+
+    input("Press Enter to exit...")
+    sys.exit(1)
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
 
     print("=" * 60)
-    print("Vyom AI - EXE Test")
+    print(" Vyom AI - Voice EXE Test")
     print("=" * 60)
     print("")
 
-    controller = VoiceController()
+    stt = SpeechToText()
 
     # --------------------------------------------------------
-    # Check Speech Recognition
+    # Check microphone / speech recognition
     # --------------------------------------------------------
 
-    if not controller.is_available():
+    if not stt.is_available():
 
-        print(
-            "Vyom : Speech recognition is not available."
-        )
+        print("STT Status : NOT AVAILABLE")
+        print("")
 
         print(
             "Reason : "
-            + str(
-                controller.stt.error_message
-            )
+            + stt.error_message
         )
 
-        input(
-            "\nPress Enter to exit..."
-        )
+        print("")
+        input("Press Enter to exit...")
 
         return
 
+    print("STT Status : READY")
+    print("")
+
     print(
-        "Vyom : Voice system is ready."
+        "Microphone is ready."
+    )
+
+    print(
+        "Speak after 'Listening...' appears."
+    )
+
+    print(
+        "Say 'exit' to stop."
     )
 
     print("")
-    print(
-        "Speak a command."
-    )
-    print(
-        "Say 'exit' or 'quit' to stop."
-    )
-    print("")
 
     # --------------------------------------------------------
-    # Voice loop
+    # Continuous voice test
     # --------------------------------------------------------
 
-    try:
+    while True:
 
-        while True:
+        result = stt.listen(
+            timeout=5,
+            phrase_time_limit=8
+        )
 
-            response = (
-                controller.listen_and_execute()
+        if result.get("success"):
+
+            text = result.get(
+                "text",
+                ""
+            ).strip()
+
+            print(
+                "You : "
+                + text
             )
 
-            print("")
+            # ----------------------------------------------
+            # EXIT
+            # ----------------------------------------------
+
+            if text.lower() in (
+                "exit",
+                "quit",
+                "stop"
+            ):
+
+                print(
+                    "Vyom : Voice test stopped."
+                )
+
+                break
+
+        else:
 
             print(
                 "Vyom : "
-                + str(
-                    response.get(
-                        "message",
-                        ""
-                    )
+                + result.get(
+                    "message",
+                    "Speech recognition failed."
                 )
             )
 
-            print("")
-
-    except KeyboardInterrupt:
-
         print("")
-        print(
-            "Vyom : Voice test stopped."
-        )
 
-    except Exception as error:
 
-        print("")
-        print(
-            "Vyom : Unexpected error:"
-        )
-
-        print(
-            str(error)
-        )
-
-    finally:
-
-        input(
-            "\nPress Enter to exit..."
-        )
-
+# ============================================================
+# START
+# ============================================================
 
 if __name__ == "__main__":
 
