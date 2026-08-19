@@ -1,56 +1,54 @@
 """
 Project : Vyom AI
-Version : 0.1
-Module  : Autonomous Agent Core
+Version : 0.2
+Module  : Autonomous Agent
 
 Purpose:
-    First autonomous reasoning layer for Vyom.
-
-    This module sits ABOVE the existing command engine and
-    ToolManager.
+    Connect Vyom's natural-language command flow with the
+    existing IntentEngine and ToolManager.
 
     Current architecture:
 
-        User Goal
-            |
-            v
+        User Command
+             |
+             v
+        IntentEngine
+             |
+             v
         AutonomousAgent
-            |
-            +---- Understand
-            |
-            +---- Plan
-            |
-            +---- Decide
-            |
-            +---- Existing ToolManager
-            |
-            +---- Observe Result
-            |
-            +---- Continue / Complete
+             |
+        +----+----+
+        |         |
+       Brain   ToolManager
+                  |
+                  v
+              Windows
+                  |
+                  v
+               Result
 
 IMPORTANT:
-    This version does NOT execute arbitrary generated code.
+    This version does NOT generate or execute arbitrary code.
 
-    It uses only the already registered/safe capabilities
-    exposed through ToolManager.
+    It creates the foundation for future autonomous reasoning.
 
-    Future versions will add:
+Future versions will add:
 
-        - LLM reasoning
-        - dynamic planning
-        - capability discovery
-        - self-created skills
-        - sandbox testing
-        - skill registry
-        - browser automation
-        - vision
-        - coding agent
-        - continuous voice context
+    - real reasoning model
+    - multi-step planning
+    - dynamic tool selection
+    - observation/reasoning loop
+    - capability discovery
+    - self-created skills
+    - sandbox testing
+    - browser automation
+    - vision
+    - coding agent
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional, List
 
-from ai_core.logger import log
+from ai_core.brain import Brain
 from tools.tool_manager import ToolManager
 
 
@@ -63,21 +61,11 @@ class AutonomousAgent:
     def __init__(
         self,
         tool_manager: Optional[ToolManager] = None,
+        brain: Optional[Brain] = None,
         max_steps: int = 10
     ):
         """
-        Initialize Autonomous Agent.
-
-        Args:
-            tool_manager:
-                Existing Vyom ToolManager.
-
-            max_steps:
-                Maximum number of actions allowed in one
-                autonomous execution cycle.
-
-        IMPORTANT:
-            A step limit prevents an accidental infinite loop.
+        Initialize AutonomousAgent.
         """
 
         self.tool_manager = (
@@ -86,36 +74,38 @@ class AutonomousAgent:
             else ToolManager()
         )
 
+        self.brain = (
+            brain
+            if brain is not None
+            else Brain()
+        )
+
         self.max_steps = max(
             1,
             int(max_steps)
         )
 
-        # -----------------------------------------------------
-        # Current task
-        # -----------------------------------------------------
-
         self.current_goal = ""
 
-        self.task_history: List[Dict[str, Any]] = []
+        self.task_history: List[
+            Dict[str, Any]
+        ] = []
 
         self.step_count = 0
 
         self.active = False
 
     # =========================================================
-    # NORMALIZE GOAL
+    # NORMALIZE COMMAND
     # =========================================================
 
     def _normalize_goal(
         self,
         goal: Any
     ) -> str:
-        """
-        Convert user input into a clean goal string.
-        """
 
         if goal is None:
+
             return ""
 
         return str(
@@ -128,15 +118,15 @@ class AutonomousAgent:
 
     def understand(
         self,
-        goal: str
+        goal: str,
+        intent: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        First-stage goal understanding.
+        Understand the current goal.
 
-        This is intentionally lightweight in v0.1.
+        v0.2 uses the existing IntentEngine result.
 
-        A future LLM/reasoning model will replace/extend this
-        stage without changing the rest of the architecture.
+        A future reasoning model will expand this method.
         """
 
         clean_goal = self._normalize_goal(
@@ -148,12 +138,14 @@ class AutonomousAgent:
             return {
                 "understood": False,
                 "goal": "",
-                "reason": "Empty goal."
+                "intent": intent,
+                "reason": "Empty command."
             }
 
         return {
             "understood": True,
-            "goal": clean_goal
+            "goal": clean_goal,
+            "intent": intent
         }
 
     # =========================================================
@@ -162,37 +154,35 @@ class AutonomousAgent:
 
     def create_plan(
         self,
-        understood_goal: Dict[str, Any]
+        understood: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
         Create an initial execution plan.
 
-        v0.1 intentionally creates a simple plan.
+        v0.2 contains one executable step.
 
-        The important architectural point is that the plan is
-        separate from execution.
-
-        Later the reasoning model can create multi-step plans
-        dynamically.
+        This separation allows a future reasoning model to
+        generate multiple steps.
         """
 
-        if not understood_goal.get(
+        if not understood.get(
             "understood",
             False
         ):
 
             return []
 
-        goal = understood_goal.get(
-            "goal",
-            ""
-        )
-
         return [
             {
                 "step": 1,
-                "action": "execute_goal",
-                "goal": goal
+                "action": "execute_intent",
+                "goal": understood.get(
+                    "goal",
+                    ""
+                ),
+                "intent": understood.get(
+                    "intent"
+                )
             }
         ]
 
@@ -205,28 +195,27 @@ class AutonomousAgent:
         step: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Decide how the current step should be executed.
+        Decide what to execute.
 
-        v0.1 delegates the actual command interpretation to
-        the existing IntentEngine through the normal executor
-        path later.
+        For v0.2 the IntentEngine has already converted the
+        natural-language command into an intent.
 
-        For now this method creates a normalized decision
-        object.
-
-        This separation is important because future versions
-        can replace this decision logic with a real reasoning
-        model.
+        Future versions will allow the Agent itself to decide
+        which tool/capability should be used.
         """
 
-        goal = step.get(
-            "goal",
-            ""
-        )
-
         return {
-            "action": "execute",
-            "input": goal
+            "action": step.get(
+                "action",
+                "execute_intent"
+            ),
+            "goal": step.get(
+                "goal",
+                ""
+            ),
+            "intent": step.get(
+                "intent"
+            )
         }
 
     # =========================================================
@@ -238,42 +227,52 @@ class AutonomousAgent:
         decision: Dict[str, Any]
     ) -> Any:
         """
-        Execute a decision through existing ToolManager.
+        Execute through the existing ToolManager.
 
         IMPORTANT:
-            We do not bypass ToolManager.
 
-            Existing safety and application/file handling
-            remains active.
+        We intentionally do NOT bypass ToolManager.
+
+        Existing application/file/process handling remains
+        intact.
         """
 
-        command = decision.get(
-            "input",
-            ""
+        intent = decision.get(
+            "intent"
         )
 
-        if not command:
+        if not isinstance(
+            intent,
+            dict
+        ):
 
-            return (
-                "No executable goal was provided."
+            return {
+                "success": False,
+                "status": "invalid_intent",
+                "message": (
+                    "No valid intent was provided."
+                )
+            }
+
+        try:
+
+            result = self.tool_manager.execute(
+                intent
             )
 
-        # -----------------------------------------------------
-        # Current ToolManager expects an intent dictionary.
-        #
-        # The existing IntentEngine will be connected by the
-        # Executor integration.
-        #
-        # Therefore this method is intentionally designed to
-        # receive a prepared intent in future iterations.
-        #
-        # For direct compatibility, a simple fallback is used.
-        # -----------------------------------------------------
+            return {
+                "success": True,
+                "status": "executed",
+                "result": result
+            }
 
-        return {
-            "status": "pending_intent",
-            "command": command
-        }
+        except Exception as error:
+
+            return {
+                "success": False,
+                "status": "execution_error",
+                "error": str(error)
+            }
 
     # =========================================================
     # OBSERVE
@@ -284,28 +283,21 @@ class AutonomousAgent:
         result: Any
     ) -> Dict[str, Any]:
         """
-        Convert execution output into an observation.
+        Observe the result of an action.
         """
 
-        if isinstance(
+        if not isinstance(
             result,
             dict
         ):
 
-            status = result.get(
-                "status",
-                "unknown"
-            )
-
             return {
-                "status": status,
+                "success": True,
+                "status": "completed",
                 "result": result
             }
 
-        return {
-            "status": "completed",
-            "result": result
-        }
+        return result
 
     # =========================================================
     # SHOULD CONTINUE
@@ -316,26 +308,12 @@ class AutonomousAgent:
         observation: Dict[str, Any]
     ) -> bool:
         """
-        Decide whether another autonomous step is required.
+        Decide whether another step is required.
 
-        v0.1 stops after the current step.
+        v0.2 has one-step execution.
 
-        Future versions will use observation + goal +
-        remaining plan to decide the next action.
+        Multi-step reasoning will be added later.
         """
-
-        status = observation.get(
-            "status",
-            ""
-        )
-
-        if status in (
-            "failed",
-            "error",
-            "blocked"
-        ):
-
-            return False
 
         return False
 
@@ -346,15 +324,15 @@ class AutonomousAgent:
     def _record(
         self,
         step: int,
-        action: str,
-        result: Any
+        decision: Dict[str, Any],
+        observation: Dict[str, Any]
     ):
 
         self.task_history.append(
             {
                 "step": step,
-                "action": action,
-                "result": result
+                "decision": decision,
+                "observation": observation
             }
         )
 
@@ -364,30 +342,27 @@ class AutonomousAgent:
 
     def run(
         self,
-        goal: str
+        goal: str,
+        intent: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Main autonomous entry point.
+        Main autonomous execution entry point.
 
-        Current v0.1 pipeline:
+        Pipeline:
 
             Goal
              ↓
-            Understand
+          Understand
              ↓
             Plan
              ↓
-            Decide
+           Decide
              ↓
-            Prepare execution
+          Execute
              ↓
-            Observe
+          Observe
              ↓
-            Result
-
-        The architecture is deliberately separated so that
-        later versions can add real reasoning and autonomous
-        multi-step execution without rewriting ToolManager.
+           Result
         """
 
         self.current_goal = self._normalize_goal(
@@ -400,17 +375,13 @@ class AutonomousAgent:
 
         self.active = True
 
-        log(
-            f"Autonomous goal received: "
-            f"{self.current_goal}"
-        )
-
         # =====================================================
         # UNDERSTAND
         # =====================================================
 
         understood = self.understand(
-            self.current_goal
+            self.current_goal,
+            intent
         )
 
         if not understood.get(
@@ -425,10 +396,41 @@ class AutonomousAgent:
                 "stage": "understand",
                 "message": understood.get(
                     "reason",
-                    "Could not understand goal."
+                    "Could not understand command."
                 ),
                 "history": self.task_history
             }
+
+        # =====================================================
+        # BRAIN
+        # =====================================================
+
+        if isinstance(
+            intent,
+            dict
+        ):
+
+            try:
+
+                self.brain.think(
+                    intent
+                )
+
+            except Exception as error:
+
+                self.task_history.append(
+                    {
+                        "step": 0,
+                        "decision": {
+                            "action": "brain"
+                        },
+                        "observation": {
+                            "success": False,
+                            "status": "brain_error",
+                            "error": str(error)
+                        }
+                    }
+                )
 
         # =====================================================
         # PLAN
@@ -446,14 +448,13 @@ class AutonomousAgent:
                 "success": False,
                 "stage": "plan",
                 "message": (
-                    "I could not create a plan "
-                    "for this goal."
+                    "Could not create an execution plan."
                 ),
                 "history": self.task_history
             }
 
         # =====================================================
-        # EXECUTION LOOP
+        # AUTONOMOUS EXECUTION LOOP
         # =====================================================
 
         for step in plan:
@@ -503,15 +504,12 @@ class AutonomousAgent:
 
             self._record(
                 self.step_count,
-                decision.get(
-                    "action",
-                    "unknown"
-                ),
+                decision,
                 observation
             )
 
             # -------------------------------------------------
-            # CONTINUE?
+            # CONTINUE
             # -------------------------------------------------
 
             if not self.should_continue(
@@ -521,12 +519,18 @@ class AutonomousAgent:
                 self.active = False
 
                 return {
-                    "success": True,
+                    "success": observation.get(
+                        "success",
+                        True
+                    ),
                     "stage": "completed",
                     "goal": self.current_goal,
                     "message": (
-                        "Autonomous planning cycle "
-                        "completed."
+                        "Autonomous execution completed."
+                    ),
+                    "result": observation.get(
+                        "result",
+                        observation
                     ),
                     "history": self.task_history
                 }
