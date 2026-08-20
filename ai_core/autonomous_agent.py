@@ -1,29 +1,7 @@
 """
 Project : Vyom AI
-Version : 0.3
+Version : 0.4
 Module : Autonomous Agent
-
-Purpose:
-    Coordinate:
-
-        User Goal
-            ↓
-        ReasoningEngine
-            ↓
-        Intent / Plan
-            ↓
-        ToolManager
-            ↓
-        Result
-            ↓
-        Observation
-
-IMPORTANT:
-
-    Arbitrary generated code is NOT executed directly.
-
-    Existing ToolManager remains the controlled execution
-    boundary.
 """
 
 from typing import Any, Dict, Optional, List
@@ -34,10 +12,6 @@ from tools.tool_manager import ToolManager
 
 
 class AutonomousAgent:
-
-    # =========================================================
-    # INITIALIZATION
-    # =========================================================
 
     def __init__(
         self,
@@ -125,27 +99,6 @@ class AutonomousAgent:
         )
 
         # =====================================================
-        # INVALID GOAL
-        # =====================================================
-
-        if not analysis.get(
-            "understood",
-            False
-        ):
-
-            self.active = False
-
-            return {
-                "success": False,
-                "stage": "understand",
-                "message": analysis.get(
-                    "reason",
-                    "Could not understand goal."
-                ),
-                "history": self.task_history
-            }
-
-        # =====================================================
         # BRAIN
         # =====================================================
 
@@ -164,35 +117,10 @@ class AutonomousAgent:
 
                 self.task_history.append(
                     {
-                        "step": 0,
                         "stage": "brain",
                         "error": str(error)
                     }
                 )
-
-        # =====================================================
-        # REASONING ROUTE
-        # =====================================================
-
-        if route.get(
-            "route"
-        ) == "reasoning":
-
-            self.active = False
-
-            return {
-                "success": False,
-                "stage": "capability_required",
-                "goal": self.current_goal,
-                "message": (
-                    "This goal is not supported by "
-                    "the current capabilities yet."
-                ),
-                "analysis": analysis,
-                "route": route,
-                "plan": plan,
-                "history": self.task_history
-            }
 
         # =====================================================
         # EXISTING TOOL ROUTE
@@ -200,115 +128,125 @@ class AutonomousAgent:
 
         if route.get(
             "route"
-        ) != "existing_tools":
+        ) == "existing_tools":
+
+            for step in plan:
+
+                self.step_count += 1
+
+                if self.step_count > self.max_steps:
+
+                    self.active = False
+
+                    return {
+                        "success": False,
+                        "stage": "safety_limit",
+                        "message": (
+                            "Autonomous step limit reached."
+                        )
+                    }
+
+                current_intent = step.get(
+                    "intent"
+                )
+
+                try:
+
+                    result = self.tool_manager.execute(
+                        current_intent
+                    )
+
+                    self.task_history.append(
+                        {
+                            "step": self.step_count,
+                            "type": step.get(
+                                "type"
+                            ),
+                            "result": result
+                        }
+                    )
+
+                    self.active = False
+
+                    return {
+                        "success": True,
+                        "stage": "completed",
+                        "result": result,
+                        "history": self.task_history
+                    }
+
+                except Exception as error:
+
+                    self.active = False
+
+                    return {
+                        "success": False,
+                        "stage": "execution_error",
+                        "error": str(error),
+                        "history": self.task_history
+                    }
+
+        # =====================================================
+        # CAPABILITY FOUND
+        # =====================================================
+
+        if route.get(
+            "route"
+        ) == "capability":
+
+            capability = route.get(
+                "capability"
+            )
 
             self.active = False
 
             return {
                 "success": False,
-                "stage": "routing",
-                "message": route.get(
-                    "reason",
-                    "No execution route available."
+                "stage": "capability_not_implemented",
+                "message": (
+                    "The required capability was "
+                    "identified but its executor is "
+                    "not implemented yet."
                 ),
-                "history": self.task_history
+                "capability": capability,
+                "goal": self.current_goal,
+                "plan": plan
             }
 
         # =====================================================
-        # EXECUTE EXISTING PLAN
+        # MISSING CAPABILITY
         # =====================================================
 
-        for step in plan:
-
-            self.step_count += 1
-
-            if self.step_count > self.max_steps:
-
-                self.active = False
-
-                return {
-                    "success": False,
-                    "stage": "safety_limit",
-                    "message": (
-                        "Autonomous step limit reached."
-                    ),
-                    "history": self.task_history
-                }
-
-            intent_to_execute = step.get(
-                "intent"
-            )
-
-            if not isinstance(
-                intent_to_execute,
-                dict
-            ):
-
-                self.active = False
-
-                return {
-                    "success": False,
-                    "stage": "invalid_intent",
-                    "message": (
-                        "No valid intent was generated."
-                    ),
-                    "history": self.task_history
-                }
-
-            # -------------------------------------------------
-            # Execute through controlled ToolManager
-            # -------------------------------------------------
-
-            try:
-
-                result = self.tool_manager.execute(
-                    intent_to_execute
-                )
-
-                observation = {
-                    "success": True,
-                    "result": result
-                }
-
-            except Exception as error:
-
-                observation = {
-                    "success": False,
-                    "error": str(error)
-                }
-
-            self.task_history.append(
-                {
-                    "step": self.step_count,
-                    "intent": intent_to_execute,
-                    "observation": observation
-                }
-            )
+        if route.get(
+            "route"
+        ) == "missing_capability":
 
             self.active = False
 
             return {
-                "success": observation.get(
-                    "success",
-                    False
+                "success": False,
+                "stage": "missing_capability",
+                "message": (
+                    "I do not currently have a "
+                    "capability for this task."
                 ),
-                "stage": "completed",
                 "goal": self.current_goal,
-                "result": observation.get(
-                    "result"
-                ),
-                "history": self.task_history
+                "plan": plan
             }
+
+        # =====================================================
+        # STOP
+        # =====================================================
 
         self.active = False
 
         return {
             "success": False,
-            "stage": "empty_plan",
-            "message": (
-                "No executable plan was created."
-            ),
-            "history": self.task_history
+            "stage": "stopped",
+            "message": route.get(
+                "reason",
+                "Task stopped."
+            )
         }
 
     # =========================================================
