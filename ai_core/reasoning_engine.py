@@ -1,26 +1,17 @@
 """
 Project : Vyom AI
-Version : 0.1
+Version : 0.2
 Module  : Reasoning Engine
 
 Purpose:
-    Provide a lightweight reasoning/planning layer for Vyom.
+    Goal understanding + route selection + capability
+    discovery.
 
 IMPORTANT:
-
-    This module intentionally has NO external AI/LLM dependency.
-
-    It provides the architecture required for:
-
-        Goal Understanding
-        Decision
-        Planning
-        Capability Selection
-        Verification
-
-    Future versions can connect a real reasoning model here
-    without changing the main Agent architecture.
+    This version does not generate or execute arbitrary code.
 """
+
+from ai_core.capability_manager import CapabilityManager
 
 
 class ReasoningEngine:
@@ -29,13 +20,24 @@ class ReasoningEngine:
     # INITIALIZATION
     # =========================================================
 
-    def __init__(self):
+    def __init__(
+        self,
+        capability_manager=None
+    ):
+
+        self.capability_manager = (
+            capability_manager
+            if capability_manager is not None
+            else CapabilityManager()
+        )
 
         self.last_goal = ""
 
         self.last_analysis = None
 
         self.last_plan = []
+
+        self.last_capabilities = []
 
     # =========================================================
     # NORMALIZE
@@ -55,7 +57,7 @@ class ReasoningEngine:
         ).strip()
 
     # =========================================================
-    # ANALYZE GOAL
+    # ANALYZE
     # =========================================================
 
     def analyze_goal(
@@ -63,15 +65,6 @@ class ReasoningEngine:
         goal,
         intent=None
     ):
-        """
-        Analyze the user's goal.
-
-        The current version uses lightweight deterministic
-        reasoning.
-
-        It does NOT pretend to understand arbitrary tasks
-        like a full AI model yet.
-        """
 
         goal = self._normalize(
             goal
@@ -95,7 +88,7 @@ class ReasoningEngine:
             return analysis
 
         # -----------------------------------------------------
-        # Known intent
+        # Existing known intent
         # -----------------------------------------------------
 
         if isinstance(
@@ -136,15 +129,24 @@ class ReasoningEngine:
         # Unknown goal
         # -----------------------------------------------------
 
+        capabilities = (
+            self.capability_manager.match(
+                goal
+            )
+        )
+
+        self.last_capabilities = capabilities
+
         analysis = {
             "understood": True,
             "goal": goal,
             "type": "unknown_goal",
             "complexity": "unknown",
             "intent": intent,
+            "capabilities": capabilities,
             "reason": (
-                "The existing command engine "
-                "did not recognize this goal."
+                "Existing command engine did not "
+                "recognize this goal."
             )
         }
 
@@ -160,9 +162,6 @@ class ReasoningEngine:
         self,
         analysis
     ):
-        """
-        Decide which execution route should be used.
-        """
 
         if not isinstance(
             analysis,
@@ -187,43 +186,39 @@ class ReasoningEngine:
                 )
             }
 
-        goal_type = analysis.get(
-            "type",
-            "unknown"
-        )
-
-        # -----------------------------------------------------
-        # Known command
-        # -----------------------------------------------------
-
-        if goal_type == "known_command":
+        if analysis.get(
+            "type"
+        ) == "known_command":
 
             return {
                 "route": "existing_tools",
                 "reason": (
-                    "Use existing IntentEngine "
-                    "and ToolManager."
+                    "Existing ToolManager "
+                    "can execute this command."
                 )
             }
 
-        # -----------------------------------------------------
-        # Unknown goal
-        # -----------------------------------------------------
+        capabilities = analysis.get(
+            "capabilities",
+            []
+        )
 
-        if goal_type == "unknown_goal":
+        if capabilities:
 
             return {
-                "route": "reasoning",
+                "route": "capability",
                 "reason": (
-                    "Goal requires autonomous "
-                    "reasoning/capability selection."
-                )
+                    "A matching capability "
+                    "was found."
+                ),
+                "capability": capabilities[0]
             }
 
         return {
-            "route": "stop",
+            "route": "missing_capability",
             "reason": (
-                "No execution route available."
+                "No enabled capability "
+                "matches this goal."
             )
         }
 
@@ -236,25 +231,9 @@ class ReasoningEngine:
         analysis,
         route
     ):
-        """
-        Create an execution plan.
-
-        Current version creates a safe plan description.
-
-        It does NOT execute arbitrary generated code.
-        """
 
         if not isinstance(
             analysis,
-            dict
-        ):
-
-            self.last_plan = []
-
-            return []
-
-        if not isinstance(
-            route,
             dict
         ):
 
@@ -273,7 +252,7 @@ class ReasoningEngine:
         )
 
         # -----------------------------------------------------
-        # Existing command
+        # Existing tools
         # -----------------------------------------------------
 
         if route_name == "existing_tools":
@@ -294,30 +273,38 @@ class ReasoningEngine:
             return plan
 
         # -----------------------------------------------------
-        # Autonomous reasoning
+        # Capability found
         # -----------------------------------------------------
 
-        if route_name == "reasoning":
+        if route_name == "capability":
+
+            capability = route.get(
+                "capability"
+            )
 
             plan = [
                 {
                     "step": 1,
-                    "type": "analyze_capabilities",
-                    "goal": goal
-                },
+                    "type": "use_capability",
+                    "goal": goal,
+                    "capability": capability
+                }
+            ]
+
+            self.last_plan = plan
+
+            return plan
+
+        # -----------------------------------------------------
+        # Missing capability
+        # -----------------------------------------------------
+
+        if route_name == "missing_capability":
+
+            plan = [
                 {
-                    "step": 2,
-                    "type": "select_capability",
-                    "goal": goal
-                },
-                {
-                    "step": 3,
-                    "type": "execute_capability",
-                    "goal": goal
-                },
-                {
-                    "step": 4,
-                    "type": "verify_result",
+                    "step": 1,
+                    "type": "request_new_capability",
                     "goal": goal
                 }
             ]
@@ -339,15 +326,6 @@ class ReasoningEngine:
         goal,
         intent=None
     ):
-        """
-        Complete reasoning pipeline.
-
-        Returns:
-
-            analysis
-            route
-            plan
-        """
 
         analysis = self.analyze_goal(
             goal,
@@ -370,16 +348,6 @@ class ReasoningEngine:
         }
 
     # =========================================================
-    # GET LAST PLAN
-    # =========================================================
-
-    def get_last_plan(self):
-
-        return list(
-            self.last_plan
-        )
-
-    # =========================================================
     # RESET
     # =========================================================
 
@@ -390,3 +358,5 @@ class ReasoningEngine:
         self.last_analysis = None
 
         self.last_plan = []
+
+        self.last_capabilities = []
