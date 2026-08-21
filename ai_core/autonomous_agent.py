@@ -36,28 +36,28 @@ class AutonomousAgent:
         )
 
         self.reasoning_engine = (
-    reasoning_engine
-    if reasoning_engine is not None
-    else ReasoningEngine()
-)
+            reasoning_engine
+            if reasoning_engine is not None
+            else ReasoningEngine()
+        )
 
-# =========================================================
-# SKILL BUILDER
-# =========================================================
-#
-# Used when the required capability does not already
-# exist in the current tool system.
-#
-# SkillBuilder creates a capability plan.
-# It does NOT directly execute generated code.
-#
+        # =========================================================
+        # SKILL BUILDER 
+        # =========================================================
+        #
+        # Used when the required capability does not already
+        # exist in the current tool system.
+        #
+        # SkillBuilder creates a capability plan.
+        # It does NOT directly execute generated code.
+        #
 
         self.skill_builder = SkillBuilder()
 
         self.max_steps = max(
-    1,
-    int(max_steps)
-)
+            1,
+            int(max_steps)
+        )
         self.current_goal = ""
 
         self.task_history: List[
