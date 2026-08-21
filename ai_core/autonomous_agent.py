@@ -58,7 +58,7 @@ self.max_steps = max(
     1,
     int(max_steps)
 )
-        self.current_goal = ""
+self.current_goal = ""
 
         self.task_history: List[
             Dict[str, Any]
