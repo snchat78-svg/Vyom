@@ -9,13 +9,25 @@ jobs:
 
     steps:
 
+      # ------------------------------------------------------
+      # CHECKOUT REPOSITORY
+      # ------------------------------------------------------
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      # ------------------------------------------------------
+      # SETUP PYTHON
+      # ------------------------------------------------------
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      # ------------------------------------------------------
+      # INSTALL DEPENDENCIES
+      # ------------------------------------------------------
 
       - name: Install Dependencies
         run: |
@@ -25,15 +37,29 @@ jobs:
           pip install PyAudio
 
       # ------------------------------------------------------
-      # EXISTING VYOM EXE
+      # BUILD VYOM EXE
+      # ------------------------------------------------------
+      #
+      # Collect all ai_core modules.
+      #
+      # This includes:
+      #
+      # ai_core.autonomous_agent
+      # ai_core.brain
+      # ai_core.reasoning_engine
+      # ai_core.skill_builder
+      # and other ai_core modules.
+      #
+      # Tools modules are also collected.
+      #
       # ------------------------------------------------------
 
       - name: Build Vyom EXE
         run: |
-          pyinstaller --onefile --console --paths "." --collect-submodules tools --hidden-import tools.universal_app_launcher ai_core/main.py --name Vyom
+          pyinstaller --onefile --console --paths "." --collect-submodules ai_core --collect-submodules tools --hidden-import ai_core.autonomous_agent --hidden-import ai_core.skill_builder --hidden-import tools.universal_app_launcher ai_core/main.py --name Vyom
 
       # ------------------------------------------------------
-      # VOICE TEST EXE
+      # BUILD VOICE TEST EXE
       # ------------------------------------------------------
 
       - name: Build Vyom Voice Test EXE
@@ -41,7 +67,7 @@ jobs:
           pyinstaller --onefile --console --paths "." --collect-submodules voice --hidden-import voice.speech_to_text voice/exe_test.py --name Vyom_Voice_Test
 
       # ------------------------------------------------------
-      # UPLOAD EXISTING VYOM
+      # UPLOAD VYOM EXE
       # ------------------------------------------------------
 
       - name: Upload Vyom EXE
@@ -51,7 +77,7 @@ jobs:
           path: dist/Vyom.exe
 
       # ------------------------------------------------------
-      # UPLOAD VOICE TEST
+      # UPLOAD VOICE TEST EXE
       # ------------------------------------------------------
 
       - name: Upload Voice Test EXE
