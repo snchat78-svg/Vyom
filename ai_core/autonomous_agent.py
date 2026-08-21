@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional, List
 from ai_core.brain import Brain
 from ai_core.reasoning_engine import ReasoningEngine
 from tools.tool_manager import ToolManager
+from ai_core.skill_builder import SkillBuilder
+
 
 
 class AutonomousAgent:
@@ -34,16 +36,28 @@ class AutonomousAgent:
         )
 
         self.reasoning_engine = (
-            reasoning_engine
-            if reasoning_engine is not None
-            else ReasoningEngine()
-        )
+    reasoning_engine
+    if reasoning_engine is not None
+    else ReasoningEngine()
+)
 
-        self.max_steps = max(
-            1,
-            int(max_steps)
-        )
+# =========================================================
+# SKILL BUILDER
+# =========================================================
+#
+# Used when the required capability does not already
+# exist in the current tool system.
+#
+# SkillBuilder creates a capability plan.
+# It does NOT directly execute generated code.
+#
 
+self.skill_builder = SkillBuilder()
+
+self.max_steps = max(
+    1,
+    int(max_steps)
+)
         self.current_goal = ""
 
         self.task_history: List[
@@ -218,22 +232,89 @@ class AutonomousAgent:
         # =====================================================
 
         if route.get(
-            "route"
-        ) == "missing_capability":
+    "route"
+) == "missing_capability":
 
-            self.active = False
+    # -----------------------------------------------------
+    # The old system stopped here.
+    #
+    # New system:
+    #
+    #     Unknown Goal
+    #          ↓
+    #     SkillBuilder
+    #          ↓
+    #     Skill Plan
+    #
+    # IMPORTANT:
+    #
+    # SkillBuilder does NOT execute generated code.
+    # -----------------------------------------------------
 
-            return {
-                "success": False,
-                "stage": "missing_capability",
-                "message": (
-                    "I do not currently have a "
-                    "capability for this task."
-                ),
-                "goal": self.current_goal,
-                "plan": plan
-            }
+    try:
 
+        skill_result = self.skill_builder.build(
+            self.current_goal
+        )
+
+    except Exception as error:
+
+        self.active = False
+
+        return {
+            "success": False,
+            "stage": "skill_builder_error",
+            "message": (
+                "I understood that I need a new "
+                "capability, but the capability "
+                "builder failed."
+            ),
+            "error": str(
+                error
+            ),
+            "goal": self.current_goal,
+            "plan": plan
+        }
+
+    self.active = False
+
+    if isinstance(
+        skill_result,
+        dict
+    ):
+
+        return {
+            "success": skill_result.get(
+                "success",
+                False
+            ),
+            "stage": skill_result.get(
+                "stage",
+                "skill_planned"
+            ),
+            "message": skill_result.get(
+                "message",
+                "A new capability plan was created."
+            ),
+            "goal": self.current_goal,
+            "plan": plan,
+            "skill": skill_result.get(
+                "skill"
+            ),
+            "next_stage": skill_result.get(
+                "next_stage"
+            )
+        }
+
+    return {
+        "success": False,
+        "stage": "skill_builder_error",
+        "message": str(
+            skill_result
+        ),
+        "goal": self.current_goal,
+        "plan": plan
+    }
         # =====================================================
         # STOP
         # =====================================================
