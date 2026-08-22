@@ -12,7 +12,6 @@ from tools.tool_manager import ToolManager
 from ai_core.skill_builder import SkillBuilder
 
 
-
 class AutonomousAgent:
 
     def __init__(
@@ -42,7 +41,7 @@ class AutonomousAgent:
         )
 
         # =========================================================
-        # SKILL BUILDER 
+        # SKILL BUILDER
         # =========================================================
         #
         # Used when the required capability does not already
@@ -58,6 +57,7 @@ class AutonomousAgent:
             1,
             int(max_steps)
         )
+
         self.current_goal = ""
 
         self.task_history: List[
@@ -227,7 +227,7 @@ class AutonomousAgent:
                 "plan": plan
             }
 
-               # =====================================================
+        # =====================================================
         # MISSING CAPABILITY
         # =====================================================
 
@@ -314,47 +314,8 @@ class AutonomousAgent:
                 ),
                 "goal": self.current_goal,
                 "plan": plan
-        }
+            }
 
-    self.active = False
-
-    if isinstance(
-        skill_result,
-        dict
-    ):
-
-        return {
-            "success": skill_result.get(
-                "success",
-                False
-            ),
-            "stage": skill_result.get(
-                "stage",
-                "skill_planned"
-            ),
-            "message": skill_result.get(
-                "message",
-                "A new capability plan was created."
-            ),
-            "goal": self.current_goal,
-            "plan": plan,
-            "skill": skill_result.get(
-                "skill"
-            ),
-            "next_stage": skill_result.get(
-                "next_stage"
-            )
-        }
-
-    return {
-        "success": False,
-        "stage": "skill_builder_error",
-        "message": str(
-            skill_result
-        ),
-        "goal": self.current_goal,
-        "plan": plan
-    }
         # =====================================================
         # STOP
         # =====================================================
