@@ -227,53 +227,93 @@ class AutonomousAgent:
                 "plan": plan
             }
 
-        # =====================================================
+               # =====================================================
         # MISSING CAPABILITY
         # =====================================================
 
         if route.get(
-    "route"
-) == "missing_capability":
+            "route"
+        ) == "missing_capability":
 
-    # -----------------------------------------------------
-    # The old system stopped here.
-    #
-    # New system:
-    #
-    #     Unknown Goal
-    #          ↓
-    #     SkillBuilder
-    #          ↓
-    #     Skill Plan
-    #
-    # IMPORTANT:
-    #
-    # SkillBuilder does NOT execute generated code.
-    # -----------------------------------------------------
+            # -----------------------------------------------------
+            # The old system stopped here.
+            #
+            # New system:
+            #
+            #     Unknown Goal
+            #          ↓
+            #     SkillBuilder
+            #          ↓
+            #     Skill Plan
+            #
+            # IMPORTANT:
+            #
+            # SkillBuilder does NOT execute generated code.
+            # -----------------------------------------------------
 
-    try:
+            try:
 
-        skill_result = self.skill_builder.build(
-            self.current_goal
-        )
+                skill_result = self.skill_builder.build(
+                    self.current_goal
+                )
 
-    except Exception as error:
+            except Exception as error:
 
-        self.active = False
+                self.active = False
 
-        return {
-            "success": False,
-            "stage": "skill_builder_error",
-            "message": (
-                "I understood that I need a new "
-                "capability, but the capability "
-                "builder failed."
-            ),
-            "error": str(
-                error
-            ),
-            "goal": self.current_goal,
-            "plan": plan
+                return {
+                    "success": False,
+                    "stage": "skill_builder_error",
+                    "message": (
+                        "I understood that I need a new "
+                        "capability, but the capability "
+                        "builder failed."
+                    ),
+                    "error": str(
+                        error
+                    ),
+                    "goal": self.current_goal,
+                    "plan": plan
+                }
+
+            self.active = False
+
+            if isinstance(
+                skill_result,
+                dict
+            ):
+
+                return {
+                    "success": skill_result.get(
+                        "success",
+                        False
+                    ),
+                    "stage": skill_result.get(
+                        "stage",
+                        "skill_planned"
+                    ),
+                    "message": skill_result.get(
+                        "message",
+                        "A new capability plan was created."
+                    ),
+                    "goal": self.current_goal,
+                    "plan": plan,
+                    "skill": skill_result.get(
+                        "skill"
+                    ),
+                    "next_stage": skill_result.get(
+                        "next_stage"
+                    )
+                }
+
+            return {
+                "success": False,
+                "stage": "skill_builder_error",
+                "message": str(
+                    skill_result
+                ),
+                "goal": self.current_goal,
+                "plan": plan
         }
 
     self.active = False
