@@ -4,84 +4,361 @@ on:
   workflow_dispatch:
 
 jobs:
+
   build:
+
     runs-on: windows-latest
 
     steps:
 
-      # ------------------------------------------------------
-      # CHECKOUT REPOSITORY
-      # ------------------------------------------------------
+      # ======================================================
+      # 1. CHECKOUT REPOSITORY
+      # ======================================================
 
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------
-      # SETUP PYTHON
-      # ------------------------------------------------------
+
+      # ======================================================
+      # 2. SETUP PYTHON
+      # ======================================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # ------------------------------------------------------
-      # INSTALL DEPENDENCIES
-      # ------------------------------------------------------
+
+      # ======================================================
+      # 3. INSTALL DEPENDENCIES
+      # ======================================================
 
       - name: Install Dependencies
+        shell: powershell
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install SpeechRecognition
-          pip install PyAudio
 
-      # ------------------------------------------------------
-      # BUILD VYOM EXE
-      # ------------------------------------------------------
+          python -m pip install --upgrade pip
+
+          python -m pip install pyinstaller
+
+          if (Test-Path "requirements.txt") {
+              python -m pip install -r requirements.txt
+          }
+
+          # Voice module dependency
+          python -m pip install PyAudio
+
+
+      # ======================================================
+      # 4. VERIFY PROJECT STRUCTURE
       #
-      # Collect all ai_core modules.
+      # IMPORTANT:
       #
-      # This includes:
+      # This checks that all important Vyom modules actually
+      # exist before PyInstaller starts.
+      # ======================================================
+
+      - name: Verify Project Structure
+        shell: powershell
+        run: |
+
+          Write-Host "======================================"
+          Write-Host " Vyom Project Structure"
+          Write-Host "======================================"
+
+          if (!(Test-Path "ai_core/main.py")) {
+              Write-Error "Missing: ai_core/main.py"
+              exit 1
+          }
+
+          if (!(Test-Path "ai_core/autonomous_agent.py")) {
+              Write-Error "Missing: ai_core/autonomous_agent.py"
+              exit 1
+          }
+
+          if (!(Test-Path "ai_core/brain.py")) {
+              Write-Error "Missing: ai_core/brain.py"
+              exit 1
+          }
+
+          if (!(Test-Path "ai_core/reasoning_engine.py")) {
+              Write-Error "Missing: ai_core/reasoning_engine.py"
+              exit 1
+          }
+
+          if (!(Test-Path "ai_core/skill_builder.py")) {
+              Write-Error "Missing: ai_core/skill_builder.py"
+              exit 1
+          }
+
+          if (!(Test-Path "ai_core/skill_registry.py")) {
+              Write-Error "Missing: ai_core/skill_registry.py"
+              exit 1
+          }
+
+          if (!(Test-Path "command_engine/executor.py")) {
+              Write-Error "Missing: command_engine/executor.py"
+              exit 1
+          }
+
+          if (!(Test-Path "command_engine/intent.py")) {
+              Write-Error "Missing: command_engine/intent.py"
+              exit 1
+          }
+
+          if (!(Test-Path "tools/tool_manager.py")) {
+              Write-Error "Missing: tools/tool_manager.py"
+              exit 1
+          }
+
+          if (!(Test-Path "memory/selection_manager.py")) {
+              Write-Error "Missing: memory/selection_manager.py"
+              exit 1
+          }
+
+          if (!(Test-Path "windows_agent/process_manager.py")) {
+              Write-Error "Missing: windows_agent/process_manager.py"
+              exit 1
+          }
+
+          Write-Host ""
+          Write-Host "All required files exist."
+
+
+      # ======================================================
+      # 5. PYTHON SYNTAX CHECK
       #
-      # ai_core.autonomous_agent
-      # ai_core.brain
-      # ai_core.reasoning_engine
-      # ai_core.skill_builder
-      # and other ai_core modules.
+      # IMPORTANT:
       #
-      # Tools modules are also collected.
+      # This catches indentation/syntax errors BEFORE EXE
+      # creation.
+      # ======================================================
+
+      - name: Check Python Syntax
+        shell: powershell
+        run: |
+
+          Write-Host "Checking all Python files..."
+
+          python -m compileall -q ai_core command_engine tools memory windows_agent voice
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Python syntax check failed."
+              exit 1
+          }
+
+          Write-Host "Python syntax check passed."
+
+
+      # ======================================================
+      # 6. IMPORT / INTEGRATION TEST
       #
-      # ------------------------------------------------------
+      # This verifies the exact modules that previously caused
+      # the EXE to fail.
+      # ======================================================
+
+      - name: Test Vyom Imports
+        shell: powershell
+        run: |
+
+          Write-Host "Testing Vyom imports..."
+
+          python -c "import ai_core; import ai_core.brain; import ai_core.reasoning_engine; import ai_core.skill_registry; import ai_core.skill_builder; import ai_core.autonomous_agent; import command_engine.intent; import command_engine.executor; import tools.tool_manager; import memory.selection_manager; import windows_agent.process_manager; print('VYOM IMPORT TEST PASSED')"
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Vyom import test failed."
+              exit 1
+          }
+
+
+      # ======================================================
+      # 7. TEST SKILL BUILDER
+      #
+      # This does NOT execute generated code.
+      #
+      # It only verifies that SkillBuilder + SkillRegistry
+      # integration works.
+      # ======================================================
+
+      - name: Test Skill System
+        shell: powershell
+        run: |
+
+          python -c "from ai_core.skill_builder import SkillBuilder; builder=SkillBuilder(); result=builder.build('photo se excel banana'); print(result); print('SKILL SYSTEM TEST PASSED')"
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Skill system test failed."
+              exit 1
+          }
+
+
+      # ======================================================
+      # 8. CLEAN OLD BUILD
+      # ======================================================
+
+      - name: Clean Build
+        shell: powershell
+        run: |
+
+          if (Test-Path "build") {
+              Remove-Item -Recurse -Force "build"
+          }
+
+          if (Test-Path "dist") {
+              Remove-Item -Recurse -Force "dist"
+          }
+
+          if (Test-Path "Vyom.spec") {
+              Remove-Item -Force "Vyom.spec"
+          }
+
+          if (Test-Path "Vyom_Voice_Test.spec") {
+              Remove-Item -Force "Vyom_Voice_Test.spec"
+          }
+
+
+      # ======================================================
+      # 9. BUILD MAIN VYOM EXE
+      #
+      # ENTRY POINT:
+      #
+      #     ai_core/main.py
+      #
+      # IMPORTANT:
+      #
+      # Project root is added to Python import path.
+      # ======================================================
 
       - name: Build Vyom EXE
+        shell: powershell
         run: |
-          pyinstaller --onefile --console --paths "." --collect-submodules ai_core --collect-submodules tools --hidden-import ai_core.autonomous_agent --hidden-import ai_core.skill_builder --hidden-import tools.universal_app_launcher ai_core/main.py --name Vyom
 
-      # ------------------------------------------------------
-      # BUILD VOICE TEST EXE
-      # ------------------------------------------------------
+          python -m PyInstaller `
+            --onefile `
+            --clean `
+            --noconfirm `
+            --console `
+            --paths "." `
+            --collect-submodules ai_core `
+            --collect-submodules command_engine `
+            --collect-submodules tools `
+            --collect-submodules memory `
+            --collect-submodules windows_agent `
+            --hidden-import ai_core.autonomous_agent `
+            --hidden-import ai_core.brain `
+            --hidden-import ai_core.reasoning_engine `
+            --hidden-import ai_core.capability_manager `
+            --hidden-import ai_core.skill_builder `
+            --hidden-import ai_core.skill_registry `
+            --hidden-import command_engine.executor `
+            --hidden-import command_engine.intent `
+            --hidden-import tools.tool_manager `
+            --hidden-import tools.universal_app_launcher `
+            --hidden-import memory.selection_manager `
+            --hidden-import windows_agent.process_manager `
+            --name Vyom `
+            ai_core/main.py
+
+
+      # ======================================================
+      # 10. VERIFY MAIN EXE
+      # ======================================================
+
+      - name: Verify Vyom EXE
+        shell: powershell
+        run: |
+
+          Write-Host "======================================"
+          Write-Host " Checking Vyom.exe"
+          Write-Host "======================================"
+
+          if (!(Test-Path "dist/Vyom.exe")) {
+              Write-Error "Vyom.exe was not created."
+              exit 1
+          }
+
+          $size = (Get-Item "dist/Vyom.exe").Length
+
+          Write-Host "Vyom.exe size:"
+          Write-Host $size
+
+          if ($size -lt 100000) {
+              Write-Error "Vyom.exe appears too small."
+              exit 1
+          }
+
+          Write-Host "Vyom.exe successfully created."
+
+
+      # ======================================================
+      # 11. BUILD VOICE TEST EXE
+      # ======================================================
 
       - name: Build Vyom Voice Test EXE
+        shell: powershell
         run: |
-          pyinstaller --onefile --console --paths "." --collect-submodules voice --hidden-import voice.speech_to_text voice/exe_test.py --name Vyom_Voice_Test
 
-      # ------------------------------------------------------
-      # UPLOAD VYOM EXE
-      # ------------------------------------------------------
+          if (Test-Path "voice/exe_test.py") {
+
+              python -m PyInstaller `
+                --onefile `
+                --clean `
+                --noconfirm `
+                --console `
+                --paths "." `
+                --collect-submodules voice `
+                --hidden-import voice.speech_to_text `
+                --name Vyom_Voice_Test `
+                voice/exe_test.py
+
+          } else {
+
+              Write-Host "voice/exe_test.py not found."
+              Write-Host "Skipping voice test EXE."
+
+          }
+
+
+      # ======================================================
+      # 12. VERIFY VOICE EXE
+      # ======================================================
+
+      - name: Verify Voice EXE
+        shell: powershell
+        run: |
+
+          if (Test-Path "dist/Vyom_Voice_Test.exe") {
+
+              Write-Host "Vyom_Voice_Test.exe successfully created."
+
+          } else {
+
+              Write-Host "Voice EXE was not created."
+              Write-Host "This is allowed because voice/exe_test.py"
+              Write-Host "may not exist."
+
+          }
+
+
+      # ======================================================
+      # 13. UPLOAD MAIN VYOM EXE
+      # ======================================================
 
       - name: Upload Vyom EXE
         uses: actions/upload-artifact@v4
         with:
           name: Vyom_EXE
           path: dist/Vyom.exe
+          if-no-files-found: error
 
-      # ------------------------------------------------------
-      # UPLOAD VOICE TEST EXE
-      # ------------------------------------------------------
+
+      # ======================================================
+      # 14. UPLOAD VOICE EXE
+      # ======================================================
 
       - name: Upload Voice Test EXE
         uses: actions/upload-artifact@v4
         with:
           name: Vyom_Voice_EXE
           path: dist/Vyom_Voice_Test.exe
+          if-no-files-found: ignore
