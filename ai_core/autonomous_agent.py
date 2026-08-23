@@ -1,7 +1,47 @@
 """
 Project : Vyom AI
-Version : 0.4
-Module : Autonomous Agent
+Version : 0.5
+Module  : Autonomous Agent
+
+Purpose:
+    Coordinate Vyom's autonomous execution.
+
+Architecture:
+
+    User Goal
+        |
+        v
+    ReasoningEngine
+        |
+        v
+    Plan
+        |
+        v
+    ToolManager
+        |
+        v
+    Result
+        |
+        v
+    Result Check
+        |
+        +---- Success ----> Complete
+        |
+        +---- Failure ----> Re-plan
+                                |
+                                v
+                           Execute Again
+
+IMPORTANT:
+
+    Existing ToolManager behaviour is preserved.
+
+    SkillBuilder does NOT execute generated code.
+
+    Autonomous execution is limited by max_steps.
+
+    No security bypass or arbitrary generated-code
+    execution is allowed here.
 """
 
 from typing import Any, Dict, Optional, List
@@ -22,17 +62,29 @@ class AutonomousAgent:
         max_steps: int = 10
     ):
 
+        # =========================================================
+        # EXISTING TOOL MANAGER
+        # =========================================================
+
         self.tool_manager = (
             tool_manager
             if tool_manager is not None
             else ToolManager()
         )
 
+        # =========================================================
+        # EXISTING BRAIN
+        # =========================================================
+
         self.brain = (
             brain
             if brain is not None
             else Brain()
         )
+
+        # =========================================================
+        # EXISTING REASONING ENGINE
+        # =========================================================
 
         self.reasoning_engine = (
             reasoning_engine
@@ -41,22 +93,28 @@ class AutonomousAgent:
         )
 
         # =========================================================
-        # SKILL BUILDER
+        # EXISTING SKILL BUILDER
         # =========================================================
         #
-        # Used when the required capability does not already
-        # exist in the current tool system.
+        # SkillBuilder creates capability plans.
         #
-        # SkillBuilder creates a capability plan.
-        # It does NOT directly execute generated code.
+        # It does NOT execute generated code.
         #
 
         self.skill_builder = SkillBuilder()
+
+        # =========================================================
+        # SAFETY LIMIT
+        # =========================================================
 
         self.max_steps = max(
             1,
             int(max_steps)
         )
+
+        # =========================================================
+        # TASK STATE
+        # =========================================================
 
         self.current_goal = ""
 
@@ -67,6 +125,231 @@ class AutonomousAgent:
         self.step_count = 0
 
         self.active = False
+
+    # =========================================================
+    # RESULT CHECK
+    # =========================================================
+
+    def _result_is_successful(
+        self,
+        result
+    ) -> bool:
+        """
+        Perform a conservative first-level result check.
+
+        ToolManager currently returns mostly text messages.
+        Therefore this method does not assume every result
+        is a dictionary.
+
+        This is NOT the final verification system.
+
+        The future verification layer will inspect the
+        actual Windows/application state.
+        """
+
+        if result is None:
+
+            return False
+
+        # ---------------------------------------------------------
+        # Dictionary result
+        # ---------------------------------------------------------
+
+        if isinstance(
+            result,
+            dict
+        ):
+
+            if "success" in result:
+
+                return bool(
+                    result.get(
+                        "success"
+                    )
+                )
+
+            if "error" in result:
+
+                return False
+
+            return True
+
+        # ---------------------------------------------------------
+        # Boolean result
+        # ---------------------------------------------------------
+
+        if isinstance(
+            result,
+            bool
+        ):
+
+            return result
+
+        # ---------------------------------------------------------
+        # Text result
+        # ---------------------------------------------------------
+
+        text = str(
+            result
+        ).strip().lower()
+
+        if not text:
+
+            return False
+
+        failure_phrases = [
+            "error",
+            "failed",
+            "failure",
+            "could not",
+            "not found",
+            "invalid",
+            "don't understand",
+            "no tool available",
+            "please tell me",
+            "unable to",
+            "exception"
+        ]
+
+        for phrase in failure_phrases:
+
+            if phrase in text:
+
+                return False
+
+        return True
+
+    # =========================================================
+    # EXECUTE ONE PLAN STEP
+    # =========================================================
+
+    def _execute_step(
+        self,
+        step
+    ) -> Dict[str, Any]:
+        """
+        Execute one planned step through the existing
+        ToolManager.
+
+        Existing ToolManager remains the actual executor.
+        """
+
+        self.step_count += 1
+
+        # ---------------------------------------------------------
+        # SAFETY LIMIT
+        # ---------------------------------------------------------
+
+        if self.step_count > self.max_steps:
+
+            return {
+                "success": False,
+                "stage": "safety_limit",
+                "message": (
+                    "Autonomous step limit reached."
+                )
+            }
+
+        if not isinstance(
+            step,
+            dict
+        ):
+
+            return {
+                "success": False,
+                "stage": "invalid_step",
+                "message": (
+                    "Invalid autonomous plan step."
+                )
+            }
+
+        current_intent = step.get(
+            "intent"
+        )
+
+        # ---------------------------------------------------------
+        # Capability-only steps do not go to ToolManager.
+        # ---------------------------------------------------------
+
+        step_type = step.get(
+            "type",
+            ""
+        )
+
+        if step_type in (
+            "use_capability",
+            "request_new_capability"
+        ):
+
+            return {
+                "success": False,
+                "stage": "capability_route",
+                "message": (
+                    "This plan step requires a "
+                    "capability route."
+                ),
+                "step": step
+            }
+
+        # ---------------------------------------------------------
+        # Execute existing intent
+        # ---------------------------------------------------------
+
+        try:
+
+            result = self.tool_manager.execute(
+                current_intent
+            )
+
+        except Exception as error:
+
+            return {
+                "success": False,
+                "stage": "execution_error",
+                "error": str(error),
+                "step": step
+            }
+
+        # ---------------------------------------------------------
+        # Check result
+        # ---------------------------------------------------------
+
+        successful = (
+            self._result_is_successful(
+                result
+            )
+        )
+
+        history_item = {
+            "step": self.step_count,
+            "type": step.get(
+                "type"
+            ),
+            "intent": current_intent,
+            "result": result,
+            "verified": False,
+            "result_success": successful
+        }
+
+        self.task_history.append(
+            history_item
+        )
+
+        if successful:
+
+            return {
+                "success": True,
+                "stage": "executed",
+                "result": result,
+                "step": self.step_count
+            }
+
+        return {
+            "success": False,
+            "stage": "execution_failed",
+            "result": result,
+            "step": self.step_count
+        }
 
     # =========================================================
     # RUN
@@ -89,7 +372,7 @@ class AutonomousAgent:
         self.active = True
 
         # =====================================================
-        # REASON
+        # INITIAL REASONING
         # =====================================================
 
         reasoning = self.reasoning_engine.reason(
@@ -144,11 +427,138 @@ class AutonomousAgent:
             "route"
         ) == "existing_tools":
 
-            for step in plan:
+            if not plan:
 
-                self.step_count += 1
+                self.active = False
 
-                if self.step_count > self.max_steps:
+                return {
+                    "success": False,
+                    "stage": "empty_plan",
+                    "message": (
+                        "ReasoningEngine returned "
+                        "an empty execution plan."
+                    ),
+                    "analysis": analysis
+                }
+
+            # -------------------------------------------------
+            # EXECUTION / REPLAN LOOP
+            # -------------------------------------------------
+
+            while (
+                self.step_count
+                < self.max_steps
+            ):
+
+                # -------------------------------------------------
+                # Execute current plan
+                # -------------------------------------------------
+
+                execution_failed = False
+
+                for step in plan:
+
+                    result = self._execute_step(
+                        step
+                    )
+
+                    # -------------------------------------------------
+                    # Safety limit
+                    # -------------------------------------------------
+
+                    if result.get(
+                        "stage"
+                    ) == "safety_limit":
+
+                        self.active = False
+
+                        return {
+                            "success": False,
+                            "stage": "safety_limit",
+                            "message": (
+                                "Autonomous step limit reached."
+                            ),
+                            "history": self.task_history
+                        }
+
+                    # -------------------------------------------------
+                    # Capability route
+                    # -------------------------------------------------
+
+                    if result.get(
+                        "stage"
+                    ) == "capability_route":
+
+                        execution_failed = True
+
+                        break
+
+                    # -------------------------------------------------
+                    # Execution failed
+                    # -------------------------------------------------
+
+                    if not result.get(
+                        "success",
+                        False
+                    ):
+
+                        execution_failed = True
+
+                        break
+
+                # -------------------------------------------------
+                # If all plan steps succeeded
+                # -------------------------------------------------
+
+                if not execution_failed:
+
+                    # -------------------------------------------------
+                    # Mark executed steps as provisional success.
+                    #
+                    # Actual state verification will be added in
+                    # the next architecture stage.
+                    # -------------------------------------------------
+
+                    for item in self.task_history:
+
+                        if (
+                            item.get(
+                                "result_success"
+                            )
+                            and not item.get(
+                                "verified",
+                                False
+                            )
+                        ):
+
+                            item["verified"] = False
+
+                    self.active = False
+
+                    last_result = None
+
+                    if self.task_history:
+
+                        last_result = self.task_history[
+                            -1
+                        ].get(
+                            "result"
+                        )
+
+                    return {
+                        "success": True,
+                        "stage": "completed",
+                        "result": last_result,
+                        "history": self.task_history
+                    }
+
+                # -------------------------------------------------
+                # Execution failed.
+                #
+                # Ask ReasoningEngine to reason again.
+                # -------------------------------------------------
+
+                if self.step_count >= self.max_steps:
 
                     self.active = False
 
@@ -156,38 +566,20 @@ class AutonomousAgent:
                         "success": False,
                         "stage": "safety_limit",
                         "message": (
-                            "Autonomous step limit reached."
-                        )
+                            "Autonomous re-planning "
+                            "limit reached."
+                        ),
+                        "history": self.task_history
                     }
-
-                current_intent = step.get(
-                    "intent"
-                )
 
                 try:
 
-                    result = self.tool_manager.execute(
-                        current_intent
+                    re_reasoning = (
+                        self.reasoning_engine.reason(
+                            self.current_goal,
+                            intent
+                        )
                     )
-
-                    self.task_history.append(
-                        {
-                            "step": self.step_count,
-                            "type": step.get(
-                                "type"
-                            ),
-                            "result": result
-                        }
-                    )
-
-                    self.active = False
-
-                    return {
-                        "success": True,
-                        "stage": "completed",
-                        "result": result,
-                        "history": self.task_history
-                    }
 
                 except Exception as error:
 
@@ -195,10 +587,42 @@ class AutonomousAgent:
 
                     return {
                         "success": False,
-                        "stage": "execution_error",
+                        "stage": "replanning_error",
                         "error": str(error),
                         "history": self.task_history
                     }
+
+                route = re_reasoning.get(
+                    "route",
+                    {}
+                )
+
+                plan = re_reasoning.get(
+                    "plan",
+                    []
+                )
+
+                # -------------------------------------------------
+                # If reasoning no longer has an existing tool route
+                # -------------------------------------------------
+
+                if route.get(
+                    "route"
+                ) != "existing_tools":
+
+                    break
+
+            self.active = False
+
+            return {
+                "success": False,
+                "stage": "replanning_stopped",
+                "message": (
+                    "The task could not be completed "
+                    "with the available execution route."
+                ),
+                "history": self.task_history
+            }
 
         # =====================================================
         # CAPABILITY FOUND
@@ -235,26 +659,12 @@ class AutonomousAgent:
             "route"
         ) == "missing_capability":
 
-            # -----------------------------------------------------
-            # The old system stopped here.
-            #
-            # New system:
-            #
-            #     Unknown Goal
-            #          ↓
-            #     SkillBuilder
-            #          ↓
-            #     Skill Plan
-            #
-            # IMPORTANT:
-            #
-            # SkillBuilder does NOT execute generated code.
-            # -----------------------------------------------------
-
             try:
 
-                skill_result = self.skill_builder.build(
-                    self.current_goal
+                skill_result = (
+                    self.skill_builder.build(
+                        self.current_goal
+                    )
                 )
 
             except Exception as error:
@@ -265,9 +675,9 @@ class AutonomousAgent:
                     "success": False,
                     "stage": "skill_builder_error",
                     "message": (
-                        "I understood that I need a new "
-                        "capability, but the capability "
-                        "builder failed."
+                        "I understood that I need "
+                        "a new capability, but the "
+                        "capability builder failed."
                     ),
                     "error": str(
                         error
