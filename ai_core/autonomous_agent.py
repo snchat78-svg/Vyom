@@ -1,47 +1,41 @@
 """
 Project : Vyom AI
-Version : 0.5
+Version : 1.0
 Module  : Autonomous Agent
 
 Purpose:
-    Coordinate Vyom's autonomous execution.
+    Persistent autonomous task coordinator.
 
 Architecture:
 
-    User Goal
-        |
-        v
-    ReasoningEngine
-        |
-        v
-    Plan
-        |
-        v
-    ToolManager
-        |
-        v
-    Result
-        |
-        v
-    Result Check
-        |
-        +---- Success ----> Complete
-        |
-        +---- Failure ----> Re-plan
-                                |
-                                v
-                           Execute Again
+    User instruction
+          |
+          v
+    Session Context
+          |
+          v
+    Reasoning
+          |
+          v
+       Planning
+          |
+          v
+       ToolManager
+          |
+          v
+       Result
+          |
+          v
+       Context Update
 
-IMPORTANT:
+Important:
 
-    Existing ToolManager behaviour is preserved.
+    This version does NOT generate or execute arbitrary code.
 
-    SkillBuilder does NOT execute generated code.
+    Capability creation remains controlled by the existing
+    SkillBuilder / SkillRegistry architecture.
 
-    Autonomous execution is limited by max_steps.
-
-    No security bypass or arbitrary generated-code
-    execution is allowed here.
+    Security and permanent self-modification are NOT allowed.
 """
 
 from typing import Any, Dict, Optional, List
@@ -50,6 +44,7 @@ from ai_core.brain import Brain
 from ai_core.reasoning_engine import ReasoningEngine
 from tools.tool_manager import ToolManager
 from ai_core.skill_builder import SkillBuilder
+from ai_core.session_context import SessionContext
 
 
 class AutonomousAgent:
@@ -63,7 +58,7 @@ class AutonomousAgent:
     ):
 
         # =========================================================
-        # EXISTING TOOL MANAGER
+        # COMPONENTS
         # =========================================================
 
         self.tool_manager = (
@@ -72,19 +67,11 @@ class AutonomousAgent:
             else ToolManager()
         )
 
-        # =========================================================
-        # EXISTING BRAIN
-        # =========================================================
-
         self.brain = (
             brain
             if brain is not None
             else Brain()
         )
-
-        # =========================================================
-        # EXISTING REASONING ENGINE
-        # =========================================================
 
         self.reasoning_engine = (
             reasoning_engine
@@ -92,19 +79,10 @@ class AutonomousAgent:
             else ReasoningEngine()
         )
 
-        # =========================================================
-        # EXISTING SKILL BUILDER
-        # =========================================================
-        #
-        # SkillBuilder creates capability plans.
-        #
-        # It does NOT execute generated code.
-        #
-
         self.skill_builder = SkillBuilder()
 
         # =========================================================
-        # SAFETY LIMIT
+        # SAFETY
         # =========================================================
 
         self.max_steps = max(
@@ -113,88 +91,52 @@ class AutonomousAgent:
         )
 
         # =========================================================
-        # TASK STATE
+        # PERSISTENT SESSION
         # =========================================================
 
-        self.current_goal = ""
+        self.context = SessionContext()
 
+        # Backward-compatible fields
+        self.current_goal = ""
         self.task_history: List[
             Dict[str, Any]
         ] = []
 
         self.step_count = 0
-
         self.active = False
 
-    # =========================================================
+    # =============================================================
     # RESULT CHECK
-    # =========================================================
+    # =============================================================
 
     def _result_is_successful(
         self,
         result
     ) -> bool:
-        """
-        Perform a conservative first-level result check.
-
-        ToolManager currently returns mostly text messages.
-        Therefore this method does not assume every result
-        is a dictionary.
-
-        This is NOT the final verification system.
-
-        The future verification layer will inspect the
-        actual Windows/application state.
-        """
 
         if result is None:
-
             return False
 
-        # ---------------------------------------------------------
-        # Dictionary result
-        # ---------------------------------------------------------
-
-        if isinstance(
-            result,
-            dict
-        ):
+        if isinstance(result, dict):
 
             if "success" in result:
-
                 return bool(
-                    result.get(
-                        "success"
-                    )
+                    result.get("success")
                 )
 
             if "error" in result:
-
                 return False
 
             return True
 
-        # ---------------------------------------------------------
-        # Boolean result
-        # ---------------------------------------------------------
-
-        if isinstance(
-            result,
-            bool
-        ):
-
+        if isinstance(result, bool):
             return result
-
-        # ---------------------------------------------------------
-        # Text result
-        # ---------------------------------------------------------
 
         text = str(
             result
         ).strip().lower()
 
         if not text:
-
             return False
 
         failure_phrases = [
@@ -205,8 +147,8 @@ class AutonomousAgent:
             "not found",
             "invalid",
             "don't understand",
+            "do not understand",
             "no tool available",
-            "please tell me",
             "unable to",
             "exception"
         ]
@@ -214,33 +156,82 @@ class AutonomousAgent:
         for phrase in failure_phrases:
 
             if phrase in text:
-
                 return False
 
         return True
 
-    # =========================================================
-    # EXECUTE ONE PLAN STEP
-    # =========================================================
+    # =============================================================
+    # UPDATE CONTEXT FROM INTENT
+    # =============================================================
+
+    def _update_context_from_intent(
+        self,
+        intent: Optional[Dict[str, Any]]
+    ):
+
+        if not isinstance(intent, dict):
+            return
+
+        intent_name = intent.get(
+            "intent"
+        )
+
+        target = intent.get(
+            "target"
+        )
+
+        if target:
+            self.context.set_current_target(
+                target
+            )
+
+        # ---------------------------------------------------------
+        # OPEN
+        # ---------------------------------------------------------
+
+        if intent_name == "open":
+
+            if target:
+                self.context.set_current_app(
+                    target
+                )
+
+        # ---------------------------------------------------------
+        # FILE
+        # ---------------------------------------------------------
+
+        elif intent_name in (
+            "open_file",
+            "search_file",
+            "search_and_open_file"
+        ):
+
+            if target:
+                self.context.set_current_file(
+                    target
+                )
+
+        # ---------------------------------------------------------
+        # CLOSE
+        # ---------------------------------------------------------
+
+        elif intent_name == "close_app":
+
+            if target:
+                self.context.set_current_app(
+                    target
+                )
+
+    # =============================================================
+    # EXECUTE ONE STEP
+    # =============================================================
 
     def _execute_step(
         self,
         step
     ) -> Dict[str, Any]:
-        """
-        Execute one planned step through the existing
-        ToolManager.
 
-        Existing ToolManager remains the actual executor.
-        """
-
-        self.step_count += 1
-
-        # ---------------------------------------------------------
-        # SAFETY LIMIT
-        # ---------------------------------------------------------
-
-        if self.step_count > self.max_steps:
+        if self.step_count >= self.max_steps:
 
             return {
                 "success": False,
@@ -250,10 +241,7 @@ class AutonomousAgent:
                 )
             }
 
-        if not isinstance(
-            step,
-            dict
-        ):
+        if not isinstance(step, dict):
 
             return {
                 "success": False,
@@ -263,18 +251,20 @@ class AutonomousAgent:
                 )
             }
 
+        self.step_count += 1
+
         current_intent = step.get(
             "intent"
         )
-
-        # ---------------------------------------------------------
-        # Capability-only steps do not go to ToolManager.
-        # ---------------------------------------------------------
 
         step_type = step.get(
             "type",
             ""
         )
+
+        # =========================================================
+        # CAPABILITY ROUTES
+        # =========================================================
 
         if step_type in (
             "use_capability",
@@ -285,15 +275,26 @@ class AutonomousAgent:
                 "success": False,
                 "stage": "capability_route",
                 "message": (
-                    "This plan step requires a "
-                    "capability route."
+                    "This step requires a capability route."
                 ),
                 "step": step
             }
 
-        # ---------------------------------------------------------
-        # Execute existing intent
-        # ---------------------------------------------------------
+        # =========================================================
+        # RECORD ACTION
+        # =========================================================
+
+        self.context.record_action(
+            {
+                "type": step_type,
+                "intent": current_intent,
+                "step": step
+            }
+        )
+
+        # =========================================================
+        # EXECUTE
+        # =========================================================
 
         try:
 
@@ -303,6 +304,16 @@ class AutonomousAgent:
 
         except Exception as error:
 
+            result = {
+                "success": False,
+                "error": str(error)
+            }
+
+            self.context.record_result(
+                result,
+                False
+            )
+
             return {
                 "success": False,
                 "stage": "execution_error",
@@ -310,9 +321,9 @@ class AutonomousAgent:
                 "step": step
             }
 
-        # ---------------------------------------------------------
-        # Check result
-        # ---------------------------------------------------------
+        # =========================================================
+        # VERIFY BASIC RESULT
+        # =========================================================
 
         successful = (
             self._result_is_successful(
@@ -320,11 +331,14 @@ class AutonomousAgent:
             )
         )
 
+        self.context.record_result(
+            result,
+            successful
+        )
+
         history_item = {
             "step": self.step_count,
-            "type": step.get(
-                "type"
-            ),
+            "type": step_type,
             "intent": current_intent,
             "result": result,
             "verified": False,
@@ -334,6 +348,27 @@ class AutonomousAgent:
         self.task_history.append(
             history_item
         )
+
+        # =========================================================
+        # PENDING SELECTION DETECTION
+        # =========================================================
+
+        if isinstance(result, str):
+
+            result_lower = result.lower()
+
+            if (
+                "multiple items found" in result_lower
+                or "please select a number" in result_lower
+            ):
+
+                self.context.set_pending_selection(
+                    self.current_goal
+                )
+
+        # =========================================================
+        # SUCCESS
+        # =========================================================
 
         if successful:
 
@@ -351,9 +386,9 @@ class AutonomousAgent:
             "step": self.step_count
         }
 
-    # =========================================================
+    # =============================================================
     # RUN
-    # =========================================================
+    # =============================================================
 
     def run(
         self,
@@ -361,48 +396,42 @@ class AutonomousAgent:
         intent: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
 
-        self.current_goal = str(
-            goal
+        goal = str(
+            goal or ""
         ).strip()
 
-        self.task_history = []
+        if not goal:
 
+            return {
+                "success": False,
+                "stage": "empty_goal",
+                "message": (
+                    "Please tell me what you want me to do."
+                )
+            }
+
+        # =========================================================
+        # PERSISTENT CONTEXT
+        # =========================================================
+
+        self.current_goal = goal
         self.step_count = 0
-
         self.active = True
 
-        # =====================================================
-        # INITIAL REASONING
-        # =====================================================
+        self.context.start_goal(
+            goal,
+            preserve_context=True
+        )
 
-        reasoning = self.reasoning_engine.reason(
-            self.current_goal,
+        self._update_context_from_intent(
             intent
         )
 
-        analysis = reasoning.get(
-            "analysis",
-            {}
-        )
-
-        route = reasoning.get(
-            "route",
-            {}
-        )
-
-        plan = reasoning.get(
-            "plan",
-            []
-        )
-
-        # =====================================================
+        # =========================================================
         # BRAIN
-        # =====================================================
+        # =========================================================
 
-        if isinstance(
-            intent,
-            dict
-        ):
+        if isinstance(intent, dict):
 
             try:
 
@@ -419,9 +448,48 @@ class AutonomousAgent:
                     }
                 )
 
-        # =====================================================
-        # EXISTING TOOL ROUTE
-        # =====================================================
+        # =========================================================
+        # REASONING
+        # =========================================================
+
+        try:
+
+            reasoning = (
+                self.reasoning_engine.reason(
+                    goal,
+                    intent
+                )
+            )
+
+        except Exception as error:
+
+            self.active = False
+
+            return {
+                "success": False,
+                "stage": "reasoning_error",
+                "error": str(error),
+                "goal": goal
+            }
+
+        analysis = reasoning.get(
+            "analysis",
+            {}
+        )
+
+        route = reasoning.get(
+            "route",
+            {}
+        )
+
+        plan = reasoning.get(
+            "plan",
+            []
+        )
+
+        # =========================================================
+        # EXISTING TOOLS
+        # =========================================================
 
         if route.get(
             "route"
@@ -435,130 +503,28 @@ class AutonomousAgent:
                     "success": False,
                     "stage": "empty_plan",
                     "message": (
-                        "ReasoningEngine returned "
-                        "an empty execution plan."
+                        "I understood the goal, "
+                        "but there is no execution step "
+                        "available yet."
                     ),
                     "analysis": analysis
                 }
 
-            # -------------------------------------------------
-            # EXECUTION / REPLAN LOOP
-            # -------------------------------------------------
+            execution_failed = False
 
-            while (
-                self.step_count
-                < self.max_steps
-            ):
+            # =====================================================
+            # EXECUTION LOOP
+            # =====================================================
 
-                # -------------------------------------------------
-                # Execute current plan
-                # -------------------------------------------------
+            for step in plan:
 
-                execution_failed = False
+                result = self._execute_step(
+                    step
+                )
 
-                for step in plan:
-
-                    result = self._execute_step(
-                        step
-                    )
-
-                    # -------------------------------------------------
-                    # Safety limit
-                    # -------------------------------------------------
-
-                    if result.get(
-                        "stage"
-                    ) == "safety_limit":
-
-                        self.active = False
-
-                        return {
-                            "success": False,
-                            "stage": "safety_limit",
-                            "message": (
-                                "Autonomous step limit reached."
-                            ),
-                            "history": self.task_history
-                        }
-
-                    # -------------------------------------------------
-                    # Capability route
-                    # -------------------------------------------------
-
-                    if result.get(
-                        "stage"
-                    ) == "capability_route":
-
-                        execution_failed = True
-
-                        break
-
-                    # -------------------------------------------------
-                    # Execution failed
-                    # -------------------------------------------------
-
-                    if not result.get(
-                        "success",
-                        False
-                    ):
-
-                        execution_failed = True
-
-                        break
-
-                # -------------------------------------------------
-                # If all plan steps succeeded
-                # -------------------------------------------------
-
-                if not execution_failed:
-
-                    # -------------------------------------------------
-                    # Mark executed steps as provisional success.
-                    #
-                    # Actual state verification will be added in
-                    # the next architecture stage.
-                    # -------------------------------------------------
-
-                    for item in self.task_history:
-
-                        if (
-                            item.get(
-                                "result_success"
-                            )
-                            and not item.get(
-                                "verified",
-                                False
-                            )
-                        ):
-
-                            item["verified"] = False
-
-                    self.active = False
-
-                    last_result = None
-
-                    if self.task_history:
-
-                        last_result = self.task_history[
-                            -1
-                        ].get(
-                            "result"
-                        )
-
-                    return {
-                        "success": True,
-                        "stage": "completed",
-                        "result": last_result,
-                        "history": self.task_history
-                    }
-
-                # -------------------------------------------------
-                # Execution failed.
-                #
-                # Ask ReasoningEngine to reason again.
-                # -------------------------------------------------
-
-                if self.step_count >= self.max_steps:
+                if result.get(
+                    "stage"
+                ) == "safety_limit":
 
                     self.active = False
 
@@ -566,67 +532,68 @@ class AutonomousAgent:
                         "success": False,
                         "stage": "safety_limit",
                         "message": (
-                            "Autonomous re-planning "
-                            "limit reached."
+                            "The task reached Vyom's "
+                            "safe execution limit."
                         ),
                         "history": self.task_history
                     }
 
-                try:
+                if not result.get(
+                    "success",
+                    False
+                ):
 
-                    re_reasoning = (
-                        self.reasoning_engine.reason(
-                            self.current_goal,
-                            intent
-                        )
-                    )
-
-                except Exception as error:
-
-                    self.active = False
-
-                    return {
-                        "success": False,
-                        "stage": "replanning_error",
-                        "error": str(error),
-                        "history": self.task_history
-                    }
-
-                route = re_reasoning.get(
-                    "route",
-                    {}
-                )
-
-                plan = re_reasoning.get(
-                    "plan",
-                    []
-                )
-
-                # -------------------------------------------------
-                # If reasoning no longer has an existing tool route
-                # -------------------------------------------------
-
-                if route.get(
-                    "route"
-                ) != "existing_tools":
+                    execution_failed = True
 
                     break
+
+            # =====================================================
+            # SUCCESS
+            # =====================================================
+
+            if not execution_failed:
+
+                self.active = False
+
+                last_result = None
+
+                if self.task_history:
+
+                    last_result = (
+                        self.task_history[-1]
+                        .get("result")
+                    )
+
+                # Task remains available as conversational context.
+                self.context.task_state = "completed"
+
+                return {
+                    "success": True,
+                    "stage": "completed",
+                    "result": last_result,
+                    "history": self.task_history,
+                    "context": self.context.snapshot()
+                }
+
+            # =====================================================
+            # FAILURE
+            # =====================================================
 
             self.active = False
 
             return {
                 "success": False,
-                "stage": "replanning_stopped",
+                "stage": "execution_failed",
                 "message": (
-                    "The task could not be completed "
-                    "with the available execution route."
+                    "I could not complete that action."
                 ),
-                "history": self.task_history
+                "history": self.task_history,
+                "context": self.context.snapshot()
             }
 
-        # =====================================================
+        # =========================================================
         # CAPABILITY FOUND
-        # =====================================================
+        # =========================================================
 
         if route.get(
             "route"
@@ -642,18 +609,18 @@ class AutonomousAgent:
                 "success": False,
                 "stage": "capability_not_implemented",
                 "message": (
-                    "The required capability was "
-                    "identified but its executor is "
-                    "not implemented yet."
+                    "I identified the required capability, "
+                    "but its executor is not implemented yet."
                 ),
                 "capability": capability,
-                "goal": self.current_goal,
-                "plan": plan
+                "goal": goal,
+                "plan": plan,
+                "context": self.context.snapshot()
             }
 
-        # =====================================================
+        # =========================================================
         # MISSING CAPABILITY
-        # =====================================================
+        # =========================================================
 
         if route.get(
             "route"
@@ -663,7 +630,7 @@ class AutonomousAgent:
 
                 skill_result = (
                     self.skill_builder.build(
-                        self.current_goal
+                        goal
                     )
                 )
 
@@ -675,15 +642,12 @@ class AutonomousAgent:
                     "success": False,
                     "stage": "skill_builder_error",
                     "message": (
-                        "I understood that I need "
-                        "a new capability, but the "
-                        "capability builder failed."
+                        "I understood the goal, "
+                        "but I could not prepare "
+                        "the capability plan."
                     ),
-                    "error": str(
-                        error
-                    ),
-                    "goal": self.current_goal,
-                    "plan": plan
+                    "error": str(error),
+                    "goal": goal
                 }
 
             self.active = False
@@ -704,16 +668,17 @@ class AutonomousAgent:
                     ),
                     "message": skill_result.get(
                         "message",
-                        "A new capability plan was created."
+                        "I created a capability plan."
                     ),
-                    "goal": self.current_goal,
+                    "goal": goal,
                     "plan": plan,
                     "skill": skill_result.get(
                         "skill"
                     ),
                     "next_stage": skill_result.get(
                         "next_stage"
-                    )
+                    ),
+                    "context": self.context.snapshot()
                 }
 
             return {
@@ -722,13 +687,12 @@ class AutonomousAgent:
                 "message": str(
                     skill_result
                 ),
-                "goal": self.current_goal,
-                "plan": plan
+                "goal": goal
             }
 
-        # =====================================================
+        # =========================================================
         # STOP
-        # =====================================================
+        # =========================================================
 
         self.active = False
 
@@ -738,21 +702,56 @@ class AutonomousAgent:
             "message": route.get(
                 "reason",
                 "Task stopped."
-            )
+            ),
+            "context": self.context.snapshot()
         }
 
-    # =========================================================
-    # RESET
-    # =========================================================
+    # =============================================================
+    # SESSION CONTEXT
+    # =============================================================
+
+    def get_context(self):
+
+        return self.context.snapshot()
+
+    # =============================================================
+    # RESET TASK
+    # =============================================================
+
+    def reset_task(self):
+
+        self.context.clear_task()
+
+        self.current_goal = ""
+        self.task_history = []
+        self.step_count = 0
+        self.active = False
+
+        try:
+
+            self.reasoning_engine.reset()
+
+        except Exception:
+
+            pass
+
+    # =============================================================
+    # RESET COMPLETE SESSION
+    # =============================================================
 
     def reset(self):
 
+        self.context.reset()
+
         self.current_goal = ""
-
         self.task_history = []
-
         self.step_count = 0
-
         self.active = False
 
-        self.reasoning_engine.reset()
+        try:
+
+            self.reasoning_engine.reset()
+
+        except Exception:
+
+            pass
