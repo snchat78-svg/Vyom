@@ -4,44 +4,29 @@ Version : 1.0
 Module  : Session Memory
 
 Purpose:
-    Vyom की current conversation और ongoing task की
-    working memory रखना।
+    Maintain Vyom's temporary working memory for the
+    current conversation/session.
 
-    यह Long-Term Memory नहीं है।
+This is NOT long-term memory.
 
-    यह याद रखता है:
-        - अभी user क्या कर रहा है
-        - current goal क्या है
-        - कौन-सा application active है
-        - कौन-सी file active है
-        - कौन-सा selection pending है
-        - पिछला action क्या था
-        - उसका result क्या आया
-        - अगला instruction पिछले task की continuation है या नहीं
-
-Architecture:
-
-    Voice / Text
-          |
-          v
-    Autonomous Agent
-          |
-          v
-    Session Memory
-          |
-          v
-    Reasoning / Planning
-          |
-          v
-    Tools / Skills
+It remembers:
+    - current goal
+    - last instruction
+    - current application
+    - current file
+    - current target
+    - pending selection
+    - last action
+    - last result
+    - task history
+    - conversation context
+    - confirmation state
 
 Security:
-    Session Memory को:
-        - security बदलने की permission नहीं है
-        - permissions बदलने की permission नहीं है
-        - generated code execute करने की permission नहीं है
-        - core files modify करने की permission नहीं है
+    SessionMemory cannot modify security, permissions,
+    core files, or execute generated code.
 """
+
 
 from typing import Any, Dict, List, Optional
 
@@ -49,26 +34,27 @@ from typing import Any, Dict, List, Optional
 class SessionMemory:
 
     def __init__(self):
+
         # =====================================================
         # SESSION
         # =====================================================
 
-        self.active: bool = True
+        self.active = True
 
         # =====================================================
         # CURRENT TASK
         # =====================================================
 
-        self.current_goal: str = ""
+        self.current_goal = ""
 
-        self.last_instruction: str = ""
+        self.last_instruction = ""
 
-        self.task_state: str = "idle"
+        self.task_state = "idle"
 
-        self.current_step: int = 0
+        self.current_step = 0
 
         # =====================================================
-        # CURRENT TARGET
+        # CURRENT CONTEXT
         # =====================================================
 
         self.current_app: Optional[str] = None
@@ -78,7 +64,7 @@ class SessionMemory:
         self.current_target: Optional[str] = None
 
         # =====================================================
-        # LAST ACTION / RESULT
+        # LAST ACTION
         # =====================================================
 
         self.last_action: Optional[Dict[str, Any]] = None
@@ -88,10 +74,10 @@ class SessionMemory:
         self.last_success: Optional[bool] = None
 
         # =====================================================
-        # SELECTION MEMORY
+        # SELECTION
         # =====================================================
 
-        self.pending_selection: bool = False
+        self.pending_selection = False
 
         self.selection_target: Optional[str] = None
 
@@ -101,7 +87,7 @@ class SessionMemory:
         # CONFIRMATION
         # =====================================================
 
-        self.awaiting_confirmation: bool = False
+        self.awaiting_confirmation = False
 
         self.confirmation_reason: Optional[str] = None
 
@@ -122,7 +108,7 @@ class SessionMemory:
         ] = []
 
     # =========================================================
-    # START / CONTINUE TASK
+    # START / CONTINUE
     # =========================================================
 
     def start_task(
@@ -130,11 +116,6 @@ class SessionMemory:
         instruction: str,
         preserve_context: bool = True
     ):
-        """
-        नया instruction आने पर current task को start/continue करता है।
-
-        preserve_context=True होने पर पुराना context नहीं मिटता।
-        """
 
         instruction = str(
             instruction or ""
@@ -155,12 +136,12 @@ class SessionMemory:
         self.current_step = 0
 
         self.add_message(
-            role="user",
-            text=instruction
+            "user",
+            instruction
         )
 
     # =========================================================
-    # ADD MESSAGE
+    # MESSAGE
     # =========================================================
 
     def add_message(
@@ -171,9 +152,6 @@ class SessionMemory:
             Dict[str, Any]
         ] = None
     ):
-        """
-        Conversation का message memory में रखता है।
-        """
 
         self.conversation_history.append(
             {
@@ -183,7 +161,6 @@ class SessionMemory:
             }
         )
 
-        # Memory को अनंत बड़ा होने से रोकना।
         if len(
             self.conversation_history
         ) > 100:
@@ -200,9 +177,6 @@ class SessionMemory:
         self,
         action: Dict[str, Any]
     ):
-        """
-        Vyom ने अभी कौन-सा action लिया।
-        """
 
         self.current_step += 1
 
@@ -217,9 +191,6 @@ class SessionMemory:
         result: Any,
         success: bool
     ):
-        """
-        Action का result memory में रखता है।
-        """
 
         self.last_result = result
 
@@ -252,6 +223,7 @@ class SessionMemory:
         self,
         app: Optional[str]
     ):
+
         if app:
 
             self.current_app = (
@@ -266,6 +238,7 @@ class SessionMemory:
         self,
         file_path: Optional[str]
     ):
+
         if file_path:
 
             self.current_file = (
@@ -280,6 +253,7 @@ class SessionMemory:
         self,
         target: Optional[str]
     ):
+
         if target:
 
             self.current_target = (
@@ -287,7 +261,7 @@ class SessionMemory:
             )
 
     # =========================================================
-    # SELECTION
+    # PENDING SELECTION
     # =========================================================
 
     def set_pending_selection(
@@ -295,9 +269,6 @@ class SessionMemory:
         target: Optional[str] = None,
         options: Optional[List[Any]] = None
     ):
-        """
-        जब ToolManager multiple results देता है।
-        """
 
         self.pending_selection = True
 
@@ -343,15 +314,11 @@ class SessionMemory:
         self,
         reason: str
     ):
-        """
-        Dangerous/permanent action से पहले
-        confirmation state।
-        """
 
         self.awaiting_confirmation = True
 
-        self.confirmation_reason = (
-            str(reason)
+        self.confirmation_reason = str(
+            reason
         )
 
         self.task_state = (
@@ -375,92 +342,61 @@ class SessionMemory:
             self.task_state = "active"
 
     # =========================================================
-    # TASK COMPLETED
+    # COMPLETE
     # =========================================================
 
-    def mark_completed(
-        self
-    ):
+    def mark_completed(self):
 
         self.task_state = "completed"
 
     # =========================================================
-    # TASK FAILED
+    # FAILED
     # =========================================================
 
-    def mark_failed(
-        self
-    ):
+    def mark_failed(self):
 
         self.task_state = "failed"
 
     # =========================================================
-    # CONTEXT SNAPSHOT
+    # CONTEXT CHECK
     # =========================================================
 
-    def snapshot(
-        self
-    ) -> Dict[str, Any]:
-        """
-        Reasoning Engine को current context देने के लिए
-        safe snapshot।
-        """
+    def has_context(self) -> bool:
+
+        return bool(
+            self.current_goal
+            or self.current_app
+            or self.current_file
+            or self.current_target
+            or self.pending_selection
+            or self.last_action
+        )
+
+    # =========================================================
+    # SNAPSHOT
+    # =========================================================
+
+    def snapshot(self):
 
         return {
             "active": self.active,
+            "current_goal": self.current_goal,
+            "last_instruction": self.last_instruction,
+            "task_state": self.task_state,
+            "current_step": self.current_step,
 
-            "current_goal": (
-                self.current_goal
-            ),
+            "current_app": self.current_app,
+            "current_file": self.current_file,
+            "current_target": self.current_target,
 
-            "last_instruction": (
-                self.last_instruction
-            ),
+            "last_action": self.last_action,
+            "last_result": self.last_result,
+            "last_success": self.last_success,
 
-            "task_state": (
-                self.task_state
-            ),
-
-            "current_step": (
-                self.current_step
-            ),
-
-            "current_app": (
-                self.current_app
-            ),
-
-            "current_file": (
-                self.current_file
-            ),
-
-            "current_target": (
-                self.current_target
-            ),
-
-            "last_action": (
-                self.last_action
-            ),
-
-            "last_result": (
-                self.last_result
-            ),
-
-            "last_success": (
-                self.last_success
-            ),
-
-            "pending_selection": (
-                self.pending_selection
-            ),
-
-            "selection_target": (
-                self.selection_target
-            ),
-
-            "selection_options": (
-                list(
-                    self.selection_options
-                )
+            "pending_selection": self.pending_selection,
+            "selection_target": self.selection_target,
+            "selection_options": list(
+                self.selection_options
             ),
 
             "awaiting_confirmation": (
@@ -481,35 +417,10 @@ class SessionMemory:
         }
 
     # =========================================================
-    # IS CONTINUATION
-    # =========================================================
-
-    def is_continuation(
-        self
-    ) -> bool:
-        """
-        क्या Vyom के पास पहले से active context है?
-        """
-
-        return bool(
-            self.current_goal
-            or self.current_app
-            or self.current_file
-            or self.pending_selection
-            or self.last_action
-        )
-
-    # =========================================================
     # CLEAR CURRENT TASK
     # =========================================================
 
-    def clear_task(
-        self
-    ):
-        """
-        Current task साफ करता है,
-        लेकिन conversation history को नहीं मिटाता।
-        """
+    def clear_task(self):
 
         self.current_goal = ""
 
@@ -547,12 +458,7 @@ class SessionMemory:
     # RESET SESSION
     # =========================================================
 
-    def reset(
-        self
-    ):
-        """
-        पूरा temporary session reset।
-        """
+    def reset(self):
 
         self.clear_task()
 
@@ -564,9 +470,7 @@ class SessionMemory:
     # END SESSION
     # =========================================================
 
-    def end_session(
-        self
-    ):
+    def end_session(self):
 
         self.active = False
 
