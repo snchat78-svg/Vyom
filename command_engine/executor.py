@@ -12,17 +12,25 @@ Purpose:
         IntentEngine
              |
              v
-        AutonomousAgent
+        Session State
              |
-             +------------------+
-             |                  |
-             v                  v
-        Existing Tools      Capability System
+             +----------------------+
+             |                      |
+             v                      v
+        Selection             AutonomousAgent
+             |                      |
+             v                      v
+       ToolManager             ReasoningEngine
+                                    |
+                          +---------+---------+
+                          |                   |
+                          v                   v
+                    Existing Tools      Capability System
 
 Important:
 
-    Persistent AutonomousAgent is intentionally created once
-    and reused for the entire application session.
+    AutonomousAgent is created once and reused for the
+    entire application session.
 
     This allows:
 
@@ -30,29 +38,24 @@ Important:
         command 2
         command 3
 
-    to share context.
+    to share the same working context.
 
-    Example:
+Example:
 
-        open notepad
-        one
-        type hello
-        save it
-
-    The second command can be understood in relation to
-    the first command.
+    open notepad
+    one
+    type hello
+    save it
 
 Security:
 
     This module does not execute arbitrary generated code.
 """
 
+
 from ai_core.brain import Brain
-
 from ai_core.autonomous_agent import AutonomousAgent
-
 from command_engine.intent import IntentEngine
-
 from tools.tool_manager import ToolManager
 
 
@@ -66,8 +69,11 @@ intent_engine = IntentEngine()
 
 tool_manager = ToolManager()
 
+
 # IMPORTANT:
-# Create ONE persistent agent for the application session.
+#
+# One persistent agent for the entire application session.
+#
 autonomous_agent = AutonomousAgent(
     tool_manager=tool_manager,
     brain=brain
@@ -75,7 +81,7 @@ autonomous_agent = AutonomousAgent(
 
 
 # =============================================================
-# PENDING SELECTION
+# CHECK PENDING SELECTION
 # =============================================================
 
 def _has_pending_selection():
@@ -89,6 +95,7 @@ def _has_pending_selection():
         )
 
         if selection_manager is None:
+
             return False
 
         has_results = getattr(
@@ -122,7 +129,7 @@ def _get_selection_number(
 ):
 
     # ---------------------------------------------------------
-    # IntentEngine already detects selections.
+    # IntentEngine selection
     # ---------------------------------------------------------
 
     if isinstance(
@@ -145,7 +152,7 @@ def _get_selection_number(
     ).strip().lower()
 
     # ---------------------------------------------------------
-    # Direct numeric selection
+    # Direct number
     # ---------------------------------------------------------
 
     if text.isdigit():
@@ -157,15 +164,32 @@ def _get_selection_number(
     # ---------------------------------------------------------
 
     numbers = {
+
+        "zero": "0",
+
         "one": "1",
+        "first": "1",
+
         "two": "2",
+        "second": "2",
+
         "three": "3",
+        "third": "3",
+
         "four": "4",
+        "fourth": "4",
+
         "five": "5",
+        "fifth": "5",
+
         "six": "6",
+
         "seven": "7",
+
         "eight": "8",
+
         "nine": "9",
+
         "ten": "10"
     }
 
@@ -174,7 +198,7 @@ def _get_selection_number(
         return numbers[text]
 
     # ---------------------------------------------------------
-    # "number one"
+    # Prefix forms
     # ---------------------------------------------------------
 
     prefixes = [
@@ -196,9 +220,11 @@ def _get_selection_number(
             ].strip()
 
             if value.isdigit():
+
                 return value
 
             if value in numbers:
+
                 return numbers[value]
 
     # ---------------------------------------------------------
@@ -206,14 +232,27 @@ def _get_selection_number(
     # ---------------------------------------------------------
 
     hindi_numbers = {
+
+        "शून्य": "0",
+
+        "एक": "1",
         "पहला": "1",
         "पहली": "1",
-        "एक": "1",
+
+        "दो": "2",
         "दूसरा": "2",
         "दूसरी": "2",
-        "दो": "2",
+
+        "तीन": "3",
         "तीसरा": "3",
-        "तीन": "3"
+        "तीसरी": "3",
+
+        "चार": "4",
+        "चौथा": "4",
+        "चौथी": "4",
+
+        "पांच": "5",
+        "पाँच": "5"
     }
 
     if text in hindi_numbers:
@@ -230,6 +269,10 @@ def _get_selection_number(
 def _result_to_message(
     result
 ):
+
+    # ---------------------------------------------------------
+    # Normal string / other result
+    # ---------------------------------------------------------
 
     if not isinstance(
         result,
@@ -267,7 +310,7 @@ def _result_to_message(
         return message
 
     # ---------------------------------------------------------
-    # Capability
+    # Capability not implemented
     # ---------------------------------------------------------
 
     if result.get(
@@ -313,12 +356,12 @@ def _result_to_message(
     ):
 
         return (
-            "I analyzed the goal and prepared "
+            "I analyzed the goal and created "
             "a capability plan."
         )
 
     # ---------------------------------------------------------
-    # Safety
+    # Safety limit
     # ---------------------------------------------------------
 
     if result.get(
@@ -331,7 +374,7 @@ def _result_to_message(
         )
 
     # ---------------------------------------------------------
-    # Error
+    # Execution error
     # ---------------------------------------------------------
 
     if result.get(
@@ -340,13 +383,37 @@ def _result_to_message(
 
         return (
             "I could not complete that action: "
-            + str(
+            +
+            str(
                 result.get(
                     "error",
                     "unknown error"
                 )
             )
         )
+
+    # ---------------------------------------------------------
+    # Reasoning error
+    # ---------------------------------------------------------
+
+    if result.get(
+        "stage"
+    ) == "reasoning_error":
+
+        return (
+            "I could not reason through that task: "
+            +
+            str(
+                result.get(
+                    "error",
+                    "unknown reasoning error"
+                )
+            )
+        )
+
+    # ---------------------------------------------------------
+    # Generic fallback
+    # ---------------------------------------------------------
 
     return str(
         result
@@ -362,7 +429,7 @@ def execute(
 ):
 
     # =========================================================
-    # NORMALIZE
+    # NORMALIZE COMMAND
     # =========================================================
 
     if command is None:
@@ -397,7 +464,7 @@ def execute(
         return "Vyom session stopped."
 
     # =========================================================
-    # INTENT
+    # INTENT DETECTION
     # =========================================================
 
     try:
@@ -410,11 +477,12 @@ def execute(
 
         return (
             "Intent detection error: "
-            + str(error)
+            +
+            str(error)
         )
 
     # =========================================================
-    # SELECTION
+    # SELECTION DETECTION
     # =========================================================
 
     selection_number = (
@@ -423,6 +491,25 @@ def execute(
             intent
         )
     )
+
+    # =========================================================
+    # PENDING SELECTION
+    #
+    # VERY IMPORTANT:
+    #
+    # If ToolManager is waiting for:
+    #
+    #     1. Notepad
+    #     2. Notepad++
+    #
+    # and user says:
+    #
+    #     one
+    #
+    # then this is NOT a new autonomous goal.
+    #
+    # It must go directly to ToolManager.
+    # =========================================================
 
     if (
         selection_number is not None
@@ -442,8 +529,7 @@ def execute(
             )
 
             # -------------------------------------------------
-            # Selection completed.
-            # Clear pending session context.
+            # Selection consumed
             # -------------------------------------------------
 
             try:
@@ -455,21 +541,30 @@ def execute(
                 pass
 
             # -------------------------------------------------
-            # Update current app/file context from result.
+            # Keep task context alive
             # -------------------------------------------------
 
-            if isinstance(
-                result,
-                str
-            ):
+            try:
 
-                result_lower = result.lower()
+                if isinstance(
+                    result,
+                    str
+                ):
 
-                if "opened successfully" in result_lower:
+                    result_lower = result.lower()
 
-                    autonomous_agent.context.task_state = (
-                        "active"
-                    )
+                    if (
+                        "opened successfully"
+                        in result_lower
+                    ):
+
+                        autonomous_agent.context.task_state = (
+                            "active"
+                        )
+
+            except Exception:
+
+                pass
 
             return result
 
@@ -477,7 +572,8 @@ def execute(
 
             return (
                 "Selection error: "
-                + str(error)
+                +
+                str(error)
             )
 
     # =========================================================
@@ -495,13 +591,14 @@ def execute(
 
         return (
             "Autonomous execution error: "
-            + str(error)
+            +
+            str(error)
         )
 
     # =========================================================
-    # RETURN
+    # RETURN NORMAL USER RESPONSE
     # =========================================================
 
     return _result_to_message(
         result
-    )
+            )
