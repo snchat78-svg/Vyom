@@ -1,22 +1,12 @@
 """
 Project : Vyom AI
 Version : 1.0
-Module  : Intent Engine
+Module : Intent Engine
 
 Purpose:
-    Convert natural language into a lightweight intent.
+    Detect basic command intents and conversational selections.
 
-Important:
-    IntentEngine does NOT execute anything.
-
-    It only identifies:
-        - intent
-        - target
-        - selection
-        - possible continuation
-
-    AutonomousSession decides what the instruction means
-    in the current context.
+    This module does not execute commands.
 """
 
 
@@ -27,50 +17,70 @@ class IntentEngine:
     # =========================================================
 
     NUMBER_WORDS = {
-        "zero": "0",
-        "one": "1",
-        "two": "2",
-        "three": "3",
-        "four": "4",
-        "five": "5",
-        "six": "6",
-        "seven": "7",
-        "eight": "8",
-        "nine": "9",
-        "ten": "10",
 
+        "zero": "0",
+
+        "one": "1",
         "first": "1",
+
+        "two": "2",
         "second": "2",
+
+        "three": "3",
         "third": "3",
+
+        "four": "4",
         "fourth": "4",
+
+        "five": "5",
         "fifth": "5",
 
+        "six": "6",
+
+        "seven": "7",
+
+        "eight": "8",
+
+        "nine": "9",
+
+        "ten": "10",
+
+        # Hindi
+        "एक": "1",
         "पहला": "1",
         "पहली": "1",
-        "एक": "1",
 
+        "दो": "2",
         "दूसरा": "2",
         "दूसरी": "2",
-        "दो": "2",
 
+        "तीन": "3",
         "तीसरा": "3",
-        "तीसरी": "3",
-        "तीन": "3"
+        "तीसरी": "3"
     }
 
     # =========================================================
-    # SELECTION NORMALIZATION
+    # SELECTION
     # =========================================================
 
-    def _detect_selection(self, command):
+    def _detect_selection(
+        self,
+        command
+    ):
 
         text = command.strip().lower()
 
         # Direct number
         if text.isdigit():
+
             return text
 
-        # "number one"
+        # Direct number word
+        if text in self.NUMBER_WORDS:
+
+            return self.NUMBER_WORDS[text]
+
+        # number one / option one / item one
         prefixes = [
             "number ",
             "option ",
@@ -83,17 +93,17 @@ class IntentEngine:
 
             if text.startswith(prefix):
 
-                value = text[len(prefix):].strip()
+                value = text[
+                    len(prefix):
+                ].strip()
 
                 if value.isdigit():
+
                     return value
 
                 if value in self.NUMBER_WORDS:
-                    return self.NUMBER_WORDS[value]
 
-        # Direct number word
-        if text in self.NUMBER_WORDS:
-            return self.NUMBER_WORDS[text]
+                    return self.NUMBER_WORDS[value]
 
         return None
 
@@ -101,7 +111,10 @@ class IntentEngine:
     # DETECT
     # =========================================================
 
-    def detect(self, command):
+    def detect(
+        self,
+        command
+    ):
 
         command = str(
             command or ""
@@ -151,8 +164,7 @@ class IntentEngine:
 
                 return {
                     "intent": "close_app",
-                    "target": target,
-                    "selection": None
+                    "target": target
                 }
 
         # =====================================================
@@ -174,8 +186,7 @@ class IntentEngine:
 
                 return {
                     "intent": "search_and_open_file",
-                    "target": target,
-                    "selection": None
+                    "target": target
                 }
 
         # =====================================================
@@ -198,8 +209,7 @@ class IntentEngine:
 
                 return {
                     "intent": "search_file",
-                    "target": target,
-                    "selection": None
+                    "target": target
                 }
 
         # =====================================================
@@ -223,8 +233,7 @@ class IntentEngine:
 
                 return {
                     "intent": "open",
-                    "target": target,
-                    "selection": None
+                    "target": target
                 }
 
         # =====================================================
@@ -257,16 +266,14 @@ class IntentEngine:
 
                 return {
                     "intent": "open_file",
-                    "target": command,
-                    "selection": None
+                    "target": command
                 }
 
         # =====================================================
-        # UNKNOWN / NATURAL LANGUAGE GOAL
+        # UNKNOWN NATURAL-LANGUAGE GOAL
         # =====================================================
 
         return {
             "intent": "unknown",
-            "target": command,
-            "selection": None
-            }
+            "target": command
+    }
