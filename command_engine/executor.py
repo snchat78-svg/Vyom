@@ -1,61 +1,51 @@
 """
 Project : Vyom AI
-Version : 0.9.1
+Version : 1.0
 Module  : Executor
 
 Purpose:
     Connect:
 
         User Command
-            |
-            v
+             |
+             v
         IntentEngine
-            |
-            +-----------------------------+
-            |                             |
-            | Known Intent                | Unknown Goal
-            |                             |
-            v                             v
-        AutonomousAgent              AutonomousAgent
-            |                             |
-            v                             v
-        ToolManager                ReasoningEngine
-            |                             |
-            v                             v
-        Windows / Files /          CapabilityManager
-        Applications                     |
-                                         v
-                                  Future Skill Builder
+             |
+             v
+        AutonomousAgent
+             |
+             +------------------+
+             |                  |
+             v                  v
+        Existing Tools      Capability System
 
-IMPORTANT:
+Important:
 
-    Existing IntentEngine and ToolManager behaviour is
-    preserved.
+    Persistent AutonomousAgent is intentionally created once
+    and reused for the entire application session.
 
-    AutonomousAgent remains the main execution coordinator.
+    This allows:
 
-    IMPORTANT FIX:
+        command 1
+        command 2
+        command 3
 
-    Number selections such as:
+    to share context.
 
-        1
-        2
-        3
+    Example:
 
-    are NOT sent to AutonomousAgent as new goals when
-    ToolManager has a pending selection.
+        open notepad
+        one
+        type hello
+        save it
 
-    They are sent directly back to ToolManager so that
-    SelectionManager can open the selected item.
+    The second command can be understood in relation to
+    the first command.
 
-    This preserves the existing application/file selection
-    behaviour while allowing AutonomousAgent to handle
-    unknown natural-language goals.
+Security:
 
-    Future versions will allow Vyom to create/learn new
-    capabilities under controlled security and verification.
+    This module does not execute arbitrary generated code.
 """
-
 
 from ai_core.brain import Brain
 
@@ -66,9 +56,9 @@ from command_engine.intent import IntentEngine
 from tools.tool_manager import ToolManager
 
 
-# =========================================================
+# =============================================================
 # CORE COMPONENTS
-# =========================================================
+# =============================================================
 
 brain = Brain()
 
@@ -76,37 +66,19 @@ intent_engine = IntentEngine()
 
 tool_manager = ToolManager()
 
+# IMPORTANT:
+# Create ONE persistent agent for the application session.
 autonomous_agent = AutonomousAgent(
     tool_manager=tool_manager,
     brain=brain
 )
 
 
-# =========================================================
-# CHECK PENDING SELECTION
-# =========================================================
+# =============================================================
+# PENDING SELECTION
+# =============================================================
 
 def _has_pending_selection():
-    """
-    Check whether ToolManager is currently waiting for
-    the user to select a numbered result.
-
-    Example:
-
-        Vyom:
-            Multiple items found:
-            1. Notepad
-            2. Notepad++
-            3. Something else
-
-            Please select a number.
-
-        User:
-            1
-
-    In this situation '1' must go to ToolManager and NOT
-    to AutonomousAgent.
-    """
 
     try:
 
@@ -117,7 +89,6 @@ def _has_pending_selection():
         )
 
         if selection_manager is None:
-
             return False
 
         has_results = getattr(
@@ -141,21 +112,124 @@ def _has_pending_selection():
     return False
 
 
-# =========================================================
-# NORMALIZE AGENT RESULT
-# =========================================================
+# =============================================================
+# NORMALIZE SELECTION
+# =============================================================
+
+def _get_selection_number(
+    command,
+    intent
+):
+
+    # ---------------------------------------------------------
+    # IntentEngine already detects selections.
+    # ---------------------------------------------------------
+
+    if isinstance(
+        intent,
+        dict
+    ):
+
+        selection = intent.get(
+            "selection"
+        )
+
+        if selection is not None:
+
+            return str(
+                selection
+            )
+
+    text = str(
+        command or ""
+    ).strip().lower()
+
+    # ---------------------------------------------------------
+    # Direct numeric selection
+    # ---------------------------------------------------------
+
+    if text.isdigit():
+
+        return text
+
+    # ---------------------------------------------------------
+    # English number words
+    # ---------------------------------------------------------
+
+    numbers = {
+        "one": "1",
+        "two": "2",
+        "three": "3",
+        "four": "4",
+        "five": "5",
+        "six": "6",
+        "seven": "7",
+        "eight": "8",
+        "nine": "9",
+        "ten": "10"
+    }
+
+    if text in numbers:
+
+        return numbers[text]
+
+    # ---------------------------------------------------------
+    # "number one"
+    # ---------------------------------------------------------
+
+    prefixes = [
+        "number ",
+        "option ",
+        "item ",
+        "choice ",
+        "no "
+    ]
+
+    for prefix in prefixes:
+
+        if text.startswith(
+            prefix
+        ):
+
+            value = text[
+                len(prefix):
+            ].strip()
+
+            if value.isdigit():
+                return value
+
+            if value in numbers:
+                return numbers[value]
+
+    # ---------------------------------------------------------
+    # Hindi
+    # ---------------------------------------------------------
+
+    hindi_numbers = {
+        "पहला": "1",
+        "पहली": "1",
+        "एक": "1",
+        "दूसरा": "2",
+        "दूसरी": "2",
+        "दो": "2",
+        "तीसरा": "3",
+        "तीन": "3"
+    }
+
+    if text in hindi_numbers:
+
+        return hindi_numbers[text]
+
+    return None
+
+
+# =============================================================
+# RESULT TO MESSAGE
+# =============================================================
 
 def _result_to_message(
     result
 ):
-    """
-    Convert AutonomousAgent result into a normal Vyom
-    response without losing useful information.
-    """
-
-    # -----------------------------------------------------
-    # Normal string / other result
-    # -----------------------------------------------------
 
     if not isinstance(
         result,
@@ -164,16 +238,9 @@ def _result_to_message(
 
         return result
 
-    # -----------------------------------------------------
-    # Prefer actual ToolManager result.
-    #
-    # Example:
-    #
-    # {
-    #     "success": True,
-    #     "result": "Opened successfully: ..."
-    # }
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
+    # Actual ToolManager result
+    # ---------------------------------------------------------
 
     if (
         "result" in result
@@ -187,9 +254,9 @@ def _result_to_message(
             "result"
         )
 
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
     # Agent message
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
 
     message = result.get(
         "message"
@@ -199,12 +266,9 @@ def _result_to_message(
 
         return message
 
-    # -----------------------------------------------------
-    # Capability information
-    #
-    # Keep useful information visible instead of returning
-    # an unreadable dictionary.
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
+    # Capability
+    # ---------------------------------------------------------
 
     if result.get(
         "stage"
@@ -237,102 +301,74 @@ def _result_to_message(
             "is not implemented yet."
         )
 
-    # -----------------------------------------------------
-    # Missing capability
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
+    # Skill plan
+    # ---------------------------------------------------------
 
     if result.get(
         "stage"
-    ) == "missing_capability":
+    ) in (
+        "skill_planned",
+        "capability_planned"
+    ):
 
         return (
-            "I do not currently have a capability "
-            "for this task."
+            "I analyzed the goal and prepared "
+            "a capability plan."
         )
 
-    # -----------------------------------------------------
-    # Safety limit
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
+    # Safety
+    # ---------------------------------------------------------
 
     if result.get(
         "stage"
     ) == "safety_limit":
 
         return (
-            "The autonomous task stopped because "
-            "the maximum execution step limit was reached."
+            "I stopped the task safely because "
+            "the execution limit was reached."
         )
 
-    # -----------------------------------------------------
-    # Execution error
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
+    # Error
+    # ---------------------------------------------------------
 
     if result.get(
         "stage"
     ) == "execution_error":
 
-        error = result.get(
-            "error",
-            "Unknown execution error."
-        )
-
         return (
-            f"Task execution error: {error}"
+            "I could not complete that action: "
+            + str(
+                result.get(
+                    "error",
+                    "unknown error"
+                )
+            )
         )
-
-    # -----------------------------------------------------
-    # Generic message fallback
-    # -----------------------------------------------------
 
     return str(
         result
     )
 
 
-# =========================================================
+# =============================================================
 # EXECUTE
-# =========================================================
+# =============================================================
 
 def execute(
     command
 ):
-    """
-    Execute a user command.
 
-    Main flow:
-
-        Command
-          |
-          v
-        IntentEngine
-          |
-          +-----------------------------+
-          |                             |
-       Selection                   Normal command
-          |                             |
-          v                             v
-      ToolManager                AutonomousAgent
-                                        |
-                                        v
-                                ReasoningEngine
-                                        |
-                         +--------------+--------------+
-                         |                             |
-                  Existing Tools                Capability
-                         |                             |
-                         v                             v
-                   ToolManager              Future Skill System
-    """
-
-    # =====================================================
-    # NORMALIZE COMMAND
-    # =====================================================
+    # =========================================================
+    # NORMALIZE
+    # =========================================================
 
     if command is None:
 
         return (
-            "Please tell me what "
-            "you want me to do."
+            "Please tell me what you want me to do."
         )
 
     command = str(
@@ -342,13 +378,27 @@ def execute(
     if not command:
 
         return (
-            "Please tell me what "
-            "you want me to do."
+            "Please tell me what you want me to do."
         )
 
-    # =====================================================
-    # INTENT DETECTION
-    # =====================================================
+    # =========================================================
+    # EXIT SESSION
+    # =========================================================
+
+    if command.lower() in (
+        "exit",
+        "quit",
+        "shutdown vyom",
+        "close vyom"
+    ):
+
+        autonomous_agent.reset()
+
+        return "Vyom session stopped."
+
+    # =========================================================
+    # INTENT
+    # =========================================================
 
     try:
 
@@ -360,72 +410,79 @@ def execute(
 
         return (
             "Intent detection error: "
-            f"{error}"
+            + str(error)
         )
 
-    # =====================================================
-    # NUMBER SELECTION FIX
-    # =====================================================
-    #
-    # IMPORTANT:
-    #
-    # If ToolManager previously displayed:
-    #
-    #     1. Notepad
-    #     2. Notepad++
-    #
-    # and user says:
-    #
-    #     1
-    #
-    # then '1' is a selection, not an autonomous goal.
-    #
-    # This must happen BEFORE AutonomousAgent.run().
-    # =====================================================
+    # =========================================================
+    # SELECTION
+    # =========================================================
 
-    if command.isdigit():
+    selection_number = (
+        _get_selection_number(
+            command,
+            intent
+        )
+    )
 
-        if _has_pending_selection():
+    if (
+        selection_number is not None
+        and
+        _has_pending_selection()
+    ):
+
+        try:
+
+            selection_intent = {
+                "intent": "unknown",
+                "target": selection_number
+            }
+
+            result = tool_manager.execute(
+                selection_intent
+            )
+
+            # -------------------------------------------------
+            # Selection completed.
+            # Clear pending session context.
+            # -------------------------------------------------
 
             try:
 
-                selection_intent = {
-                    "intent": "unknown",
-                    "target": command
-                }
+                autonomous_agent.context.clear_pending_selection()
 
-                result = tool_manager.execute(
-                    selection_intent
-                )
+            except Exception:
 
-                return result
+                pass
 
-            except Exception as error:
+            # -------------------------------------------------
+            # Update current app/file context from result.
+            # -------------------------------------------------
 
-                return (
-                    "Selection error: "
-                    f"{error}"
-                )
+            if isinstance(
+                result,
+                str
+            ):
 
-    # =====================================================
-    # AUTONOMOUS AGENT
-    # =====================================================
-    #
-    # Existing known commands continue through the current
-    # AutonomousAgent -> ReasoningEngine -> ToolManager path.
-    #
-    # Unknown natural-language goals also reach the
-    # AutonomousAgent.
-    #
-    # Example known command:
-    #
-    #     open notepad
-    #
-    # Example unknown goal:
-    #
-    #     photo se data nikalkar excel bana do
-    #
-    # =====================================================
+                result_lower = result.lower()
+
+                if "opened successfully" in result_lower:
+
+                    autonomous_agent.context.task_state = (
+                        "active"
+                    )
+
+            return result
+
+        except Exception as error:
+
+            return (
+                "Selection error: "
+                + str(error)
+            )
+
+    # =========================================================
+    # NORMAL AUTONOMOUS EXECUTION
+    # =========================================================
 
     try:
 
@@ -438,13 +495,13 @@ def execute(
 
         return (
             "Autonomous execution error: "
-            f"{error}"
+            + str(error)
         )
 
-    # =====================================================
-    # RETURN RESULT
-    # =====================================================
+    # =========================================================
+    # RETURN
+    # =========================================================
 
     return _result_to_message(
         result
-        )
+    )
