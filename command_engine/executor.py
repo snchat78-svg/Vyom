@@ -56,7 +56,10 @@ Security:
 from ai_core.brain import Brain
 from ai_core.autonomous_agent import AutonomousAgent
 from command_engine.intent import IntentEngine
+import re
+
 from tools.tool_manager import ToolManager
+from ai_core.response_engine import ResponseEngine
 
 
 # =============================================================
@@ -78,6 +81,8 @@ autonomous_agent = AutonomousAgent(
     tool_manager=tool_manager,
     brain=brain
 )
+
+response_engine = ResponseEngine()
 
 
 # =============================================================
@@ -117,6 +122,98 @@ def _has_pending_selection():
         pass
 
     return False
+
+
+# =============================================================
+# SYNC PENDING SELECTION WITH SESSION CONTEXT
+# =============================================================
+
+def _sync_pending_selection_context(target=None):
+
+    try:
+
+        selection_manager = getattr(
+            tool_manager,
+            "selection_manager",
+            None
+        )
+
+        if selection_manager is None:
+            return
+
+        if selection_manager.has_results():
+
+            results = list(
+                getattr(
+                    selection_manager,
+                    "results",
+                    []
+                )
+            )
+
+            if target is None:
+
+                target = getattr(
+                    tool_manager,
+                    "selection_source",
+                    None
+                )
+
+            autonomous_agent.context.set_pending_selection(
+                target,
+                results
+            )
+
+        else:
+
+            autonomous_agent.context.clear_pending_selection()
+
+    except Exception:
+        pass
+
+
+# =============================================================
+# NATURAL RESPONSE
+# =============================================================
+
+def _natural_response(
+    command,
+    result,
+    intent=None
+):
+
+    try:
+
+        options = None
+
+        selection_manager = getattr(
+            tool_manager,
+            "selection_manager",
+            None
+        )
+
+        if selection_manager is not None:
+
+            if selection_manager.has_results():
+
+                options = list(
+                    getattr(
+                        selection_manager,
+                        "results",
+                        []
+                    )
+                )
+
+        return response_engine.format(
+            command=command,
+            result=result,
+            intent=intent,
+            selection_options=options
+        )
+
+    except Exception:
+
+        return str(result)
 
 
 # =============================================================
@@ -258,6 +355,69 @@ def _get_selection_number(
     if text in hindi_numbers:
 
         return hindi_numbers[text]
+
+    # ---------------------------------------------------------
+    # Natural selection phrases
+    # ---------------------------------------------------------
+
+    selection_phrases = {
+
+        "पहला वाला": "1",
+        "पहली वाली": "1",
+        "पहले वाला": "1",
+        "पहले वाली": "1",
+        "पहला खोलो": "1",
+        "पहला खोल दो": "1",
+
+        "दूसरा वाला": "2",
+        "दूसरी वाली": "2",
+        "दूसरा खोलो": "2",
+        "दूसरा खोल दो": "2",
+
+        "तीसरा वाला": "3",
+        "तीसरी वाली": "3",
+        "तीसरा खोलो": "3",
+        "तीसरा खोल दो": "3",
+
+        "चौथा वाला": "4",
+        "चौथी वाली": "4",
+
+        "पांचवां वाला": "5",
+        "पाँचवाँ वाला": "5",
+
+        "first one": "1",
+        "first one open": "1",
+        "open the first": "1",
+        "open the first one": "1",
+        "first one please": "1",
+
+        "second one": "2",
+        "open the second": "2",
+        "open the second one": "2",
+
+        "third one": "3",
+        "open the third": "3"
+    }
+
+    if text in selection_phrases:
+
+        return selection_phrases[text]
+
+    # Natural prefixes such as:
+    # "open the first one", "पहला वाला खोल दो"
+    normalized = re.sub(
+        r"[^a-zA-Z0-9ऀ-ॿ ]+",
+        " ",
+        text
+    )
+
+    normalized = " ".join(
+        normalized.split()
+    )
+
+    if normalized in selection_phrases:
+
+        return selection_phrases[normalized]
 
     return None
 
@@ -541,32 +701,14 @@ def execute(
                 pass
 
             # -------------------------------------------------
-            # Keep task context alive
+            # Natural conversational response
             # -------------------------------------------------
 
-            try:
-
-                if isinstance(
-                    result,
-                    str
-                ):
-
-                    result_lower = result.lower()
-
-                    if (
-                        "opened successfully"
-                        in result_lower
-                    ):
-
-                        autonomous_agent.context.task_state = (
-                            "active"
-                        )
-
-            except Exception:
-
-                pass
-
-            return result
+            return _natural_response(
+                command,
+                result,
+                selection_intent
+            )
 
         except Exception as error:
 
@@ -599,6 +741,25 @@ def execute(
     # RETURN NORMAL USER RESPONSE
     # =========================================================
 
-    return _result_to_message(
+    message = _result_to_message(
         result
-            )
+    )
+
+    # If ToolManager created a selection, preserve it in
+    # SessionContext and let ResponseEngine explain it naturally.
+    selection_target = (
+        intent.get("target")
+        if isinstance(intent, dict)
+        else None
+    )
+
+    _sync_pending_selection_context(
+        selection_target
+    )
+
+    return _natural_response(
+        command,
+        message,
+        intent
+    )
+
