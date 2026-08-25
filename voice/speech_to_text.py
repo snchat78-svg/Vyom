@@ -81,13 +81,15 @@ class SpeechToText:
     def listen(
         self,
         timeout=5,
-        phrase_time_limit=8
+        phrase_time_limit=8,
+        announce=True
     ):
 
         if not self.available:
 
             return {
                 "success": False,
+                "status": "unavailable",
                 "text": "",
                 "message": self.error_message
             }
@@ -96,8 +98,9 @@ class SpeechToText:
 
             with self.microphone as source:
 
-                print("")
-                print("Vyom : Listening...")
+                if announce:
+                    print("")
+                    print("Vyom : Listening...")
 
                 # Adjust microphone for surrounding noise.
                 self.recognizer.adjust_for_ambient_noise(
@@ -111,7 +114,8 @@ class SpeechToText:
                     phrase_time_limit=phrase_time_limit
                 )
 
-            print("Vyom : Processing speech...")
+            if announce:
+                print("Vyom : Processing speech...")
 
             # ------------------------------------------------
             # First STT backend
@@ -135,6 +139,7 @@ class SpeechToText:
 
                 return {
                     "success": False,
+                    "status": "unrecognized",
                     "text": "",
                     "message": (
                         "I could not understand the speech."
@@ -143,6 +148,7 @@ class SpeechToText:
 
             return {
                 "success": True,
+                "status": "recognized",
                 "text": text,
                 "message": text
             }
@@ -155,15 +161,25 @@ class SpeechToText:
 
             if error_name == "WaitTimeoutError":
 
-                message = (
-                    "I did not hear anything."
-                )
+                # Silence is a normal conversational state.
+                # It is NOT a command failure.
+                return {
+                    "success": False,
+                    "status": "silence",
+                    "text": "",
+                    "message": ""
+                }
 
             elif error_name == "UnknownValueError":
 
-                message = (
-                    "I could not understand what you said."
-                )
+                return {
+                    "success": False,
+                    "status": "unrecognized",
+                    "text": "",
+                    "message": (
+                        "I could not understand what you said."
+                    )
+                }
 
             elif error_name == "RequestError":
 
@@ -172,6 +188,8 @@ class SpeechToText:
                     "is unavailable."
                 )
 
+                status = "service_error"
+
             else:
 
                 message = (
@@ -179,8 +197,11 @@ class SpeechToText:
                     + str(error)
                 )
 
+                status = "error"
+
             return {
                 "success": False,
+                "status": status,
                 "text": "",
                 "message": message
             }
