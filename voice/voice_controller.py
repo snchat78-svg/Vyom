@@ -165,12 +165,16 @@ class VoiceController:
     # LISTEN ONCE
     # ========================================================
 
-    def listen_once(self):
+    def listen_once(
+        self,
+        announce=False
+    ):
 
         if not self.is_available():
 
             return {
                 "success": False,
+                "status": "unavailable",
                 "text": "",
                 "message": (
                     "Speech recognition is not available: "
@@ -179,7 +183,25 @@ class VoiceController:
                 "result": None
             }
 
-        speech_result = self.speech_to_text.listen()
+        speech_result = self.speech_to_text.listen(
+            announce=announce
+        )
+
+        # ----------------------------------------------------
+        # Silence is normal.
+        #
+        # Do not speak an error and do not create a new task.
+        # ----------------------------------------------------
+
+        if speech_result.get("status") == "silence":
+
+            return {
+                "success": False,
+                "status": "silence",
+                "text": "",
+                "message": "",
+                "result": None
+            }
 
         if not speech_result.get(
             "success",
@@ -188,6 +210,10 @@ class VoiceController:
 
             return {
                 "success": False,
+                "status": speech_result.get(
+                    "status",
+                    "error"
+                ),
                 "text": "",
                 "message": speech_result.get(
                     "message",
@@ -205,10 +231,9 @@ class VoiceController:
 
             return {
                 "success": False,
+                "status": "silence",
                 "text": "",
-                "message": (
-                    "No speech command was detected."
-                ),
+                "message": "",
                 "result": None
             }
 
@@ -238,44 +263,52 @@ class VoiceController:
         self.running = True
 
         print("")
-
         print("=" * 60)
-
         print(
             "Vyom AI - Voice Command Mode"
         )
-
         print("=" * 60)
-
+        print("")
+        print(
+            "Vyom : I'm ready. Tell me what you want to do."
+        )
+        print(
+            "Vyom : You can speak naturally. Say 'exit' or 'quit' to stop."
+        )
         print("")
 
-        print(
-            "Speak a command."
-        )
+        # ----------------------------------------------------
+        # IMPORTANT:
+        #
+        # Listening is continuous, but silence is silent.
+        # Vyom does not repeatedly announce "Listening..."
+        # and does not treat silence as an error.
+        # ----------------------------------------------------
 
-        print(
-            "Vyom will execute the command "
-            "and speak the response."
-        )
-
-        print(
-            "Say 'exit' or 'quit' to stop."
-        )
-
-        print("")
-
-        # ====================================================
-        # CONTINUOUS VOICE LOOP
-        # ====================================================
+        first_listen = True
 
         while self.running:
 
             try:
 
-                result = self.listen_once()
+                result = self.listen_once(
+                    announce=first_listen
+                )
+
+                first_listen = False
 
                 # ------------------------------------------------
-                # Failed speech
+                # Silence
+                # ------------------------------------------------
+
+                if result.get("status") == "silence":
+
+                    continue
+
+                # ------------------------------------------------
+                # Speech recognition error
+                #
+                # Only real recognition/service errors are shown.
                 # ------------------------------------------------
 
                 if not result.get(
@@ -285,15 +318,22 @@ class VoiceController:
 
                     message = result.get(
                         "message",
-                        "Voice command failed."
+                        ""
                     )
 
-                    print(
-                        "Vyom : "
-                        + message
-                    )
+                    if message:
 
-                    print("")
+                        print(
+                            "Vyom : "
+                            + message
+                        )
+
+                        print("")
+
+                        # Do not speak repeated low-value STT errors.
+                        # The next user speech can simply be processed.
+                        if result.get("status") == "service_error":
+                            self.speak(message)
 
                     continue
 
@@ -305,6 +345,10 @@ class VoiceController:
                     "text",
                     ""
                 ).strip()
+
+                if not text:
+
+                    continue
 
                 print(
                     "You : "
@@ -319,13 +363,24 @@ class VoiceController:
                     "exit",
                     "quit",
                     "stop voice",
-                    "stop voice mode"
+                    "stop voice mode",
+                    "बंद करो",
+                    "वॉइस बंद करो",
+                    "वॉयस बंद करो"
                 ):
 
                     self.running = False
 
                     response = (
-                        "Voice mode stopped."
+                        "ठीक है, voice mode बंद कर रहा हूँ।"
+                        if any(
+                            token in text.lower()
+                            for token in (
+                                "बंद",
+                                "करो"
+                            )
+                        )
+                        else "Okay, voice mode stopped."
                     )
 
                     print(
@@ -348,6 +403,10 @@ class VoiceController:
                     ""
                 )
 
+                if not response:
+
+                    continue
+
                 print(
                     "Vyom : "
                     + response
@@ -356,36 +415,33 @@ class VoiceController:
                 print("")
 
                 # ------------------------------------------------
-                # SPEAK RESULT
+                # SPEAK NATURAL RESPONSE
                 # ------------------------------------------------
 
-                if response:
+                tts_result = self.speak(
+                    response
+                )
 
-                    tts_result = self.speak(
-                        response
+                if not tts_result.get(
+                    "success",
+                    False
+                ):
+
+                    print(
+                        "Vyom TTS : "
+                        + tts_result.get(
+                            "message",
+                            "Speech output failed."
+                        )
                     )
 
-                    if not tts_result.get(
-                        "success",
-                        False
-                    ):
-
-                        print(
-                            "Vyom TTS : "
-                            + tts_result.get(
-                                "message",
-                                "Speech output failed."
-                            )
-                        )
-
-                    print("")
+                print("")
 
             except KeyboardInterrupt:
 
                 self.running = False
 
                 print("")
-
                 print(
                     "Vyom : Voice mode stopped."
                 )
@@ -400,6 +456,10 @@ class VoiceController:
                 )
 
                 print("")
+
+                # Keep the voice session alive after a recoverable
+                # controller error instead of terminating the agent.
+                continue
 
     # ========================================================
     # STOP
@@ -508,3 +568,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
