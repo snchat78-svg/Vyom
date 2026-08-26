@@ -56,6 +56,16 @@ import os
 import sys
 
 
+def _safe_print(*args, **kwargs):
+    """Never allow a Windows console failure to terminate Vyom."""
+    try:
+        print(*args, **kwargs)
+    except (PermissionError, OSError):
+        pass
+    except Exception:
+        pass
+
+
 def _configure_console():
     """Keep Hindi/Unicode text intact in the Windows console when possible."""
 
@@ -95,19 +105,19 @@ voice_controller = VoiceController()
 # STARTUP
 # ============================================================
 
-print("===================================")
-print(" Vyom AI Started ")
-print("===================================")
+_safe_print("===================================")
+_safe_print(" Vyom AI Started ")
+_safe_print("===================================")
 
-print("")
-print("Available modes:")
-print("1. Text mode")
-print("2. Voice mode")
-print("")
-print("Type a normal command to use text mode.")
-print("Type 'voice' to start voice mode.")
-print("Type 'exit' to close Vyom.")
-print("")
+_safe_print("")
+_safe_print("Available modes:")
+_safe_print("1. Text mode")
+_safe_print("2. Voice mode")
+_safe_print("")
+_safe_print("Type a normal command to use text mode.")
+_safe_print("Type 'voice' to start voice mode.")
+_safe_print("Type 'exit' to close Vyom.")
+_safe_print("")
 
 
 # ============================================================
@@ -125,8 +135,8 @@ while True:
         EOFError
     ):
 
-        print("")
-        print("Vyom : Goodbye")
+        _safe_print("")
+        _safe_print("Vyom : Goodbye")
         break
 
 
@@ -152,7 +162,7 @@ while True:
         "close vyom"
     ):
 
-        print("Vyom : Goodbye")
+        _safe_print("Vyom : Goodbye")
         break
 
 
@@ -168,43 +178,43 @@ while True:
         "listen"
     ):
 
-        print("")
-        print("===================================")
-        print(" Vyom AI - Voice Mode ")
-        print("===================================")
-        print("")
+        _safe_print("")
+        _safe_print("===================================")
+        _safe_print(" Vyom AI - Voice Mode ")
+        _safe_print("===================================")
+        _safe_print("")
 
         if not voice_controller.is_available():
 
-            print(
+            _safe_print(
                 "Vyom : Voice input is not available."
             )
 
-            print(
+            _safe_print(
                 "Reason : "
                 + str(
                     voice_controller.speech_to_text.error_message
                 )
             )
 
-            print("")
+            _safe_print("")
 
             continue
 
 
-        print(
+        _safe_print(
             "Vyom : Voice mode starting..."
         )
 
-        print(
+        _safe_print(
             "Vyom : Speak your command."
         )
 
-        print(
+        _safe_print(
             "Vyom : Say 'exit' or 'quit' to stop voice mode."
         )
 
-        print("")
+        _safe_print("")
 
 
         try:
@@ -213,17 +223,17 @@ while True:
 
         except Exception as error:
 
-            print(
+            _safe_print(
                 "Vyom : Voice mode error: "
                 + str(error)
             )
 
 
-        print("")
-        print(
+        _safe_print("")
+        _safe_print(
             "Vyom : Returned to text mode."
         )
-        print("")
+        _safe_print("")
 
         continue
 
@@ -254,9 +264,9 @@ while True:
     # RESPONSE
     # ========================================================
 
-    print(
+    _safe_print(
         "Vyom : "
         + str(response)
     )
 
-    print("")
+    _safe_print("")
