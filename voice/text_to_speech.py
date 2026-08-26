@@ -25,6 +25,7 @@ IMPORTANT:
 """
 
 from typing import Optional
+import re
 
 
 class TextToSpeech:
@@ -96,6 +97,48 @@ class TextToSpeech:
         return self.available
 
     # =========================================================
+    # VOICE SELECTION
+    # =========================================================
+
+    def _select_voice_for_text(self, text):
+
+        if self.engine is None:
+            return
+
+        value = str(text or "")
+        language = "hindi" if re.search(r"[\u0900-\u097F]", value) else "english"
+
+        try:
+            voices = self.engine.getProperty("voices") or []
+        except Exception:
+            return
+
+        if not voices:
+            return
+
+        if language == "hindi":
+            keywords = (
+                "hindi", "hi-in", "hi_in", "hindi india",
+                "kalpana", "heera", "hemant"
+            )
+        else:
+            keywords = (
+                "english", "en-in", "en_in", "en-us", "en-gb"
+            )
+
+        for voice in voices:
+            identity = " ".join(
+                str(getattr(voice, attr, ""))
+                for attr in ("id", "name", "languages")
+            ).lower()
+            if any(keyword in identity for keyword in keywords):
+                try:
+                    self.engine.setProperty("voice", voice.id)
+                    return
+                except Exception:
+                    continue
+
+    # =========================================================
     # SPEAK
     # =========================================================
 
@@ -140,6 +183,8 @@ class TextToSpeech:
             }
 
         try:
+
+            self._select_voice_for_text(text)
 
             self.engine.say(
                 text
