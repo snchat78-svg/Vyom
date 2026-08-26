@@ -147,7 +147,8 @@ class IntentEngine:
         if text in (
             "close", "close it", "close this", "stop it",
             "बंद करो", "बंद कर दो", "इसे बंद करो", "इसे बंद कर दो",
-            "इसे बंद कर", "इसे रोक दो"
+            "इसे बंद कर", "इसे रोक दो", "इसे क्लोज करो", "इसे क्लोज कर दो",
+            "इसे क्लोज करो", "क्लोज करो", "क्लोज कर दो"
         ):
             return {"intent": "close_current", "target": ""}
 
@@ -207,3 +208,4 @@ class IntentEngine:
             return {"intent": "open_file", "target": text}
 
         return {"intent": "unknown", "target": original}
+
