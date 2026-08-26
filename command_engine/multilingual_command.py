@@ -75,6 +75,10 @@ class MultilingualCommand:
             "launch",
             "start",
             "run",
+            "ओपन",
+            "लॉन्च",
+            "स्टार्ट",
+            "रन",
 
             # Hindi
             "खोल",
@@ -114,6 +118,9 @@ class MultilingualCommand:
             "exit",
             "quit",
             "stop",
+            "क्लोज",
+            "एग्जिट",
+            "स्टॉप",
 
             # Hindi
             "बंद",
@@ -148,6 +155,8 @@ class MultilingualCommand:
             "find",
             "look for",
             "look up",
+            "सर्च",
+            "फाइंड",
 
             # Hindi
             "खोज",
@@ -741,3 +750,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
