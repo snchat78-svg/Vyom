@@ -18,6 +18,7 @@
 # ============================================================
 
 import sys
+import re
 
 
 class SpeechToText:
@@ -386,4 +387,5 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
