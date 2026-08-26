@@ -292,6 +292,44 @@ class ResponseEngine:
         return text
 
     # =========================================================
+    # CONVERSATION
+    # =========================================================
+
+    def conversation_response(self, command: str, conversation_type: str, language: Optional[str] = None) -> str:
+        language = language or self.detect_language(command)
+
+        responses = {
+            "greeting": {
+                "hindi": "नमस्ते। मैं तैयार हूँ। बताइए, आज क्या करना है?",
+                "hinglish": "Namaste. Main ready hoon. Bataiye, aaj kya karna hai?",
+                "english": "Hello. I am ready. What would you like me to do?",
+            },
+            "status": {
+                "hindi": "मैं बिल्कुल तैयार हूँ और आपके काम में मदद करने के लिए तैयार हूँ। बताइए, क्या करना है?",
+                "hinglish": "Main bilkul ready hoon aur aapke kaam mein help karne ke liye taiyar hoon. Bataiye, kya karna hai?",
+                "english": "I am ready and here to help. What would you like me to do?",
+            },
+            "capabilities": {
+                "hindi": "मैं आपके कंप्यूटर पर ऐप खोलने, फ़ाइलें ढूँढने, फ़ाइलें खोलने और उपलब्ध tools के जरिए काम करने में मदद कर सकता हूँ। आगे चलकर मैं नई capabilities भी सुरक्षित तरीके से सीख सकूँगा।",
+                "hinglish": "Main aapke computer par apps open karne, files dhoondhne, files open karne aur available tools ke through kaam kar sakta hoon. Aage chal kar main nayi capabilities bhi safely seekh sakunga.",
+                "english": "I can open applications, find and open files, and perform tasks through the tools available to me. Later, I can safely add new capabilities with your approval.",
+            },
+            "thanks": {
+                "hindi": "खुशी हुई। जब भी तैयार हों, अगला काम बताइए।",
+                "hinglish": "Khushi hui. Jab bhi ready hon, agla kaam bataiye.",
+                "english": "You're welcome. Tell me what you'd like to do next.",
+            },
+            "acknowledge": {
+                "hindi": "ठीक है। मैं तैयार हूँ।",
+                "hinglish": "Theek hai. Main ready hoon.",
+                "english": "Okay. I am ready.",
+            },
+        }
+        return responses.get(conversation_type, {}).get(
+            language, responses.get(conversation_type, {}).get("english", "Okay.")
+        )
+
+    # =========================================================
     # MAIN FORMATTER
     # =========================================================
 
@@ -304,6 +342,13 @@ class ResponseEngine:
     ) -> str:
 
         language = self.detect_language(command)
+
+        if isinstance(result, dict) and result.get("conversation_type"):
+            return self.conversation_response(
+                command,
+                result.get("conversation_type"),
+                language
+            )
 
         if selection_options:
             target = ""
