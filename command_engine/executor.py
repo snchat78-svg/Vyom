@@ -642,6 +642,48 @@ def execute(
         )
 
     # =========================================================
+    # CONTEXTUAL CLOSE
+    # =========================================================
+
+    if isinstance(intent, dict) and intent.get("intent") == "close_current":
+        current_app = getattr(
+            autonomous_agent.context,
+            "current_app",
+            None
+        )
+
+        if not current_app:
+            return response_engine.failure_response(
+                command,
+                "No current application is available to close."
+            )
+
+        close_intent = {
+            "intent": "close_app",
+            "target": str(current_app)
+        }
+
+        try:
+            raw = tool_manager.execute(close_intent)
+            return _natural_response(command, raw, close_intent)
+        except Exception as error:
+            return response_engine.failure_response(command, str(error))
+
+    # =========================================================
+    # SIMPLE CONVERSATION
+    # =========================================================
+
+    if isinstance(intent, dict) and intent.get("intent") == "conversation":
+        return response_engine.format(
+            command=command,
+            result={
+                "success": True,
+                "conversation_type": intent.get("conversation_type", "acknowledge")
+            },
+            intent=intent
+        )
+
+    # =========================================================
     # SELECTION DETECTION
     # =========================================================
 
@@ -762,4 +804,3 @@ def execute(
         message,
         intent
     )
-
