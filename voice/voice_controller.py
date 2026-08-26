@@ -40,6 +40,16 @@ from voice.text_to_speech import TextToSpeech
 from command_engine.executor import execute
 
 
+def _safe_print(*args, **kwargs):
+    """Never allow a broken Windows console to terminate Vyom."""
+    try:
+        print(*args, **kwargs)
+    except (PermissionError, OSError):
+        pass
+    except Exception:
+        pass
+
+
 class VoiceController:
 
     # ========================================================
@@ -249,11 +259,11 @@ class VoiceController:
 
         if not self.is_available():
 
-            print(
+            _safe_print(
                 "Vyom : Voice input is not available."
             )
 
-            print(
+            _safe_print(
                 "Reason : "
                 + self.speech_to_text.error_message
             )
@@ -262,219 +272,204 @@ class VoiceController:
 
         self.running = True
 
-        print("")
-        print("=" * 60)
-        print(
-            "Vyom AI - Voice Command Mode"
-        )
-        print("=" * 60)
-        print("")
-        print(
+        _safe_print("")
+        _safe_print("=" * 60)
+        _safe_print("Vyom AI - Voice Command Mode")
+        _safe_print("=" * 60)
+        _safe_print("")
+        _safe_print(
             "Vyom : I'm ready. Tell me what you want to do."
         )
-        print(
+        _safe_print(
             "Vyom : You can speak naturally. Say 'exit' or 'quit' to stop."
         )
-        print("")
+        _safe_print("")
 
-        # ----------------------------------------------------
-        # IMPORTANT:
-        #
-        # Listening is continuous, but silence is silent.
-        # Vyom does not repeatedly announce "Listening..."
-        # and does not treat silence as an error.
-        # ----------------------------------------------------
+        # Open one microphone/PyAudio stream for the whole voice session.
+        # This is the key stability change for older Windows systems.
+        if not self.speech_to_text.start_session():
+
+            _safe_print(
+                "Vyom : I could not start the microphone."
+            )
+            _safe_print(
+                "Reason : "
+                + self.speech_to_text.error_message
+            )
+            self.running = False
+            return
 
         first_listen = True
 
-        while self.running:
+        try:
 
-            try:
+            while self.running:
 
-                result = self.listen_once(
-                    announce=first_listen
-                )
+                try:
 
-                first_listen = False
-
-                # ------------------------------------------------
-                # Silence
-                # ------------------------------------------------
-
-                if result.get("status") == "silence":
-
-                    continue
-
-                # ------------------------------------------------
-                # Speech recognition error
-                #
-                # Only real recognition/service errors are shown.
-                # ------------------------------------------------
-
-                if not result.get(
-                    "success",
-                    False
-                ):
-
-                    status = result.get(
-                        "status",
-                        "error"
+                    result = self.listen_once(
+                        announce=first_listen
                     )
 
-                    # No transcript is a recoverable voice state.
-                    # Do not make the assistant repeatedly say
-                    # "I could not understand...". Simply wait for
-                    # the next real utterance.
-                    if status in (
-                        "unrecognized",
-                        "silence"
-                    ):
+                    first_listen = False
+
+                    # Silence is normal. Keep waiting quietly.
+                    if result.get("status") == "silence":
                         continue
 
-                    message = result.get(
+                    if not result.get("success", False):
+
+                        status = result.get("status", "error")
+                        message = result.get("message", "")
+
+                        # Unrecognized speech and silence are deliberately
+                        # silent states. Device errors are recoverable and
+                        # are handled by SpeechToText.
+                        if status in (
+                            "unrecognized",
+                            "silence"
+                        ):
+                            continue
+
+                        if message:
+                            _safe_print(
+                                "Vyom : " + message
+                            )
+                            _safe_print("")
+
+                        continue
+
+                    text = result.get("text", "").strip()
+
+                    if not text:
+                        continue
+
+                    _safe_print(
+                        "You : " + text
+                    )
+
+                    text_lower = text.lower().strip()
+
+                    if text_lower in (
+                        "exit",
+                        "quit",
+                        "stop voice",
+                        "stop voice mode",
+                        "बंद करो",
+                        "वॉइस बंद करो",
+                        "वॉयस बंद करो"
+                    ):
+
+                        self.running = False
+
+                        response = (
+                            "ठीक है, voice mode बंद कर रहा हूँ।"
+                            if any(
+                                token in text_lower
+                                for token in ("बंद", "करो")
+                            )
+                            else "Okay, voice mode stopped."
+                        )
+
+                        _safe_print(
+                            "Vyom : " + response
+                        )
+                        self.speak(response)
+                        break
+
+                    response = result.get(
                         "message",
                         ""
                     )
 
-                    if message:
+                    if not response:
+                        continue
 
-                        print(
-                            "Vyom : "
-                            + message
-                        )
+                    _safe_print(
+                        "Vyom : " + response
+                    )
+                    _safe_print("")
 
-                        print("")
+                    # Give the Windows audio driver a small handoff period
+                    # after TTS before the next microphone capture.
+                    tts_result = self.speak(response)
 
-                        # Service errors are real system errors, not
-                        # normal speech failures, so report them once.
-                        if status == "service_error":
-                            self.speak(message)
-
-                    continue
-
-                # ------------------------------------------------
-                # Recognized text
-                # ------------------------------------------------
-
-                text = result.get(
-                    "text",
-                    ""
-                ).strip()
-
-                if not text:
-
-                    continue
-
-                print(
-                    "You : "
-                    + text
-                )
-
-                # ------------------------------------------------
-                # Voice loop exit
-                # ------------------------------------------------
-
-                if text.lower() in (
-                    "exit",
-                    "quit",
-                    "stop voice",
-                    "stop voice mode",
-                    "बंद करो",
-                    "वॉइस बंद करो",
-                    "वॉयस बंद करो"
-                ):
-
-                    self.running = False
-
-                    response = (
-                        "ठीक है, voice mode बंद कर रहा हूँ।"
-                        if any(
-                            token in text.lower()
-                            for token in (
-                                "बंद",
-                                "करो"
+                    if not tts_result.get("success", False):
+                        _safe_print(
+                            "Vyom TTS : "
+                            + tts_result.get(
+                                "message",
+                                "Speech output failed."
                             )
                         )
-                        else "Okay, voice mode stopped."
-                    )
 
-                    print(
-                        "Vyom : "
-                        + response
-                    )
+                    import time
+                    time.sleep(0.20)
 
-                    self.speak(
-                        response
-                    )
+                except KeyboardInterrupt:
 
+                    self.running = False
+                    _safe_print("")
+                    _safe_print("Vyom : Voice mode stopped.")
                     break
 
-                # ------------------------------------------------
-                # Command result
-                # ------------------------------------------------
+                except PermissionError as error:
 
-                response = result.get(
-                    "message",
-                    ""
-                )
-
-                if not response:
-
-                    continue
-
-                print(
-                    "Vyom : "
-                    + response
-                )
-
-                print("")
-
-                # ------------------------------------------------
-                # SPEAK NATURAL RESPONSE
-                # ------------------------------------------------
-
-                tts_result = self.speak(
-                    response
-                )
-
-                if not tts_result.get(
-                    "success",
-                    False
-                ):
-
-                    print(
-                        "Vyom TTS : "
-                        + tts_result.get(
-                            "message",
-                            "Speech output failed."
-                        )
+                    # Do not let WinError 31 escape through the console or
+                    # terminate the EXE. Reinitialize the microphone once.
+                    _safe_print(
+                        "Vyom : Microphone connection was interrupted. Recovering..."
                     )
 
-                print("")
+                    try:
+                        self.speech_to_text.stop_session()
+                    except Exception:
+                        pass
 
-            except KeyboardInterrupt:
+                    import time
+                    time.sleep(0.50)
 
-                self.running = False
+                    if not self.speech_to_text.start_session():
+                        _safe_print(
+                            "Vyom : Microphone could not be recovered yet. Waiting..."
+                        )
+                        time.sleep(1.0)
 
-                print("")
-                print(
-                    "Vyom : Voice mode stopped."
-                )
+                except OSError as error:
 
-                break
+                    _safe_print(
+                        "Vyom : Audio device temporarily failed. Recovering..."
+                    )
 
-            except Exception as error:
+                    try:
+                        self.speech_to_text.stop_session()
+                    except Exception:
+                        pass
 
-                print(
-                    "Vyom : Voice controller error: "
-                    + str(error)
-                )
+                    import time
+                    time.sleep(0.50)
 
-                print("")
+                    self.speech_to_text.start_session()
 
-                # Keep the voice session alive after a recoverable
-                # controller error instead of terminating the agent.
-                continue
+                except Exception as error:
+
+                    # Any unexpected command/voice error is contained inside
+                    # the session. The next user instruction can continue.
+                    _safe_print(
+                        "Vyom : Voice command error recovered: "
+                        + str(error)
+                    )
+                    import time
+                    time.sleep(0.25)
+
+        finally:
+
+            self.running = False
+
+            try:
+                self.speech_to_text.stop_session()
+            except Exception:
+                pass
 
     # ========================================================
     # STOP
@@ -499,31 +494,31 @@ class VoiceController:
 
 def main():
 
-    print("=" * 60)
+    _safe_print("=" * 60)
 
-    print(
+    _safe_print(
         "Vyom AI - Voice Controller Test"
     )
 
-    print("=" * 60)
+    _safe_print("=" * 60)
 
-    print("")
+    _safe_print("")
 
     controller = VoiceController()
 
-    print(
+    _safe_print(
         "Text integration test."
     )
 
-    print(
+    _safe_print(
         "Type commands instead of speaking."
     )
 
-    print(
+    _safe_print(
         "Type 'exit' to stop."
     )
 
-    print("")
+    _safe_print("")
 
     while True:
 
@@ -538,7 +533,7 @@ def main():
             EOFError
         ):
 
-            print("")
+            _safe_print("")
 
             break
 
@@ -551,7 +546,7 @@ def main():
             "quit"
         ):
 
-            print(
+            _safe_print(
                 "Vyom : Test stopped."
             )
 
@@ -566,7 +561,7 @@ def main():
             ""
         )
 
-        print(
+        _safe_print(
             "Vyom : "
             + message
         )
@@ -577,9 +572,10 @@ def main():
             message
         )
 
-        print("")
+        _safe_print("")
 
 
 if __name__ == "__main__":
 
     main()
+
