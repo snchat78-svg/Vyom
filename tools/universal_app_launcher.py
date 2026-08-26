@@ -43,6 +43,11 @@ import difflib
 import re
 import time
 
+try:
+    from tools.app_registry import find_application
+except Exception:
+    find_application = None
+
 
 class UniversalAppLauncher:
 
@@ -1144,17 +1149,103 @@ catch {
         force_refresh=False
     ):
 
-        target = self.clean_target(
-            target
-        )
+        target = self.clean_target(target)
 
         if not target:
             return []
 
-        target_normalized = self.normalize(
-            target
-        )
+        target_normalized = self.normalize(target)
 
+        # ----------------------------------------------------
+        # FAST PATH
+        #
+        # Normal commands such as Chrome/Notepad should never
+        # wait for several PowerShell/AppsFolder scans.
+        # First check sources that are fast and deterministic.
+        # ----------------------------------------------------
+        exact = []
+        partial = []
+
+        # 1. Windows App Paths registry (very fast when available)
+        if find_application is not None:
+            try:
+                registry_path = find_application(target)
+            except Exception:
+                registry_path = None
+
+            if registry_path:
+                name = os.path.splitext(os.path.basename(registry_path))[0]
+                self._add_result(
+                    exact,
+                    {
+                        "name": name,
+                        "path": registry_path,
+                        "app_id": "",
+                        "aumid": "",
+                        "type": "registry"
+                    }
+                )
+
+        # 2. PATH executable
+        try:
+            path_result = self.find_path_application(target)
+        except Exception:
+            path_result = None
+
+        if path_result:
+            path_name = os.path.splitext(os.path.basename(path_result))[0]
+            item = {
+                "name": path_name,
+                "path": path_result,
+                "app_id": "",
+                "aumid": "",
+                "type": "path"
+            }
+            if self.normalize(path_name) == target_normalized:
+                self._add_result(exact, item)
+            else:
+                self._add_result(partial, item)
+
+        # 3. Start Menu and Desktop are cheap compared with the
+        # PowerShell/AppsFolder discovery path.
+        try:
+            quick_sources = [
+                self.scan_start_menu(),
+                self.scan_desktop(),
+            ]
+        except Exception:
+            quick_sources = []
+
+        for source_items in quick_sources:
+            for app in source_items:
+                if not isinstance(app, dict):
+                    continue
+
+                app_name = self.normalize(app.get("name", ""))
+                if not app_name:
+                    continue
+
+                if app_name == target_normalized:
+                    self._add_result(exact, app)
+                elif target_normalized in app_name:
+                    self._add_result(partial, app)
+
+        # Exact match is enough to continue immediately. This is the
+        # critical fix for the apparent voice-mode freeze.
+        if exact:
+            return exact[:self.max_results]
+
+        # If quick sources produced meaningful partial matches, return
+        # them before invoking slow system discovery.
+        if partial:
+            return partial[:self.max_results]
+
+        # ----------------------------------------------------
+        # SLOW FALLBACK
+        #
+        # Used only when the fast sources did not find anything.
+        # Existing discovery behaviour is preserved here.
+        # ----------------------------------------------------
         database = self.build_database(
             force=force_refresh
         )
@@ -1162,147 +1253,41 @@ catch {
         exact = []
         partial = []
 
-        # ----------------------------------------------------
-        # DATABASE SEARCH
-        # ----------------------------------------------------
-
         for app in database:
-
             if not isinstance(app, dict):
                 continue
 
-            app_name = self.normalize(
-                app.get(
-                    "name",
-                    ""
-                )
-            )
-
+            app_name = self.normalize(app.get("name", ""))
             if not app_name:
                 continue
 
-            # Exact application name
             if app_name == target_normalized:
+                self._add_result(exact, app)
+            elif target_normalized in app_name:
+                self._add_result(partial, app)
 
-                self._add_result(
-                    exact,
-                    app
-                )
-
-                continue
-
-            # Partial name
-            if target_normalized in app_name:
-
-                self._add_result(
-                    partial,
-                    app
-                )
-
-        # ----------------------------------------------------
-        # PATH APPLICATION
-        # ----------------------------------------------------
-
-        path_result = self.find_path_application(
-            target
-        )
-
-        if path_result:
-
-            path_name = os.path.splitext(
-                os.path.basename(
-                    path_result
-                )
-            )[0]
-
-            path_item = {
-                "name": path_name,
-                "path": path_result,
-                "app_id": "",
-                "aumid": "",
-                "type": "path"
-            }
-
-            if (
-                self.normalize(path_name)
-                == target_normalized
-            ):
-
-                self._add_result(
-                    exact,
-                    path_item
-                )
-
-            else:
-
-                self._add_result(
-                    partial,
-                    path_item
-                )
-
-        # ----------------------------------------------------
-        # PROGRAM FILES
-        #
-        # Only search when no exact application was found.
-        # ----------------------------------------------------
-
+        # Program Files is intentionally last because recursive disk
+        # scanning can be expensive on the user's older HDD.
         if not exact:
-
-            program_results = (
-                self.scan_program_files(
-                    target
-                )
-            )
+            try:
+                program_results = self.scan_program_files(target)
+            except Exception:
+                program_results = []
 
             for item in program_results:
-
-                item_name = self.normalize(
-                    item.get(
-                        "name",
-                        ""
-                    )
-                )
-
+                item_name = self.normalize(item.get("name", ""))
                 if item_name == target_normalized:
-
-                    self._add_result(
-                        exact,
-                        item
-                    )
-
-                elif (
-                    target_normalized
-                    in item_name
-                ):
-
-                    self._add_result(
-                        partial,
-                        item
-                    )
-
-        # ----------------------------------------------------
-        # RESULT ORDER
-        #
-        # Exact matches always come first.
-        # ----------------------------------------------------
+                    self._add_result(exact, item)
+                elif target_normalized in item_name:
+                    self._add_result(partial, item)
 
         results = []
-
         for item in exact:
-            self._add_result(
-                results,
-                item
-            )
-
+            self._add_result(results, item)
         for item in partial:
-            self._add_result(
-                results,
-                item
-            )
+            self._add_result(results, item)
 
-        return results[
-            :self.max_results
-        ]
+        return results[:self.max_results]
 
     # ========================================================
     # FIND SIMILAR APPLICATIONS
@@ -2585,3 +2570,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
