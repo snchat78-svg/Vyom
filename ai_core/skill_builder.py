@@ -30,6 +30,8 @@ system.
 
 
 from typing import Any, Dict, List, Optional
+import hashlib
+import re
 
 from ai_core.skill_registry import SkillRegistry
 
@@ -122,13 +124,36 @@ class SkillBuilder:
                     cleaned
                 )
 
-        if not important:
+        # SkillRegistry currently normalizes names to ASCII
+        # [a-z0-9_]. Hindi/Devanagari words therefore cannot be
+        # used directly as registry keys. Keep any ASCII words we
+        # can safely use and add a deterministic fallback for
+        # Hindi-only / Unicode-only goals.
+        ascii_words = []
 
-            return "generated_skill"
+        for item in important:
 
-        return "_".join(
-            important[:6]
-        )
+            ascii_item = re.sub(
+                r"[^a-z0-9_]+",
+                "_",
+                item
+            ).strip("_")
+
+            if ascii_item:
+
+                ascii_words.append(ascii_item)
+
+        if ascii_words:
+
+            return "_".join(
+                ascii_words[:6]
+            )
+
+        digest = hashlib.sha1(
+            goal.encode("utf-8")
+        ).hexdigest()[:10]
+
+        return "generated_skill_" + digest
 
     # =========================================================
     # DETECT REQUIREMENTS
