@@ -52,6 +52,30 @@ IMPORTANT:
     created here.
 """
 
+import os
+import sys
+
+
+def _configure_console():
+    """Keep Hindi/Unicode text intact in the Windows console when possible."""
+
+    if os.name != "nt":
+        return
+
+    try:
+        os.system("chcp 65001 >nul")
+    except Exception:
+        pass
+
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_configure_console()
+
 from command_engine.parser import CommandParser
 from command_engine.executor import execute
 
