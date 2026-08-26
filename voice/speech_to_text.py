@@ -127,29 +127,51 @@ class SpeechToText:
             # the public listen() interface.
             # ------------------------------------------------
 
-            text = self.recognizer.recognize_google(
-                audio
-            )
+            # Try Hindi first, then Indian English.  The same audio can be
+            # decoded by both language models; when the Hindi result contains
+            # Devanagari we prefer it, otherwise the English result is used.
+            candidates = []
 
-            text = str(
-                text
-            ).strip()
+            for language in ("hi-IN", "en-IN", "en-US"):
+                try:
+                    candidate = self.recognizer.recognize_google(
+                        audio,
+                        language=language
+                    )
+                    candidate = str(candidate or "").strip()
+                    if candidate:
+                        candidates.append((language, candidate))
+                except Exception:
+                    continue
 
-            if not text:
-
+            if not candidates:
                 return {
                     "success": False,
                     "status": "unrecognized",
                     "text": "",
-                    "message": (
-                        "I could not understand the speech."
-                    )
+                    "message": "I could not understand the speech."
                 }
+
+            hindi_candidates = [
+                text for language, text in candidates
+                if language == "hi-IN" and any("\u0900" <= ch <= "\u097F" for ch in text)
+            ]
+
+            if hindi_candidates:
+                text = hindi_candidates[0]
+                detected_language = "hindi"
+            else:
+                text = next(
+                    (text for language, text in candidates if language == "en-IN"),
+                    candidates[-1][1]
+                )
+                detected_language = "english"
 
             return {
                 "success": True,
                 "status": "recognized",
                 "text": text,
+                "language": detected_language,
                 "message": text
             }
 
@@ -364,3 +386,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
