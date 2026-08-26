@@ -316,6 +316,21 @@ class VoiceController:
                     False
                 ):
 
+                    status = result.get(
+                        "status",
+                        "error"
+                    )
+
+                    # No transcript is a recoverable voice state.
+                    # Do not make the assistant repeatedly say
+                    # "I could not understand...". Simply wait for
+                    # the next real utterance.
+                    if status in (
+                        "unrecognized",
+                        "silence"
+                    ):
+                        continue
+
                     message = result.get(
                         "message",
                         ""
@@ -330,9 +345,9 @@ class VoiceController:
 
                         print("")
 
-                        # Do not speak repeated low-value STT errors.
-                        # The next user speech can simply be processed.
-                        if result.get("status") == "service_error":
+                        # Service errors are real system errors, not
+                        # normal speech failures, so report them once.
+                        if status == "service_error":
                             self.speak(message)
 
                     continue
