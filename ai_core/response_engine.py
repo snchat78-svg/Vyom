@@ -1,18 +1,22 @@
 """
 Project : Vyom AI
-Version : 0.1
+Version : 0.2
 Module  : Response Engine
 
 Purpose:
-    Convert technical tool/agent results into natural,
-    user-friendly conversational responses.
+    Turn technical execution results into short, natural and
+    context-aware replies.  This layer never executes commands.
 
-Stage 2:
-    - Hindi / English / simple Hinglish awareness
-    - Human-friendly selection prompts
-    - Natural success/failure responses
-    - Keeps technical paths out of normal spoken responses
-    - Does not execute commands or change security
+Stage 4 foundation:
+    - Hindi / English / Hinglish replies
+    - Friendly conversational tone
+    - No raw paths in normal success replies
+    - Context-aware follow-up wording
+    - Selection prompts without technical wording
+    - Safe, predictable fallback when an executor returns raw text
+
+Security:
+    This module does not create, modify, or execute code.
 """
 
 import re
@@ -22,7 +26,8 @@ from typing import Any, Dict, Optional
 class ResponseEngine:
 
     def __init__(self):
-        self.last_language = "english"
+        self.last_language = "hindi"
+        self._reply_count = 0
 
     # =========================================================
     # LANGUAGE
@@ -30,20 +35,13 @@ class ResponseEngine:
 
     def detect_language(self, text: Any) -> str:
         value = str(text or "").strip()
-
         if not value:
             return self.last_language
 
-        has_devanagari = bool(
-            re.search(r"[\u0900-\u097F]", value)
-        )
+        has_devanagari = bool(re.search(r"[\u0900-\u097F]", value))
+        latin_words = re.findall(r"\b[a-zA-Z]+\b", value)
 
-        english_words = re.findall(
-            r"\b[a-zA-Z]+\b",
-            value
-        )
-
-        if has_devanagari and english_words:
+        if has_devanagari and latin_words:
             language = "hinglish"
         elif has_devanagari:
             language = "hindi"
@@ -75,8 +73,37 @@ class ResponseEngine:
                 or item.get("path")
                 or "विकल्प"
             ).strip()
-
         return self._human_name(item)
+
+    def _friendly_error(self, text: str, language: str) -> str:
+        lowered = str(text or "").lower()
+
+        if "no running application" in lowered:
+            if language == "hindi":
+                return "वह ऐप अभी चलती हुई नहीं मिली।"
+            if language == "hinglish":
+                return "Woh app abhi running nahi mili."
+            return "That app doesn't appear to be running right now."
+
+        if "not found" in lowered:
+            if language == "hindi":
+                return "मुझे वह नहीं मिला। चाहें तो मैं दूसरा तरीका आज़मा सकता हूँ।"
+            if language == "hinglish":
+                return "Mujhe woh nahi mila. Chahein to main doosra tareeka try kar sakta hoon."
+            return "I couldn't find it. I can try another approach."
+
+        if "timeout" in lowered or "timed out" in lowered:
+            if language == "hindi":
+                return "इसमें थोड़ा ज़्यादा समय लग गया। मैं फिर कोशिश कर सकता हूँ।"
+            if language == "hinglish":
+                return "Isme thoda zyada time lag gaya. Main phir try kar sakta hoon."
+            return "That took longer than expected. I can try again."
+
+        if language == "hindi":
+            return "यह काम पूरा नहीं हो पाया। मैं दूसरा तरीका आज़मा सकता हूँ।"
+        if language == "hinglish":
+            return "Ye kaam complete nahi ho paya. Main doosra tareeka try kar sakta hoon."
+        return "I couldn't complete that. I can try another approach."
 
     # =========================================================
     # SELECTION
@@ -89,71 +116,35 @@ class ResponseEngine:
         options,
         language: Optional[str] = None
     ) -> str:
-
         language = language or self.detect_language(command)
-        names = [
-            self._item_name(item)
-            for item in (options or [])
-        ]
-
+        names = [self._item_name(item) for item in (options or [])]
         names = [name for name in names if name]
 
         if language == "hindi":
-            intro = (
-                f"मुझे '{target}' के लिए {len(names)} विकल्प मिले हैं। "
-                if names
-                else
-                f"मुझे '{target}' के लिए एक से अधिक विकल्प मिले हैं। "
-            )
-
             if names:
-                details = " ".join(
-                    f"{i}. {name}."
-                    for i, name in enumerate(names, 1)
-                )
+                details = " ".join(f"{i}. {name}" for i, name in enumerate(names, 1))
                 return (
-                    intro
-                    + details
-                    + " आप जिस विकल्प को खोलना चाहते हैं, उसका नंबर या नाम बोल सकते हैं।"
+                    f"मुझे {target or 'उस नाम'} के लिए कुछ विकल्प मिले हैं: {details}। "
+                    "आप नंबर या नाम बोल दें, मैं वही खोल दूँगा।"
                 )
-
-            return intro + " आप नंबर या नाम बोलकर विकल्प चुन सकते हैं।"
+            return "मुझे एक से ज़्यादा विकल्प मिले हैं। आप नंबर या नाम बोल दें।"
 
         if language == "hinglish":
-            intro = (
-                f"Mujhe '{target}' ke liye {len(names)} options mile hain. "
-            )
             if names:
-                details = " ".join(
-                    f"{i}. {name}."
-                    for i, name in enumerate(names, 1)
-                )
+                details = " ".join(f"{i}. {name}" for i, name in enumerate(names, 1))
                 return (
-                    intro
-                    + details
-                    + " Aap number ya naam bolkar option choose kar sakte hain."
+                    f"Mujhe {target or 'us naam'} ke liye kuch options mile hain: {details}. "
+                    "Aap number ya naam bol dein, main wahi open kar dunga."
                 )
-            return intro + " Aap number ya naam bolkar option choose kar sakte hain."
-
-        intro = (
-            f"I found {len(names)} options for {target}. "
-            if names
-            else
-            f"I found more than one option for {target}. "
-        )
+            return "Mujhe ek se zyada options mile hain. Aap number ya naam bol dein."
 
         if names:
-            details = " ".join(
-                f"{i}. {name}."
-                for i, name in enumerate(names, 1)
-            )
+            details = " ".join(f"{i}. {name}" for i, name in enumerate(names, 1))
             return (
-                intro
-                + details
-                + " You can say the number or the name of the option you want."
+                f"I found a few options for {target or 'that'}: {details}. "
+                "Just say the number or name and I'll open it."
             )
-
-        return intro + " You can say the number or the name of the option you want."
+        return "I found more than one option. Just say the number or name you want."
 
     # =========================================================
     # SUCCESS
@@ -166,73 +157,52 @@ class ResponseEngine:
         raw_result: Any,
         language: Optional[str] = None
     ) -> str:
-
         language = language or self.detect_language(command)
         text = str(raw_result or "").strip()
-        target = ""
+        lowered = text.lower()
 
+        target = ""
         if isinstance(intent, dict):
             target = str(intent.get("target") or "").strip()
-
-        lowered = text.lower()
 
         opened = (
             "opened successfully" in lowered
             or lowered.startswith("opened ")
             or "opened:" in lowered
         )
-
         closed = (
             "closed successfully" in lowered
             or lowered.startswith("closed ")
         )
 
+        self._reply_count += 1
+
         if opened:
-            if target.isdigit():
-                if language == "hindi":
-                    return "हाँ, आपका चुना हुआ विकल्प खोल दिया है। अब बताइए, आगे क्या करना है?"
-
-                if language == "hinglish":
-                    return "Haan, aapka choose kiya hua option khol diya hai. Ab bataiye, aage kya karna hai?"
-
-                return "Done. I opened the option you selected. What would you like me to do next?"
-
             name = self._human_name(target or text)
-
             if language == "hindi":
                 return f"हाँ, {name} खोल दिया है। अब बताइए, आगे क्या करना है?"
-
             if language == "hinglish":
                 return f"Haan, {name} khol diya hai. Ab bataiye, aage kya karna hai?"
-
-            return f"Done. I opened {name}. What would you like me to do next?"
+            return f"Done, I opened {name}. What should we do next?"
 
         if closed:
             name = self._human_name(target or text)
-
             if language == "hindi":
                 return f"हाँ, {name} बंद कर दिया है।"
-
             if language == "hinglish":
                 return f"Haan, {name} band kar diya hai."
+            return f"Done, I closed {name}."
 
-            return f"Done. I closed {name}."
-
-        if "not found" in lowered:
-            if language == "hindi":
-                return "मुझे वह नहीं मिला। अगर आप चाहें तो मैं दूसरा तरीका आज़मा सकता हूँ।"
-
-            if language == "hinglish":
-                return "Mujhe woh nahi mila. Agar aap chahein to main doosra tareeka try kar sakta hoon."
-
-            return "I couldn't find it. I can try another way if you'd like."
+        if any(x in lowered for x in (
+            "error", "failed", "failure", "could not", "unable",
+            "not found", "no running application", "exception"
+        )):
+            return self._friendly_error(text, language)
 
         if language == "hindi":
             return self._naturalize_hindi(text)
-
         if language == "hinglish":
             return self._naturalize_hinglish(text)
-
         return self._naturalize_english(text)
 
     # =========================================================
@@ -245,89 +215,101 @@ class ResponseEngine:
         raw_result: Any,
         language: Optional[str] = None
     ) -> str:
-
         language = language or self.detect_language(command)
-        text = str(raw_result or "").strip()
-
-        if language == "hindi":
-            return "मैं यह काम पूरा नहीं कर पाया। मैं चाहें तो दूसरा तरीका आज़मा सकता हूँ।"
-
-        if language == "hinglish":
-            return "Main ye kaam complete nahi kar paya. Agar aap chahein to main doosra tareeka try kar sakta hoon."
-
-        return "I couldn't complete that. I can try another approach if you'd like."
+        return self._friendly_error(str(raw_result or ""), language)
 
     # =========================================================
-    # GENERAL NATURALIZATION
+    # NATURALIZATION
     # =========================================================
 
     def _naturalize_hindi(self, text: str) -> str:
-        if not text:
+        value = str(text or "").strip()
+        if not value:
             return "ठीक है। बताइए, आगे क्या करना है?"
-
-        if "please select a number" in text.lower():
-            return "आप विकल्प का नंबर बोल सकते हैं।"
-
-        if text.lower().startswith("file '") and "was not found" in text.lower():
-            return "वह फ़ाइल नहीं मिली।"
-
-        return text
+        if "please select a number" in value.lower():
+            return "आप बस विकल्प का नंबर या नाम बोल दीजिए।"
+        if "skill name is required" in value.lower():
+            return "मैं उस काम के लिए सही capability तैयार नहीं कर पाया।"
+        if "capability plan" in value.lower():
+            return "मैंने काम को समझ लिया है और इसके लिए अगला तरीका तैयार कर रहा हूँ।"
+        return value
 
     def _naturalize_hinglish(self, text: str) -> str:
-        if not text:
+        value = str(text or "").strip()
+        if not value:
             return "Theek hai. Bataiye, aage kya karna hai?"
-
-        if "please select a number" in text.lower():
-            return "Aap option ka number bol sakte hain."
-
-        return text
+        if "please select a number" in value.lower():
+            return "Aap bas option ka number ya naam bol dijiye."
+        if "skill name is required" in value.lower():
+            return "Main us kaam ke liye sahi capability prepare nahi kar paya."
+        if "capability plan" in value.lower():
+            return "Maine kaam samajh liya hai aur agla tareeka prepare kar raha hoon."
+        return value
 
     def _naturalize_english(self, text: str) -> str:
-        if not text:
+        value = str(text or "").strip()
+        if not value:
             return "Okay. What would you like me to do next?"
-
-        if "please select a number" in text.lower():
-            return "You can say the number of the option you want."
-
-        return text
+        if "please select a number" in value.lower():
+            return "Just tell me the number or name you want."
+        if "skill name is required" in value.lower():
+            return "I couldn't prepare the right capability for that yet."
+        if "capability plan" in value.lower():
+            return "I understand the goal and I'm preparing the next approach."
+        return value
 
     # =========================================================
     # CONVERSATION
     # =========================================================
 
-    def conversation_response(self, command: str, conversation_type: str, language: Optional[str] = None) -> str:
+    def conversation_response(
+        self,
+        command: str,
+        conversation_type: str,
+        language: Optional[str] = None
+    ) -> str:
         language = language or self.detect_language(command)
 
         responses = {
             "greeting": {
-                "hindi": "नमस्ते। मैं तैयार हूँ। बताइए, आज क्या करना है?",
-                "hinglish": "Namaste. Main ready hoon. Bataiye, aaj kya karna hai?",
-                "english": "Hello. I am ready. What would you like me to do?",
+                "hindi": "नमस्ते 😊 मैं यहीं हूँ। बताइए, आज क्या करना है?",
+                "hinglish": "Namaste 😊 Main yahin hoon. Bataiye, aaj kya karna hai?",
+                "english": "Hello 😊 I'm here. What would you like to do?",
             },
             "status": {
-                "hindi": "मैं बिल्कुल तैयार हूँ और आपके काम में मदद करने के लिए तैयार हूँ। बताइए, क्या करना है?",
-                "hinglish": "Main bilkul ready hoon aur aapke kaam mein help karne ke liye taiyar hoon. Bataiye, kya karna hai?",
-                "english": "I am ready and here to help. What would you like me to do?",
+                "hindi": "मैं बढ़िया हूँ और काम के लिए तैयार हूँ। आप बताइए, क्या करना है?",
+                "hinglish": "Main badhiya hoon aur kaam ke liye ready hoon. Aap bataiye, kya karna hai?",
+                "english": "I'm doing well and I'm ready to help. What shall we do?",
             },
             "capabilities": {
-                "hindi": "मैं आपके कंप्यूटर पर ऐप खोलने, फ़ाइलें ढूँढने, फ़ाइलें खोलने और उपलब्ध tools के जरिए काम करने में मदद कर सकता हूँ। आगे चलकर मैं नई capabilities भी सुरक्षित तरीके से सीख सकूँगा।",
-                "hinglish": "Main aapke computer par apps open karne, files dhoondhne, files open karne aur available tools ke through kaam kar sakta hoon. Aage chal kar main nayi capabilities bhi safely seekh sakunga.",
-                "english": "I can open applications, find and open files, and perform tasks through the tools available to me. Later, I can safely add new capabilities with your approval.",
+                "hindi": "आप बस अपना काम बताइए। मैं उपलब्ध tools और capabilities में से खुद सही तरीका चुनने की कोशिश करूँगा।",
+                "hinglish": "Aap bas apna kaam bataiye. Main available tools aur capabilities mein se khud sahi tareeka choose karne ki koshish karunga.",
+                "english": "Just tell me the job you want done. I'll choose the most suitable available tools and capabilities.",
             },
             "thanks": {
-                "hindi": "खुशी हुई। जब भी तैयार हों, अगला काम बताइए।",
-                "hinglish": "Khushi hui. Jab bhi ready hon, agla kaam bataiye.",
-                "english": "You're welcome. Tell me what you'd like to do next.",
+                "hindi": "खुशी हुई 😊 जब चाहें अगला काम बता दीजिए।",
+                "hinglish": "Khushi hui 😊 Jab chahein agla kaam bata dijiye.",
+                "english": "You're welcome 😊 Just tell me what you'd like to do next.",
             },
             "acknowledge": {
-                "hindi": "ठीक है। मैं तैयार हूँ।",
-                "hinglish": "Theek hai. Main ready hoon.",
-                "english": "Okay. I am ready.",
+                "hindi": "ठीक है, मैं साथ हूँ।",
+                "hinglish": "Theek hai, main saath hoon.",
+                "english": "Okay, I'm with you.",
+            },
+            "identity": {
+                "hindi": "मैं Vyom हूँ। आपका personal computer assistant बनने के लिए बनाया जा रहा हूँ।",
+                "hinglish": "Main Vyom hoon. Aapka personal computer assistant banne ke liye bana hoon.",
+                "english": "I'm Vyom, your personal computer assistant.",
+            },
+            "help": {
+                "hindi": "आप अपना काम सामान्य तरीके से बताइए। मैं पहले समझूँगा, फिर उपलब्ध तरीके से उसे करने की कोशिश करूँगा।",
+                "hinglish": "Aap apna kaam normal tareeke se bataiye. Main pehle samjhunga, phir available tareeke se use karne ki koshish karunga.",
+                "english": "Tell me the task naturally. I'll understand it first and then try to carry it out with the available tools.",
             },
         }
-        return responses.get(conversation_type, {}).get(
-            language, responses.get(conversation_type, {}).get("english", "Okay.")
-        )
+
+        group = responses.get(conversation_type, responses["acknowledge"])
+        return group.get(language, group["english"])
 
     # =========================================================
     # MAIN FORMATTER
@@ -340,13 +322,19 @@ class ResponseEngine:
         intent: Optional[Dict[str, Any]] = None,
         selection_options=None
     ) -> str:
-
         language = self.detect_language(command)
+
+        if isinstance(intent, dict) and intent.get("intent") == "conversation":
+            return self.conversation_response(
+                command,
+                intent.get("conversation_type", "acknowledge"),
+                language
+            )
 
         if isinstance(result, dict) and result.get("conversation_type"):
             return self.conversation_response(
                 command,
-                result.get("conversation_type"),
+                result.get("conversation_type", "acknowledge"),
                 language
             )
 
@@ -354,50 +342,15 @@ class ResponseEngine:
             target = ""
             if isinstance(intent, dict):
                 target = str(intent.get("target") or "").strip()
-
-            return self.selection_response(
-                command,
-                target,
-                selection_options,
-                language
-            )
+            return self.selection_response(command, target, selection_options, language)
 
         if isinstance(result, dict):
             if result.get("success") is False:
-                return self.failure_response(
-                    command,
-                    result,
-                    language
-                )
-
-            raw = (
-                result.get("result")
-                if result.get("result") is not None
-                else result.get("message", result)
-            )
+                return self.failure_response(command, result, language)
+            raw = result.get("result")
+            if raw is None:
+                raw = result.get("message", result)
         else:
             raw = result
 
-        text = str(raw or "").strip()
-
-        lowered = text.lower()
-
-        if (
-            "error" in lowered
-            or "failed" in lowered
-            or "could not" in lowered
-            or "not found" in lowered
-            or "no running application" in lowered
-        ):
-            return self.failure_response(
-                command,
-                text,
-                language
-            )
-
-        return self.success_response(
-            command,
-            intent,
-            text,
-            language
-        )
+        return self.success_response(command, intent, raw, language)
