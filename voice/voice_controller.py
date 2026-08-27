@@ -237,6 +237,9 @@ class VoiceController:
             ""
         ).strip()
 
+        if text:
+            _safe_print("You : " + text)
+
         if not text:
 
             return {
@@ -343,10 +346,6 @@ class VoiceController:
 
                     if not text:
                         continue
-
-                    _safe_print(
-                        "You : " + text
-                    )
 
                     text_lower = text.lower().strip()
 
