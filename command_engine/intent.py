@@ -82,6 +82,31 @@ class IntentEngine:
         if text in self.NUMBER_WORDS:
             return self.NUMBER_WORDS[text]
 
+        # Natural selection commands may contain an action word.
+        # Check these before the normal open/close parser so that
+        # "open the first one" is selection "1", not target "first one".
+        direct_selection_phrases = {
+            "open the first": "1",
+            "open the first one": "1",
+            "open first": "1",
+            "select the first": "1",
+            "choose the first": "1",
+            "पहला खोलो": "1",
+            "पहला खोल दो": "1",
+            "पहला वाला खोलो": "1",
+            "पहला वाला खोल दो": "1",
+            "दूसरा खोलो": "2",
+            "दूसरा खोल दो": "2",
+            "दूसरा वाला खोलो": "2",
+            "दूसरा वाला खोल दो": "2",
+            "तीसरा खोलो": "3",
+            "तीसरा खोल दो": "3",
+            "तीसरा वाला खोलो": "3",
+            "तीसरा वाला खोल दो": "3",
+        }
+        if text in direct_selection_phrases:
+            return direct_selection_phrases[text]
+
         value = re.sub(
             r"(?:^|\s)(?:number|option|item|choice|no)\s+",
             "",
@@ -223,6 +248,36 @@ class IntentEngine:
             "close", "close it", "close this", "stop it",
             "बंद करो", "बंद कर दो", "इसे बंद करो", "इसे बंद कर दो",
             "इसे बंद कर", "इसे रोक दो", "band karo", "band kar do"
+        ):
+            return {"intent": "close_current", "target": ""}
+
+        # Incomplete commands must be handled as clarification requests,
+        # not sent to SkillBuilder as a new capability.
+        if text in (
+            "open", "launch", "start", "run",
+            "ओपन", "लॉन्च", "स्टार्ट", "रन",
+            "खोल", "खोलो", "खोलना", "खोलिए", "खोलिये",
+            "khol", "kholo", "chalu", "चालू",
+        ):
+            return {"intent": "open", "target": ""}
+
+        if text in (
+            "search", "find", "look for",
+            "सर्च", "खोजो", "ढूंढो", "ढूँढो",
+            "search karo", "find karo",
+        ):
+            return {"intent": "search", "target": ""}
+
+        # Pronouns refer to the current object remembered by the session.
+        if text in (
+            "open it", "open this", "reopen it",
+            "इसे खोलो", "इसे खोल दो", "इसे फिर खोलो",
+            "इसे दोबारा खोलो", "फिर से खोलो",
+        ):
+            return {"intent": "open_current", "target": ""}
+
+        if text in (
+            "stop current", "रोक दो",
         ):
             return {"intent": "close_current", "target": ""}
 
