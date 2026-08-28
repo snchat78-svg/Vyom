@@ -39,6 +39,8 @@ from voice.text_to_speech import TextToSpeech
 
 from command_engine.executor import execute
 
+import time
+
 
 def _safe_print(*args, **kwargs):
     """Never allow a broken Windows console to terminate Vyom."""
@@ -177,7 +179,9 @@ class VoiceController:
 
     def listen_once(
         self,
-        announce=False
+        announce=False,
+        timeout=4,
+        phrase_time_limit=7
     ):
 
         if not self.is_available():
@@ -194,6 +198,8 @@ class VoiceController:
             }
 
         speech_result = self.speech_to_text.listen(
+            timeout=timeout,
+            phrase_time_limit=phrase_time_limit,
             announce=announce
         )
 
@@ -311,7 +317,9 @@ class VoiceController:
                 try:
 
                     result = self.listen_once(
-                        announce=first_listen
+                        announce=first_listen,
+                        timeout=4,
+                        phrase_time_limit=7
                     )
 
                     first_listen = False
@@ -332,6 +340,13 @@ class VoiceController:
                             "unrecognized",
                             "silence"
                         ):
+                            continue
+
+                        if status == "service_timeout":
+                            _safe_print(
+                                "Vyom : Voice recognition took too long. Please speak again."
+                            )
+                            _safe_print("")
                             continue
 
                         if message:
@@ -402,8 +417,7 @@ class VoiceController:
                             )
                         )
 
-                    import time
-                    time.sleep(0.20)
+                    time.sleep(0.10)
 
                 except KeyboardInterrupt:
 
