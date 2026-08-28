@@ -29,6 +29,9 @@ Architecture:
        Result
           |
           v
+    Observation / Verification
+          |
+          v
     Session Update
           |
           v
@@ -37,6 +40,7 @@ Architecture:
 Important:
 
     - Existing ToolManager remains the actual executor.
+    - ObservationVerifier checks the actual computer state.
     - SkillBuilder does not execute arbitrary generated code.
     - Autonomous execution is limited by max_steps.
     - Security/core modification is not allowed here.
@@ -50,6 +54,7 @@ from ai_core.reasoning_engine import ReasoningEngine
 from tools.tool_manager import ToolManager
 from ai_core.skill_builder import SkillBuilder
 from memory.session_memory import SessionMemory
+from ai_core.observation_verifier import ObservationVerifier
 
 
 class AutonomousAgent:
@@ -85,6 +90,12 @@ class AutonomousAgent:
         )
 
         self.skill_builder = SkillBuilder()
+
+        # =========================================================
+        # OBSERVATION / VERIFICATION
+        # =========================================================
+
+        self.verifier = ObservationVerifier()
 
         # =========================================================
         # SESSION MEMORY
@@ -397,10 +408,80 @@ class AutonomousAgent:
         # BASIC RESULT VERIFICATION
         # =========================================================
 
-        successful = (
+        result_successful = (
             self._result_is_successful(
                 result
             )
+        )
+
+        # =========================================================
+        # OBSERVATION / ACTUAL COMPUTER STATE VERIFICATION
+        # =========================================================
+
+        verification = {}
+
+        verified = False
+
+        try:
+
+            verification = (
+                self.verifier.verify(
+                    current_intent,
+                    result
+                )
+            )
+
+            if isinstance(
+                verification,
+                dict
+            ):
+
+                verified = bool(
+                    verification.get(
+                        "verified",
+                        False
+                    )
+                )
+
+            else:
+
+                verification = {
+                    "verified": False,
+                    "state": "invalid_verification_result",
+                    "reason": (
+                        "ObservationVerifier returned "
+                        "an invalid result."
+                    )
+                }
+
+                verified = False
+
+        except Exception as error:
+
+            verification = {
+                "verified": False,
+                "state": "verification_error",
+                "reason": (
+                    "Observation verification failed."
+                ),
+                "error": str(error)
+            }
+
+            verified = False
+
+        # =========================================================
+        # FINAL TASK SUCCESS
+        #
+        # A ToolManager success result alone is NOT enough.
+        #
+        # The action must also be verified by observing the
+        # expected computer state.
+        # =========================================================
+
+        successful = (
+            result_successful
+            and
+            verified
         )
 
         self.context.record_result(
@@ -417,8 +498,9 @@ class AutonomousAgent:
             "type": step_type,
             "intent": current_intent,
             "result": result,
-            "verified": False,
-            "result_success": successful
+            "verified": verified,
+            "verification": verification,
+            "result_success": result_successful
         }
 
         self.task_history.append(
@@ -455,8 +537,23 @@ class AutonomousAgent:
 
             return {
                 "success": True,
-                "stage": "executed",
+                "stage": "verified",
                 "result": result,
+                "verification": verification,
+                "step": self.step_count
+            }
+
+        # =========================================================
+        # VERIFICATION FAILURE
+        # =========================================================
+
+        if result_successful and not verified:
+
+            return {
+                "success": False,
+                "stage": "verification_failed",
+                "result": result,
+                "verification": verification,
                 "step": self.step_count
             }
 
@@ -468,6 +565,7 @@ class AutonomousAgent:
             "success": False,
             "stage": "execution_failed",
             "result": result,
+            "verification": verification,
             "step": self.step_count
         }
 
@@ -717,28 +815,6 @@ class AutonomousAgent:
                 # =================================================
 
                 if not execution_failed:
-
-                    # -------------------------------------------------
-                    # Provisional verification.
-                    #
-                    # Actual application-state verification will be
-                    # added in the next architecture stage.
-                    # -------------------------------------------------
-
-                    for item in self.task_history:
-
-                        if (
-                            item.get(
-                                "result_success"
-                            )
-                            and
-                            not item.get(
-                                "verified",
-                                False
-                            )
-                        ):
-
-                            item["verified"] = False
 
                     self.active = False
 
