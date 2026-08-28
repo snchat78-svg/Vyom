@@ -26,7 +26,7 @@ class ObservationVerifier:
 
     def __init__(
         self,
-        wait_seconds: float = 1.0
+        wait_seconds: float = 0.20
     ):
         self.wait_seconds = max(
             0.0,
@@ -437,7 +437,7 @@ class ObservationVerifier:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=1.5,
                 creationflags=(
                     getattr(
                         subprocess,
