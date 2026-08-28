@@ -71,6 +71,18 @@ class SpeechToText:
             import speech_recognition as sr
 
             self.recognizer = sr.Recognizer()
+
+            # Keep speech capture responsive. This timeout applies to the
+            # network recognition request as well, preventing a silent
+            # Google request from holding Vyom for many minutes.
+            try:
+                self.recognizer.operation_timeout = 4.0
+            except Exception:
+                pass
+
+            self.recognizer.pause_threshold = 0.65
+            self.recognizer.non_speaking_duration = 0.35
+            self.recognizer.phrase_threshold = 0.20
             self.microphone = sr.Microphone()
 
             self.available = True
@@ -222,8 +234,8 @@ class SpeechToText:
 
     def listen(
         self,
-        timeout=5,
-        phrase_time_limit=8,
+        timeout=3,
+        phrase_time_limit=5,
         announce=True
     ):
 
@@ -305,19 +317,38 @@ class SpeechToText:
                         flush=True
                     )
 
+                # IMPORTANT PERFORMANCE RULE:
+                # Do not send the same audio to three recognition requests.
+                # That can multiply network latency and make Vyom appear frozen.
+                #
+                # Hindi is the primary language for this stage. English and
+                # Hinglish words are also commonly returned by Google's Hindi
+                # recognizer; only if that request fails do we use one English
+                # fallback request.
                 candidates = []
 
-                for language in ("hi-IN", "en-IN", "en-US"):
+                try:
+                    candidate = self.recognizer.recognize_google(
+                        audio,
+                        language="hi-IN"
+                    )
+                    candidate = str(candidate or "").strip()
+                    if candidate:
+                        candidates.append(("hi-IN", candidate))
+                except Exception:
+                    pass
+
+                if not candidates:
                     try:
                         candidate = self.recognizer.recognize_google(
                             audio,
-                            language=language
+                            language="en-IN"
                         )
                         candidate = str(candidate or "").strip()
                         if candidate:
-                            candidates.append((language, candidate))
+                            candidates.append(("en-IN", candidate))
                     except Exception:
-                        continue
+                        pass
 
                 if not candidates:
                     return {
@@ -327,24 +358,12 @@ class SpeechToText:
                         "message": ""
                     }
 
-                hindi_candidates = [
-                    text for language, text in candidates
-                    if language == "hi-IN"
-                    and any("\u0900" <= ch <= "\u097F" for ch in text)
-                ]
-
-                if hindi_candidates:
-                    text = hindi_candidates[0]
-                    detected_language = "hindi"
-                else:
-                    text = next(
-                        (
-                            text for language, text in candidates
-                            if language == "en-IN"
-                        ),
-                        candidates[-1][1]
-                    )
-                    detected_language = "english"
+                text = candidates[0][1]
+                detected_language = (
+                    "hindi"
+                    if any("\u0900" <= ch <= "\u097F" for ch in text)
+                    else "english"
+                )
 
                 return {
                     "success": True,
@@ -446,8 +465,8 @@ class SpeechToText:
 
     def recognize(
         self,
-        timeout=5,
-        phrase_time_limit=8
+        timeout=3,
+        phrase_time_limit=5
     ):
 
         result = self.listen(
