@@ -621,10 +621,12 @@ def execute(
 
         autonomous_agent.reset()
 
-        return "Vyom session stopped."
+        return (
+            "Vyom session stopped."
+        )
 
     # =========================================================
-    # INTENT DETECTION
+    # INTENT
     # =========================================================
 
     try:
@@ -641,44 +643,29 @@ def execute(
             str(error)
         )
 
-    # =========================================================
-    # INCOMPLETE / CONTEXTUAL COMMANDS
-    # =========================================================
-
-    if isinstance(intent, dict) and intent.get("intent") == "open":
-        if not str(intent.get("target") or "").strip():
-            if re.search(r"[\u0900-\u097F]", command):
-                return "ज़रूर। बताइए, क्या खोलना है?"
-            return "Sure. What would you like me to open?"
-
-    if isinstance(intent, dict) and intent.get("intent") == "open_current":
-        current_target = (
-            getattr(autonomous_agent.context, "current_app", None)
-            or getattr(autonomous_agent.context, "current_file", None)
-            or getattr(autonomous_agent.context, "current_target", None)
-        )
-
-        if not current_target:
-            if re.search(r"[\u0900-\u097F]", command):
-                return "अभी मेरे पास कोई पिछला ऐप या फ़ाइल नहीं है जिसे मैं फिर से खोल सकूँ।"
-            return "I don't have a previous app or file to reopen yet."
+    if not isinstance(
+        intent,
+        dict
+    ):
 
         intent = {
-            "intent": "open",
-            "target": str(current_target)
+            "intent": "unknown",
+            "target": command
         }
 
-    if isinstance(intent, dict) and intent.get("intent") == "search":
-        if not str(intent.get("target") or "").strip():
-            if re.search(r"[\u0900-\u097F]", command):
-                return "ज़रूर। क्या खोजूँ?"
-            return "Sure. What would you like me to search for?"
+    intent_type = str(
+        intent.get(
+            "intent",
+            "unknown"
+        )
+    ).strip().lower()
 
     # =========================================================
     # CONTEXTUAL CLOSE
     # =========================================================
 
-    if isinstance(intent, dict) and intent.get("intent") == "close_current":
+    if intent_type == "close_current":
+
         current_app = getattr(
             autonomous_agent.context,
             "current_app",
@@ -686,6 +673,7 @@ def execute(
         )
 
         if not current_app:
+
             return response_engine.failure_response(
                 command,
                 "No current application is available to close."
@@ -693,31 +681,56 @@ def execute(
 
         close_intent = {
             "intent": "close_app",
-            "target": str(current_app)
+            "target": str(
+                current_app
+            )
         }
 
         try:
-            raw = tool_manager.execute(close_intent)
-            return _natural_response(command, raw, close_intent)
+
+            raw = tool_manager.execute(
+                close_intent
+            )
+
+            # Clear the application context only after an
+            # actual close attempt.
+            autonomous_agent.context.set_current_target(
+                current_app
+            )
+
+            return _natural_response(
+                command,
+                raw,
+                close_intent
+            )
+
         except Exception as error:
-            return response_engine.failure_response(command, str(error))
+
+            return response_engine.failure_response(
+                command,
+                str(error)
+            )
 
     # =========================================================
-    # SIMPLE CONVERSATION
+    # CONVERSATION
     # =========================================================
 
-    if isinstance(intent, dict) and intent.get("intent") == "conversation":
+    if intent_type == "conversation":
+
         return response_engine.format(
             command=command,
             result={
                 "success": True,
-                "conversation_type": intent.get("conversation_type", "acknowledge")
+                "conversation_type": intent.get(
+                    "conversation_type",
+                    "acknowledge"
+                )
             },
             intent=intent
         )
 
     # =========================================================
-    # SELECTION DETECTION
+    # SELECTION
     # =========================================================
 
     selection_number = (
@@ -726,25 +739,6 @@ def execute(
             intent
         )
     )
-
-    # =========================================================
-    # PENDING SELECTION
-    #
-    # VERY IMPORTANT:
-    #
-    # If ToolManager is waiting for:
-    #
-    #     1. Notepad
-    #     2. Notepad++
-    #
-    # and user says:
-    #
-    #     one
-    #
-    # then this is NOT a new autonomous goal.
-    #
-    # It must go directly to ToolManager.
-    # =========================================================
 
     if (
         selection_number is not None
@@ -756,28 +750,40 @@ def execute(
 
             selection_intent = {
                 "intent": "unknown",
-                "target": selection_number
+                "target": str(
+                    selection_number
+                )
             }
 
             result = tool_manager.execute(
                 selection_intent
             )
 
-            # -------------------------------------------------
-            # Selection consumed
-            # -------------------------------------------------
+            autonomous_agent.context.clear_pending_selection()
 
-            try:
+            # Keep the successful selection in current context.
+            if isinstance(
+                result,
+                str
+            ):
 
-                autonomous_agent.context.clear_pending_selection()
+                lowered = result.lower()
 
-            except Exception:
+                if (
+                    "opened successfully" in lowered
+                    or "opened windows application" in lowered
+                ):
 
-                pass
+                    selected_name = (
+                        autonomous_agent.context.selection_target
+                        or autonomous_agent.context.current_target
+                    )
 
-            # -------------------------------------------------
-            # Natural conversational response
-            # -------------------------------------------------
+                    if selected_name:
+
+                        autonomous_agent.context.set_current_app(
+                            selected_name
+                        )
 
             return _natural_response(
                 command,
@@ -787,14 +793,159 @@ def execute(
 
         except Exception as error:
 
-            return (
-                "Selection error: "
-                +
+            return response_engine.failure_response(
+                command,
                 str(error)
             )
 
     # =========================================================
-    # NORMAL AUTONOMOUS EXECUTION
+    # UNKNOWN SELECTION WITHOUT A PENDING LIST
+    # =========================================================
+
+    if (
+        intent_type == "selection"
+        and
+        not _has_pending_selection()
+    ):
+
+        return response_engine.failure_response(
+            command,
+            "There is no pending selection to choose from."
+        )
+
+    # =========================================================
+    # FAST LANE
+    #
+    # Simple known commands should NOT pay the full
+    # AutonomousAgent -> ReasoningEngine -> Plan route.
+    #
+    # These operations are deterministic and are already
+    # implemented by ToolManager.
+    # =========================================================
+
+    fast_intents = {
+        "open",
+        "open_file",
+        "search_file",
+        "search_and_open_file",
+        "close_app"
+    }
+
+    if intent_type in fast_intents:
+
+        target = str(
+            intent.get(
+                "target",
+                ""
+            ) or ""
+        ).strip()
+
+        # -----------------------------------------------------
+        # Missing target
+        # -----------------------------------------------------
+
+        if not target:
+
+            if intent_type == "open":
+
+                return (
+                    "ज़रूर। बताइए, क्या खोलना है?"
+                )
+
+            if intent_type == "search_file":
+
+                return (
+                    "ज़रूर। बताइए, कौन-सी फ़ाइल खोजनी है?"
+                )
+
+            if intent_type == "close_app":
+
+                current_app = getattr(
+                    autonomous_agent.context,
+                    "current_app",
+                    None
+                )
+
+                if current_app:
+
+                    intent = {
+                        "intent": "close_app",
+                        "target": str(
+                            current_app
+                        )
+                    }
+
+                else:
+
+                    return response_engine.failure_response(
+                        command,
+                        "No application was specified to close."
+                    )
+
+        try:
+
+            # Record current context before execution.
+            autonomous_agent.context.set_current_target(
+                intent.get(
+                    "target",
+                    ""
+                )
+            )
+
+            if intent_type == "open":
+
+                autonomous_agent.context.set_current_app(
+                    intent.get(
+                        "target",
+                        ""
+                    )
+                )
+
+            elif intent_type in (
+                "open_file",
+                "search_file",
+                "search_and_open_file"
+            ):
+
+                autonomous_agent.context.set_current_file(
+                    intent.get(
+                        "target",
+                        ""
+                    )
+                )
+
+            raw_result = tool_manager.execute(
+                intent
+            )
+
+            # -------------------------------------------------
+            # Sync selection state immediately.
+            # -------------------------------------------------
+
+            _sync_pending_selection_context(
+                intent.get(
+                    "target"
+                )
+            )
+
+            return _natural_response(
+                command,
+                raw_result,
+                intent
+            )
+
+        except Exception as error:
+
+            return response_engine.failure_response(
+                command,
+                str(error)
+            )
+
+    # =========================================================
+    # NATURAL / COMPLEX GOAL
+    #
+    # Only genuinely unknown or non-deterministic goals
+    # go through the AutonomousAgent.
     # =========================================================
 
     try:
@@ -806,25 +957,31 @@ def execute(
 
     except Exception as error:
 
-        return (
-            "Autonomous execution error: "
-            +
+        return response_engine.failure_response(
+            command,
             str(error)
         )
 
     # =========================================================
-    # RETURN NORMAL USER RESPONSE
+    # EXTRACT MESSAGE
     # =========================================================
 
     message = _result_to_message(
         result
     )
 
-    # If ToolManager created a selection, preserve it in
-    # SessionContext and let ResponseEngine explain it naturally.
+    # =========================================================
+    # SYNC SELECTION
+    # =========================================================
+
     selection_target = (
-        intent.get("target")
-        if isinstance(intent, dict)
+        intent.get(
+            "target"
+        )
+        if isinstance(
+            intent,
+            dict
+        )
         else None
     )
 
@@ -832,8 +989,13 @@ def execute(
         selection_target
     )
 
+    # =========================================================
+    # NATURAL RESPONSE
+    # =========================================================
+
     return _natural_response(
         command,
         message,
         intent
     )
+
