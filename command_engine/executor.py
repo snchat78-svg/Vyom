@@ -642,6 +642,39 @@ def execute(
         )
 
     # =========================================================
+    # INCOMPLETE / CONTEXTUAL COMMANDS
+    # =========================================================
+
+    if isinstance(intent, dict) and intent.get("intent") == "open":
+        if not str(intent.get("target") or "").strip():
+            if re.search(r"[\u0900-\u097F]", command):
+                return "ज़रूर। बताइए, क्या खोलना है?"
+            return "Sure. What would you like me to open?"
+
+    if isinstance(intent, dict) and intent.get("intent") == "open_current":
+        current_target = (
+            getattr(autonomous_agent.context, "current_app", None)
+            or getattr(autonomous_agent.context, "current_file", None)
+            or getattr(autonomous_agent.context, "current_target", None)
+        )
+
+        if not current_target:
+            if re.search(r"[\u0900-\u097F]", command):
+                return "अभी मेरे पास कोई पिछला ऐप या फ़ाइल नहीं है जिसे मैं फिर से खोल सकूँ।"
+            return "I don't have a previous app or file to reopen yet."
+
+        intent = {
+            "intent": "open",
+            "target": str(current_target)
+        }
+
+    if isinstance(intent, dict) and intent.get("intent") == "search":
+        if not str(intent.get("target") or "").strip():
+            if re.search(r"[\u0900-\u097F]", command):
+                return "ज़रूर। क्या खोजूँ?"
+            return "Sure. What would you like me to search for?"
+
+    # =========================================================
     # CONTEXTUAL CLOSE
     # =========================================================
 
