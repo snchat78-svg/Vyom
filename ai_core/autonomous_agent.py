@@ -625,6 +625,77 @@ class AutonomousAgent:
         )
 
         # =========================================================
+        # FAST LANE FOR SIMPLE, ALREADY-KNOWN ACTIONS
+        #
+        # A simple command such as "Chrome खोल दो" should not spend
+        # time in unnecessary planning layers. It still goes through
+        # ToolManager and ObservationVerifier, so the action remains
+        # observable and verifiable.
+        # =========================================================
+
+        if isinstance(intent, dict):
+            fast_intent = str(
+                intent.get("intent", "")
+            ).strip().lower()
+
+            fast_targets = (
+                "open",
+                "open_file",
+                "search_file",
+                "search_and_open_file",
+                "close_app"
+            )
+
+            if (
+                fast_intent in fast_targets
+                and str(intent.get("target") or "").strip()
+            ):
+                fast_plan = [
+                    {
+                        "step": 1,
+                        "type": "execute_existing_intent",
+                        "goal": goal,
+                        "intent": intent
+                    }
+                ]
+
+                fast_result = self._execute_step(
+                    fast_plan[0]
+                )
+
+                if fast_result.get("success", False):
+                    self.active = False
+                    self.context.mark_completed()
+                    return {
+                        "success": True,
+                        "stage": "completed",
+                        "result": fast_result.get("result"),
+                        "history": self.task_history,
+                        "context": self.context.snapshot()
+                    }
+
+                # Do not run the old multi-step re-planning loop for a
+                # simple command that already has a concrete intent.
+                self.active = False
+                self.context.mark_failed()
+
+                return {
+                    "success": False,
+                    "stage": fast_result.get(
+                        "stage",
+                        "execution_failed"
+                    ),
+                    "result": fast_result.get("result"),
+                    "verification": fast_result.get("verification"),
+                    "message": fast_result.get(
+                        "message",
+                        "The requested action could not be completed."
+                    ),
+                    "history": self.task_history,
+                    "context": self.context.snapshot()
+                }
+
+        # =========================================================
         # BRAIN
         # =========================================================
 
