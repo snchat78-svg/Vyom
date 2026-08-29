@@ -136,6 +136,7 @@ class AutonomousAgent:
     ) -> bool:
 
         if result is None:
+
             return False
 
         # ---------------------------------------------------------
@@ -615,10 +616,26 @@ class AutonomousAgent:
         #
         # to remain in one conversational session.
 
-        self.context.start_task(
-            goal,
-            preserve_context=True
-        )
+        try:
+
+            self.context.start_task(
+                goal,
+                preserve_context=True
+            )
+
+        except Exception as error:
+
+            self.active = False
+
+            return {
+                "success": False,
+                "stage": "session_error",
+                "message": (
+                    "Session memory could not "
+                    "start the task."
+                ),
+                "error": str(error)
+            }
 
         self._update_context_from_intent(
             intent
@@ -633,9 +650,16 @@ class AutonomousAgent:
         # observable and verifiable.
         # =========================================================
 
-        if isinstance(intent, dict):
+        if isinstance(
+            intent,
+            dict
+        ):
+
             fast_intent = str(
-                intent.get("intent", "")
+                intent.get(
+                    "intent",
+                    ""
+                )
             ).strip().lower()
 
             fast_targets = (
@@ -648,8 +672,14 @@ class AutonomousAgent:
 
             if (
                 fast_intent in fast_targets
-                and str(intent.get("target") or "").strip()
+                and
+                str(
+                    intent.get(
+                        "target"
+                    ) or ""
+                ).strip()
             ):
+
                 fast_plan = [
                     {
                         "step": 1,
@@ -663,20 +693,30 @@ class AutonomousAgent:
                     fast_plan[0]
                 )
 
-                if fast_result.get("success", False):
+                if fast_result.get(
+                    "success",
+                    False
+                ):
+
                     self.active = False
+
                     self.context.mark_completed()
+
                     return {
                         "success": True,
                         "stage": "completed",
-                        "result": fast_result.get("result"),
+                        "result": fast_result.get(
+                            "result"
+                        ),
                         "history": self.task_history,
                         "context": self.context.snapshot()
                     }
 
                 # Do not run the old multi-step re-planning loop for a
                 # simple command that already has a concrete intent.
+
                 self.active = False
+
                 self.context.mark_failed()
 
                 return {
@@ -685,8 +725,12 @@ class AutonomousAgent:
                         "stage",
                         "execution_failed"
                     ),
-                    "result": fast_result.get("result"),
-                    "verification": fast_result.get("verification"),
+                    "result": fast_result.get(
+                        "result"
+                    ),
+                    "verification": fast_result.get(
+                        "verification"
+                    ),
                     "message": fast_result.get(
                         "message",
                         "The requested action could not be completed."
@@ -783,6 +827,27 @@ class AutonomousAgent:
             "plan",
             []
         )
+
+        if not isinstance(
+            route,
+            dict
+        ):
+
+            route = {}
+
+        if not isinstance(
+            plan,
+            list
+        ):
+
+            plan = []
+
+        if not isinstance(
+            analysis,
+            dict
+        ):
+
+            analysis = {}
 
         # =========================================================
         # EXISTING TOOLS
@@ -897,7 +962,9 @@ class AutonomousAgent:
 
                         last_result = (
                             self.task_history[-1]
-                            .get("result")
+                            .get(
+                                "result"
+                            )
                         )
 
                     return {
@@ -981,6 +1048,32 @@ class AutonomousAgent:
                     []
                 )
 
+                analysis = re_reasoning.get(
+                    "analysis",
+                    {}
+                )
+
+                if not isinstance(
+                    route,
+                    dict
+                ):
+
+                    route = {}
+
+                if not isinstance(
+                    plan,
+                    list
+                ):
+
+                    plan = []
+
+                if not isinstance(
+                    analysis,
+                    dict
+                ):
+
+                    analysis = {}
+
                 # -------------------------------------------------
                 # Route changed
                 # -------------------------------------------------
@@ -1006,6 +1099,7 @@ class AutonomousAgent:
                     "The task could not be completed "
                     "with the available execution route."
                 ),
+                "analysis": analysis,
                 "history": self.task_history,
                 "context": self.context.snapshot()
             }
