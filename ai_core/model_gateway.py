@@ -77,11 +77,18 @@ class ModelGateway:
 
     def is_available(self):
 
-        return bool(
-            self.api_key
-            and self.api_url
-            and self.model
-        )
+        if not self.api_url or not self.model:
+            return False
+
+        # Local OpenAI-compatible servers (for example a model server
+        # running on the same PC) do not need an API key.
+        local = self.api_url.lower().startswith((
+            "http://127.0.0.1",
+            "http://localhost",
+            "http://[::1]",
+        ))
+
+        return bool(self.api_key or local)
 
     # =========================================================
     # SYSTEM PROMPT
@@ -242,10 +249,11 @@ already happened.
             "application/json"
         )
 
-        request.add_header(
-            "Authorization",
-            "Bearer " + self.api_key
-        )
+        if self.api_key:
+            request.add_header(
+                "Authorization",
+                "Bearer " + self.api_key
+            )
 
         try:
 
@@ -460,3 +468,4 @@ already happened.
                     pass
 
         return None
+
