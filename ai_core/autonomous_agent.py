@@ -55,6 +55,7 @@ from tools.tool_manager import ToolManager
 from ai_core.skill_builder import SkillBuilder
 from memory.session_memory import SessionMemory
 from ai_core.observation_verifier import ObservationVerifier
+from ai_core.world_state import WorldStateModel
 
 
 class AutonomousAgent:
@@ -96,6 +97,9 @@ class AutonomousAgent:
         # =========================================================
 
         self.verifier = ObservationVerifier()
+
+        # Lightweight computer-state observer. It never executes actions.
+        self.world_state = WorldStateModel()
 
         # =========================================================
         # SESSION MEMORY
@@ -767,12 +771,22 @@ class AutonomousAgent:
         # INITIAL REASONING
         # =========================================================
 
+        # =========================================================
+        # WORLD STATE -> REASONING
+        # =========================================================
+
         try:
+
+            state_snapshot = self.world_state.snapshot(
+                self.context.snapshot()
+            )
 
             reasoning = (
                 self.reasoning_engine.reason(
                     goal,
-                    intent
+                    intent,
+                    context=state_snapshot,
+                    previous_result=self.context.last_result
                 )
             )
 
@@ -1001,7 +1015,11 @@ class AutonomousAgent:
                     re_reasoning = (
                         self.reasoning_engine.reason(
                             self.current_goal,
-                            intent
+                            intent,
+                            context=self.world_state.snapshot(
+                                self.context.snapshot()
+                            ),
+                            previous_result=self.context.last_result
                         )
                     )
 
@@ -1288,3 +1306,4 @@ class AutonomousAgent:
         except Exception:
 
             pass
+
