@@ -1,6 +1,6 @@
 """
 Project : Vyom AI
-Version : 1.1
+Version : 1.2
 Module  : Autonomous Agent
 
 Purpose:
@@ -29,6 +29,9 @@ Architecture:
     Mission Planning
           |
           v
+    Mission Runtime
+          |
+          v
     Capability / Tool Route
           |
           v
@@ -43,14 +46,20 @@ Architecture:
           v
     Session Update
           |
-          v
-    Continue / Re-plan
+          +------> Continue
+          |
+          +------> Retry
+          |
+          +------> Re-plan
+          |
+          +------> Complete
 
 Important:
 
     - Existing ToolManager remains the actual executor.
     - GoalCompiler only understands/structures goals.
     - MissionPlanner only creates/normalizes plans.
+    - MissionRuntime owns mission execution state.
     - ReasoningEngine remains the central reasoning layer.
     - DeepReasoner may enrich complex goals.
     - ObservationVerifier checks the actual computer state.
@@ -59,6 +68,7 @@ Important:
     - Security/core modification is not allowed here.
     - SessionMemory keeps the current conversational state.
     - Existing fast execution for simple commands is preserved.
+    - Compound missions are controlled by MissionRuntime.
 """
 
 from typing import Any, Dict, Optional, List
@@ -67,6 +77,7 @@ from ai_core.brain import Brain
 from ai_core.reasoning_engine import ReasoningEngine
 from ai_core.goal_compiler import GoalCompiler
 from ai_core.mission_planner import MissionPlanner
+from ai_core.mission_runtime import MissionRuntime
 
 from tools.tool_manager import ToolManager
 
@@ -114,23 +125,29 @@ class AutonomousAgent:
         # GOAL-CENTRIC ARCHITECTURE
         # =========================================================
 
-        # GoalCompiler understands natural-language goals.
-        #
-        # It NEVER executes anything.
-        #
-        # Existing ReasoningEngine also owns a GoalCompiler,
-        # but keeping a reference here allows AutonomousAgent
-        # to perform the first goal-understanding stage before
-        # deciding whether a fast lane is appropriate.
-
         self.goal_compiler = GoalCompiler()
 
-        # MissionPlanner never executes actions.
-        #
-        # It converts structured reasoning/goal information
-        # into executable plan steps.
-
         self.mission_planner = MissionPlanner(
+            max_steps=max_steps
+        )
+
+        # =========================================================
+        # MISSION RUNTIME
+        #
+        # MissionRuntime is now the owner of:
+        #
+        #     - mission state
+        #     - current step
+        #     - dependency resolution
+        #     - retry state
+        #     - re-plan request
+        #     - mission history
+        #
+        # It NEVER executes Windows actions directly.
+        # =========================================================
+
+        self.mission_runtime = MissionRuntime(
+            max_retries=2,
             max_steps=max_steps
         )
 
@@ -387,43 +404,61 @@ class AutonomousAgent:
 
             return None
 
-        for candidate in suggested:
+        # ---------------------------------------------------------
+        # IMPORTANT:
+        #
+        # Only return an automatic intent when exactly ONE
+        # executable intent was compiled.
+        #
+        # This prevents a compound mission such as:
+        #
+        #     Chrome खोलो और Google search करो
+        #
+        # from accidentally taking the first action through
+        # the fast lane and skipping the rest of the mission.
+        # ---------------------------------------------------------
 
-            if not isinstance(
-                candidate,
-                dict
-            ):
+        if len(suggested) != 1:
 
-                continue
+            return None
 
-            intent_name = str(
-                candidate.get(
-                    "intent",
-                    ""
+        candidate = suggested[0]
+
+        if not isinstance(
+            candidate,
+            dict
+        ):
+
+            return None
+
+        intent_name = str(
+            candidate.get(
+                "intent",
+                ""
+            )
+        ).strip()
+
+        target = str(
+            candidate.get(
+                "target",
+                ""
+            )
+        ).strip()
+
+        if (
+            intent_name
+            and
+            target
+        ):
+
+            return {
+                "intent": intent_name,
+                "target": target,
+                "source": candidate.get(
+                    "source",
+                    "goal_compiler"
                 )
-            ).strip()
-
-            target = str(
-                candidate.get(
-                    "target",
-                    ""
-                )
-            ).strip()
-
-            if (
-                intent_name
-                and
-                target
-            ):
-
-                return {
-                    "intent": intent_name,
-                    "target": target,
-                    "source": candidate.get(
-                        "source",
-                        "goal_compiler"
-                    )
-                }
+            }
 
         return None
 
@@ -616,6 +651,11 @@ class AutonomousAgent:
 
         # =========================================================
         # STEP COUNT
+        #
+        # MissionRuntime keeps its own runtime step counter.
+        #
+        # AutonomousAgent also retains its backward-compatible
+        # step counter for existing callers/history.
         # =========================================================
 
         self.step_count += 1
@@ -691,6 +731,10 @@ class AutonomousAgent:
                 ),
                 "step": step
             }
+
+        # Keep variable intentionally available for validation/
+        # future executor expansion.
+        _ = intent_target
 
         # =========================================================
         # RECORD ACTION
@@ -814,12 +858,9 @@ class AutonomousAgent:
             verified = False
 
         # =========================================================
-        # FINAL TASK SUCCESS
+        # FINAL STEP SUCCESS
         #
         # ToolManager success alone is NOT enough.
-        #
-        # The action must also be verified by observing the
-        # expected computer state.
         # =========================================================
 
         successful = (
@@ -882,8 +923,6 @@ class AutonomousAgent:
                     target=self.context.current_target,
                     options=[]
                 )
-
-        # Dictionary selection result support.
 
         elif isinstance(
             result,
@@ -962,6 +1001,822 @@ class AutonomousAgent:
         }
 
     # =============================================================
+    # RUN MISSION THROUGH RUNTIME
+    # =============================================================
+
+    def _run_mission(
+        self,
+        goal: str,
+        plan: List[
+            Dict[str, Any]
+        ],
+        intent: Optional[
+            Dict[str, Any]
+        ],
+        analysis: Optional[
+            Dict[str, Any]
+        ],
+        compilation: Optional[
+            Dict[str, Any]
+        ],
+        route: Optional[
+            Dict[str, Any]
+        ]
+    ) -> Dict[str, Any]:
+
+        if not plan:
+
+            self.active = False
+
+            self.context.mark_failed()
+
+            return {
+                "success": False,
+                "stage": "empty_plan",
+                "message": (
+                    "I understood the goal, "
+                    "but there is no execution "
+                    "step available yet."
+                ),
+                "goal": goal,
+                "analysis": analysis,
+                "goal_compilation": compilation,
+                "context": self.context.snapshot()
+            }
+
+        # =========================================================
+        # START MISSION RUNTIME
+        # =========================================================
+
+        runtime_snapshot = (
+            self.mission_runtime.start(
+                goal=goal,
+                plan=plan
+            )
+        )
+
+        # Defensive validation.
+
+        if not isinstance(
+            runtime_snapshot,
+            dict
+        ):
+
+            self.active = False
+
+            self.context.mark_failed()
+
+            return {
+                "success": False,
+                "stage": "mission_runtime_start_error",
+                "message": (
+                    "Mission Runtime could not "
+                    "start the mission."
+                ),
+                "goal": goal,
+                "context": self.context.snapshot()
+            }
+
+        # =========================================================
+        # MISSION LOOP
+        #
+        # MissionRuntime selects each dependency-ready step.
+        #
+        # AutonomousAgent only performs:
+        #
+        #     execute -> observe -> verify
+        #
+        # and reports the result back to Runtime.
+        # =========================================================
+
+        while (
+            self.step_count
+            < self.max_steps
+        ):
+
+            # -----------------------------------------------------
+            # Re-plan requested
+            # -----------------------------------------------------
+
+            if self.mission_runtime.needs_replan():
+
+                # If Runtime explicitly needs a new plan,
+                # ReasoningEngine gets the latest world state
+                # and session result.
+
+                break
+
+            # -----------------------------------------------------
+            # Get next dependency-ready step.
+            # -----------------------------------------------------
+
+            step = (
+                self.mission_runtime.get_next_step()
+            )
+
+            # -----------------------------------------------------
+            # Runtime finished.
+            # -----------------------------------------------------
+
+            if step is None:
+
+                runtime = (
+                    self.mission_runtime.snapshot()
+                )
+
+                state = runtime.get(
+                    "mission_state"
+                )
+
+                if state == "completed":
+
+                    self.active = False
+
+                    self.context.mark_completed()
+
+                    last_result = None
+
+                    if self.task_history:
+
+                        last_result = (
+                            self.task_history[-1]
+                            .get(
+                                "result"
+                            )
+                        )
+
+                    return {
+                        "success": True,
+                        "stage": "completed",
+                        "result": last_result,
+                        "goal": goal,
+                        "goal_compilation": compilation,
+                        "analysis": analysis,
+                        "history": self.task_history,
+                        "mission": runtime,
+                        "context": self.context.snapshot()
+                    }
+
+                if state == "blocked":
+
+                    self.active = False
+
+                    return {
+                        "success": False,
+                        "stage": "mission_blocked",
+                        "message": runtime.get(
+                            "last_error",
+                            "Mission is blocked."
+                        ),
+                        "goal": goal,
+                        "goal_compilation": compilation,
+                        "analysis": analysis,
+                        "mission": runtime,
+                        "context": self.context.snapshot()
+                    }
+
+                break
+
+            # -----------------------------------------------------
+            # Execute the selected step.
+            # -----------------------------------------------------
+
+            result = self._execute_step(
+                step
+            )
+
+            step_id = step.get(
+                "id"
+            )
+
+            # -----------------------------------------------------
+            # Safety limit.
+            # -----------------------------------------------------
+
+            if result.get(
+                "stage"
+            ) == "safety_limit":
+
+                self.mission_runtime.mark_failed(
+                    step_id=step_id,
+                    result=result,
+                    reason=(
+                        "Autonomous step limit reached."
+                    )
+                )
+
+                self.active = False
+
+                self.context.mark_failed()
+
+                return {
+                    "success": False,
+                    "stage": "safety_limit",
+                    "message": (
+                        "The autonomous task "
+                        "stopped because the "
+                        "safe execution limit "
+                        "was reached."
+                    ),
+                    "history": self.task_history,
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            # -----------------------------------------------------
+            # Capability route.
+            # -----------------------------------------------------
+
+            if result.get(
+                "stage"
+            ) == "capability_route":
+
+                self.mission_runtime.block(
+                    reason=(
+                        "Capability route requires "
+                        "a capability executor."
+                    ),
+                    capability=step.get(
+                        "capability"
+                    )
+                )
+
+                self.active = False
+
+                return {
+                    "success": False,
+                    "stage": "capability_route",
+                    "message": result.get(
+                        "message"
+                    ),
+                    "step": step,
+                    "history": self.task_history,
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            # -----------------------------------------------------
+            # STEP SUCCESS
+            # -----------------------------------------------------
+
+            if result.get(
+                "success",
+                False
+            ):
+
+                self.mission_runtime.mark_completed(
+                    step_id=step_id,
+                    result=result.get(
+                        "result"
+                    ),
+                    verification=result.get(
+                        "verification"
+                    )
+                )
+
+                # Runtime now decides which next step is ready.
+
+                continue
+
+            # -----------------------------------------------------
+            # STEP FAILURE / VERIFICATION FAILURE
+            # -----------------------------------------------------
+
+            retry_available = (
+                self.mission_runtime.mark_failed(
+                    step_id=step_id,
+                    result=result.get(
+                        "result"
+                    ),
+                    reason=result.get(
+                        "stage",
+                        "execution_failed"
+                    ),
+                    verification=result.get(
+                        "verification"
+                    )
+                )
+            )
+
+            # -----------------------------------------------------
+            # Bounded retry
+            # -----------------------------------------------------
+
+            if retry_available:
+
+                continue
+
+            # -----------------------------------------------------
+            # Retries exhausted.
+            #
+            # Runtime has now requested re-planning.
+            # -----------------------------------------------------
+
+            if self.mission_runtime.needs_replan():
+
+                break
+
+        # =========================================================
+        # RE-PLANNING
+        # =========================================================
+
+        if self.mission_runtime.needs_replan():
+
+            if self.step_count >= self.max_steps:
+
+                self.active = False
+
+                self.context.mark_failed()
+
+                return {
+                    "success": False,
+                    "stage": "safety_limit",
+                    "message": (
+                        "Autonomous re-planning "
+                        "limit reached."
+                    ),
+                    "history": self.task_history,
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            try:
+
+                refreshed_state = (
+                    self.world_state.snapshot(
+                        self.context.snapshot()
+                    )
+                )
+
+                re_reasoning = (
+                    self.reasoning_engine.reason(
+                        self.current_goal,
+                        intent,
+                        context=refreshed_state,
+                        previous_result=(
+                            self.context.last_result
+                        )
+                    )
+                )
+
+            except Exception as error:
+
+                self.active = False
+
+                self.context.mark_failed()
+
+                return {
+                    "success": False,
+                    "stage": "replanning_error",
+                    "error": str(error),
+                    "history": self.task_history,
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            if not isinstance(
+                re_reasoning,
+                dict
+            ):
+
+                self.active = False
+
+                self.context.mark_failed()
+
+                return {
+                    "success": False,
+                    "stage": "invalid_replanning_result",
+                    "message": (
+                        "Re-planning returned "
+                        "an invalid result."
+                    ),
+                    "history": self.task_history,
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            new_analysis = re_reasoning.get(
+                "analysis",
+                {}
+            )
+
+            new_route = re_reasoning.get(
+                "route",
+                {}
+            )
+
+            new_reasoning_plan = re_reasoning.get(
+                "plan",
+                []
+            )
+
+            if not isinstance(
+                new_analysis,
+                dict
+            ):
+
+                new_analysis = {}
+
+            if not isinstance(
+                new_route,
+                dict
+            ):
+
+                new_route = {}
+
+            if not isinstance(
+                new_reasoning_plan,
+                list
+            ):
+
+                new_reasoning_plan = []
+
+            # -----------------------------------------------------
+            # Refresh compilation if the ReasoningEngine exposes it.
+            # -----------------------------------------------------
+
+            new_compilation = (
+                new_analysis.get(
+                    "compiled_goal"
+                )
+                if isinstance(
+                    new_analysis,
+                    dict
+                )
+                else None
+            )
+
+            if isinstance(
+                new_compilation,
+                dict
+            ):
+
+                compilation = (
+                    new_compilation
+                )
+
+                self.current_compilation = (
+                    compilation
+                )
+
+            # -----------------------------------------------------
+            # Fallback plan if ReasoningEngine didn't provide one.
+            # -----------------------------------------------------
+
+            if not new_reasoning_plan:
+
+                new_reasoning_plan = (
+                    self._create_fallback_plan(
+                        goal=self.current_goal,
+                        analysis=new_analysis,
+                        route=new_route,
+                        compilation=compilation
+                    )
+                )
+
+            # -----------------------------------------------------
+            # New route must have an executable/mission plan.
+            # -----------------------------------------------------
+
+            if new_route.get(
+                "route"
+            ) not in (
+                "existing_tools",
+                "mission"
+            ):
+
+                self.active = False
+
+                return {
+                    "success": False,
+                    "stage": "replanning_route_changed",
+                    "message": (
+                        "The task now requires "
+                        "a different capability "
+                        "or execution route."
+                    ),
+                    "route": new_route,
+                    "analysis": new_analysis,
+                    "history": self.task_history,
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            if not new_reasoning_plan:
+
+                self.active = False
+
+                self.context.mark_failed()
+
+                return {
+                    "success": False,
+                    "stage": "empty_replanned_plan",
+                    "message": (
+                        "I could not create a "
+                        "new executable mission plan."
+                    ),
+                    "analysis": new_analysis,
+                    "history": self.task_history,
+                    "context": self.context.snapshot()
+                }
+
+            # -----------------------------------------------------
+            # Apply new mission plan to Runtime.
+            # -----------------------------------------------------
+
+            if not self.mission_runtime.apply_replan(
+                new_reasoning_plan
+            ):
+
+                self.active = False
+
+                self.context.mark_failed()
+
+                return {
+                    "success": False,
+                    "stage": "replan_apply_failed",
+                    "message": (
+                        "The new mission plan "
+                        "could not be applied."
+                    ),
+                    "history": self.task_history,
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            # -----------------------------------------------------
+            # Continue from the updated Runtime.
+            #
+            # Do not call _run_mission() recursively.
+            # Continue the same method with the new plan.
+            # -----------------------------------------------------
+
+            return self._continue_replanned_mission(
+                goal=self.current_goal,
+                intent=intent,
+                analysis=new_analysis,
+                compilation=compilation,
+                route=new_route
+            )
+
+        # =========================================================
+        # MISSION STOPPED WITHOUT A REPLAN
+        # =========================================================
+
+        self.active = False
+
+        self.context.mark_failed()
+
+        return {
+            "success": False,
+            "stage": "mission_stopped",
+            "message": (
+                "The mission could not be completed."
+            ),
+            "goal": goal,
+            "goal_compilation": compilation,
+            "analysis": analysis,
+            "history": self.task_history,
+            "mission": (
+                self.mission_runtime.snapshot()
+            ),
+            "context": self.context.snapshot()
+        }
+
+    # =============================================================
+    # CONTINUE REPLANNED MISSION
+    # =============================================================
+
+    def _continue_replanned_mission(
+        self,
+        goal: str,
+        intent: Optional[Dict[str, Any]],
+        analysis: Dict[str, Any],
+        compilation: Dict[str, Any],
+        route: Dict[str, Any]
+    ) -> Dict[str, Any]:
+
+        """
+        Continue executing an already-started Runtime mission.
+
+        This method deliberately does not call MissionRuntime.start()
+        again, because start() would reset the live mission state.
+        """
+
+        while (
+            self.step_count
+            < self.max_steps
+        ):
+
+            if self.mission_runtime.needs_replan():
+
+                break
+
+            step = (
+                self.mission_runtime.get_next_step()
+            )
+
+            if step is None:
+
+                runtime = (
+                    self.mission_runtime.snapshot()
+                )
+
+                if runtime.get(
+                    "mission_state"
+                ) == "completed":
+
+                    self.active = False
+                    self.context.mark_completed()
+
+                    last_result = None
+
+                    if self.task_history:
+
+                        last_result = (
+                            self.task_history[-1]
+                            .get(
+                                "result"
+                            )
+                        )
+
+                    return {
+                        "success": True,
+                        "stage": "completed",
+                        "result": last_result,
+                        "goal": goal,
+                        "goal_compilation": compilation,
+                        "analysis": analysis,
+                        "history": self.task_history,
+                        "mission": runtime,
+                        "context": self.context.snapshot()
+                    }
+
+                break
+
+            result = self._execute_step(
+                step
+            )
+
+            step_id = step.get(
+                "id"
+            )
+
+            if result.get(
+                "stage"
+            ) == "safety_limit":
+
+                self.active = False
+                self.context.mark_failed()
+
+                return {
+                    "success": False,
+                    "stage": "safety_limit",
+                    "message": (
+                        "The autonomous task "
+                        "reached the safe step limit."
+                    ),
+                    "history": self.task_history,
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            if result.get(
+                "stage"
+            ) == "capability_route":
+
+                self.active = False
+
+                self.mission_runtime.block(
+                    reason=result.get(
+                        "message",
+                        "Capability route required."
+                    ),
+                    capability=step.get(
+                        "capability"
+                    )
+                )
+
+                return {
+                    "success": False,
+                    "stage": "capability_route",
+                    "message": result.get(
+                        "message"
+                    ),
+                    "mission": (
+                        self.mission_runtime.snapshot()
+                    ),
+                    "context": self.context.snapshot()
+                }
+
+            if result.get(
+                "success",
+                False
+            ):
+
+                self.mission_runtime.mark_completed(
+                    step_id=step_id,
+                    result=result.get(
+                        "result"
+                    ),
+                    verification=result.get(
+                        "verification"
+                    )
+                )
+
+                continue
+
+            retry_available = (
+                self.mission_runtime.mark_failed(
+                    step_id=step_id,
+                    result=result.get(
+                        "result"
+                    ),
+                    reason=result.get(
+                        "stage",
+                        "execution_failed"
+                    ),
+                    verification=result.get(
+                        "verification"
+                    )
+                )
+
+            if retry_available:
+
+                continue
+
+            break
+
+        runtime = (
+            self.mission_runtime.snapshot()
+        )
+
+        if runtime.get(
+            "mission_state"
+        ) == "completed":
+
+            self.active = False
+            self.context.mark_completed()
+
+            last_result = None
+
+            if self.task_history:
+
+                last_result = (
+                    self.task_history[-1]
+                    .get(
+                        "result"
+                    )
+                )
+
+            return {
+                "success": True,
+                "stage": "completed",
+                "result": last_result,
+                "goal": goal,
+                "goal_compilation": compilation,
+                "analysis": analysis,
+                "history": self.task_history,
+                "mission": runtime,
+                "context": self.context.snapshot()
+            }
+
+        self.active = False
+        self.context.mark_failed()
+
+        return {
+            "success": False,
+            "stage": "replanned_mission_stopped",
+            "message": (
+                "The replanned mission could not "
+                "be completed within the safe limit."
+            ),
+            "goal": goal,
+            "goal_compilation": compilation,
+            "analysis": analysis,
+            "route": route,
+            "history": self.task_history,
+            "mission": runtime,
+            "context": self.context.snapshot()
+        }
+
+    # =============================================================
     # RUN
     # =============================================================
 
@@ -995,17 +1850,9 @@ class AutonomousAgent:
 
         self.active = True
 
-        # IMPORTANT:
+        # New run = new runtime mission.
         #
-        # Do NOT clear previous session context here.
-        #
-        # This allows:
-        #
-        #     open notepad
-        #     one
-        #     type hello
-        #
-        # to remain in one conversational session.
+        # SessionMemory itself remains persistent.
 
         try:
 
@@ -1048,9 +1895,6 @@ class AutonomousAgent:
         )
 
         # Explicit intent always has priority.
-        #
-        # If no explicit intent was provided,
-        # use the safe intent discovered by GoalCompiler.
 
         effective_intent = (
             intent
@@ -1066,27 +1910,14 @@ class AutonomousAgent:
         )
 
         # =========================================================
-        # FAST LANE FOR SIMPLE, ALREADY-KNOWN ACTIONS
+        # SIMPLE FAST LANE
         #
-        # GoalCompiler now performs the first understanding stage.
+        # IMPORTANT:
         #
-        # A simple command such as:
+        # It only runs when exactly one safe executable intent
+        # was recognized.
         #
-        #     Chrome खोल दो
-        #
-        # can still execute immediately.
-        #
-        # It does NOT bypass safety:
-        #
-        # GoalCompiler
-        #       |
-        #       v
-        # ToolManager
-        #       |
-        #       v
-        # ObservationVerifier
-        #
-        # Complex goals continue through ReasoningEngine.
+        # Compound goals ALWAYS continue to Reasoning/Mission.
         # =========================================================
 
         if isinstance(
@@ -1115,10 +1946,6 @@ class AutonomousAgent:
                 ) or ""
             ).strip()
 
-            # Only use fast lane when the GoalCompiler itself
-            # recognizes the goal as a safe/simple intent,
-            # or when the caller supplied an explicit intent.
-
             compiler_confirmed = bool(
                 compiled_intent
             )
@@ -1126,6 +1953,22 @@ class AutonomousAgent:
             explicit_intent = isinstance(
                 intent,
                 dict
+            )
+
+            # Also ensure the compilation itself is not compound.
+
+            suggested_intents = compilation.get(
+                "suggested_intents",
+                []
+            )
+
+            single_compiled_action = (
+                isinstance(
+                    suggested_intents,
+                    list
+                )
+                and
+                len(suggested_intents) == 1
             )
 
             if (
@@ -1138,76 +1981,69 @@ class AutonomousAgent:
                     or
                     explicit_intent
                 )
+                and
+                (
+                    explicit_intent
+                    or
+                    single_compiled_action
+                )
             ):
+
+                # -------------------------------------------------
+                # Brain still observes explicit intent.
+                # -------------------------------------------------
+
+                try:
+
+                    self.brain.think(
+                        effective_intent
+                    )
+
+                except Exception as error:
+
+                    self.task_history.append(
+                        {
+                            "stage": "brain",
+                            "error": str(error)
+                        }
+                    )
 
                 fast_plan = [
                     {
                         "step": 1,
-                        "type": "execute_existing_intent",
+                        "id": "action_1",
+                        "type": (
+                            "execute_existing_intent"
+                        ),
                         "goal": goal,
-                        "intent": effective_intent
+                        "intent": effective_intent,
+                        "depends_on": [],
+                        "status": "pending"
                     }
                 ]
 
-                fast_result = self._execute_step(
-                    fast_plan[0]
+                # Use the normal MissionRuntime even for one-step
+                # commands. This keeps a single execution lifecycle
+                # across fast and mission paths.
+
+                result = self._run_mission(
+                    goal=goal,
+                    plan=fast_plan,
+                    intent=effective_intent,
+                    analysis={
+                        "type": "known_action",
+                        "goal": goal
+                    },
+                    compilation=compilation,
+                    route={
+                        "route": "existing_tools",
+                        "reason": (
+                            "Single known action."
+                        )
+                    }
                 )
 
-                if fast_result.get(
-                    "success",
-                    False
-                ):
-
-                    self.active = False
-
-                    self.context.mark_completed()
-
-                    return {
-                        "success": True,
-                        "stage": "completed",
-                        "result": fast_result.get(
-                            "result"
-                        ),
-                        "goal": goal,
-                        "goal_compilation": compilation,
-                        "history": self.task_history,
-                        "context": self.context.snapshot()
-                    }
-
-                # -------------------------------------------------
-                # Simple command failed.
-                #
-                # Do not execute blindly.
-                #
-                # Return the failure so caller can decide whether
-                # to provide another instruction.
-                # -------------------------------------------------
-
-                self.active = False
-
-                self.context.mark_failed()
-
-                return {
-                    "success": False,
-                    "stage": fast_result.get(
-                        "stage",
-                        "execution_failed"
-                    ),
-                    "result": fast_result.get(
-                        "result"
-                    ),
-                    "verification": fast_result.get(
-                        "verification"
-                    ),
-                    "message": fast_result.get(
-                        "message",
-                        "The requested action could not be completed."
-                    ),
-                    "goal": goal,
-                    "goal_compilation": compilation,
-                    "history": self.task_history,
-                    "context": self.context.snapshot()
-                }
+                return result
 
         # =========================================================
         # BRAIN
@@ -1259,7 +2095,6 @@ class AutonomousAgent:
         except Exception as error:
 
             self.active = False
-
             self.context.mark_failed()
 
             return {
@@ -1281,7 +2116,6 @@ class AutonomousAgent:
         ):
 
             self.active = False
-
             self.context.mark_failed()
 
             return {
@@ -1311,6 +2145,13 @@ class AutonomousAgent:
         )
 
         if not isinstance(
+            analysis,
+            dict
+        ):
+
+            analysis = {}
+
+        if not isinstance(
             route,
             dict
         ):
@@ -1324,20 +2165,13 @@ class AutonomousAgent:
 
             plan = []
 
-        if not isinstance(
-            analysis,
-            dict
-        ):
-
-            analysis = {}
-
         # =========================================================
-        # KEEP GOAL COMPILATION AVAILABLE
+        # KEEP COMPILED GOAL
         # =========================================================
 
         reasoning_compilation = (
             analysis.get(
-                "goal_compilation"
+                "compiled_goal"
             )
             if isinstance(
                 analysis,
@@ -1361,11 +2195,6 @@ class AutonomousAgent:
 
         # =========================================================
         # FALLBACK PLAN
-        #
-        # Normally ReasoningEngine already calls MissionPlanner.
-        #
-        # If a custom/older ReasoningEngine returns no plan,
-        # AutonomousAgent uses its own MissionPlanner.
         # =========================================================
 
         if not plan:
@@ -1384,17 +2213,26 @@ class AutonomousAgent:
                 plan = fallback_plan
 
         # =========================================================
-        # EXISTING TOOLS
+        # EXECUTABLE / MISSION ROUTES
+        #
+        # ReasoningEngine uses:
+        #
+        #     existing_tools
+        #     mission
+        #
+        # for known executable goals.
         # =========================================================
 
         if route.get(
             "route"
-        ) == "existing_tools":
+        ) in (
+            "existing_tools",
+            "mission"
+        ):
 
             if not plan:
 
                 self.active = False
-
                 self.context.mark_failed()
 
                 return {
@@ -1410,313 +2248,14 @@ class AutonomousAgent:
                     "context": self.context.snapshot()
                 }
 
-            # =====================================================
-            # EXECUTION / RE-PLANNING LOOP
-            # =====================================================
-
-            while (
-                self.step_count
-                < self.max_steps
-            ):
-
-                execution_failed = False
-
-                # -------------------------------------------------
-                # EXECUTE CURRENT PLAN
-                # -------------------------------------------------
-
-                for step in plan:
-
-                    result = self._execute_step(
-                        step
-                    )
-
-                    # ---------------------------------------------
-                    # SAFETY LIMIT
-                    # ---------------------------------------------
-
-                    if result.get(
-                        "stage"
-                    ) == "safety_limit":
-
-                        self.active = False
-
-                        self.context.mark_failed()
-
-                        return {
-                            "success": False,
-                            "stage": "safety_limit",
-                            "message": (
-                                "The autonomous task "
-                                "stopped because the "
-                                "safe execution limit "
-                                "was reached."
-                            ),
-                            "history": self.task_history,
-                            "context": self.context.snapshot()
-                        }
-
-                    # ---------------------------------------------
-                    # CAPABILITY ROUTE
-                    # ---------------------------------------------
-
-                    if result.get(
-                        "stage"
-                    ) == "capability_route":
-
-                        execution_failed = True
-
-                        break
-
-                    # ---------------------------------------------
-                    # EXECUTION FAILED
-                    # ---------------------------------------------
-
-                    if not result.get(
-                        "success",
-                        False
-                    ):
-
-                        execution_failed = True
-
-                        break
-
-                # =================================================
-                # SUCCESS
-                # =================================================
-
-                if not execution_failed:
-
-                    self.active = False
-
-                    self.context.mark_completed()
-
-                    last_result = None
-
-                    if self.task_history:
-
-                        last_result = (
-                            self.task_history[-1]
-                            .get(
-                                "result"
-                            )
-                        )
-
-                    return {
-                        "success": True,
-                        "stage": "completed",
-                        "result": last_result,
-                        "goal": goal,
-                        "goal_compilation": compilation,
-                        "analysis": analysis,
-                        "history": self.task_history,
-                        "context": self.context.snapshot()
-                    }
-
-                # =================================================
-                # FAILED -> REASON AGAIN
-                # =================================================
-
-                if self.step_count >= self.max_steps:
-
-                    self.active = False
-
-                    self.context.mark_failed()
-
-                    return {
-                        "success": False,
-                        "stage": "safety_limit",
-                        "message": (
-                            "Autonomous re-planning "
-                            "limit reached."
-                        ),
-                        "history": self.task_history,
-                        "context": self.context.snapshot()
-                    }
-
-                try:
-
-                    # ---------------------------------------------
-                    # Refresh world state after failure.
-                    # ---------------------------------------------
-
-                    refreshed_state = (
-                        self.world_state.snapshot(
-                            self.context.snapshot()
-                        )
-                    )
-
-                    re_reasoning = (
-                        self.reasoning_engine.reason(
-                            self.current_goal,
-                            effective_intent,
-                            context=refreshed_state,
-                            previous_result=(
-                                self.context.last_result
-                            )
-                        )
-                    )
-
-                except Exception as error:
-
-                    self.active = False
-
-                    self.context.mark_failed()
-
-                    return {
-                        "success": False,
-                        "stage": "replanning_error",
-                        "error": str(error),
-                        "history": self.task_history,
-                        "context": self.context.snapshot()
-                    }
-
-                if not isinstance(
-                    re_reasoning,
-                    dict
-                ):
-
-                    self.active = False
-
-                    self.context.mark_failed()
-
-                    return {
-                        "success": False,
-                        "stage": "invalid_replanning_result",
-                        "message": (
-                            "Re-planning returned "
-                            "an invalid result."
-                        ),
-                        "history": self.task_history
-                    }
-
-                route = re_reasoning.get(
-                    "route",
-                    {}
-                )
-
-                plan = re_reasoning.get(
-                    "plan",
-                    []
-                )
-
-                analysis = re_reasoning.get(
-                    "analysis",
-                    {}
-                )
-
-                if not isinstance(
-                    route,
-                    dict
-                ):
-
-                    route = {}
-
-                if not isinstance(
-                    plan,
-                    list
-                ):
-
-                    plan = []
-
-                if not isinstance(
-                    analysis,
-                    dict
-                ):
-
-                    analysis = {}
-
-                # -------------------------------------------------
-                # Refresh compilation from re-planning.
-                # -------------------------------------------------
-
-                new_compilation = (
-                    analysis.get(
-                        "goal_compilation"
-                    )
-                    if isinstance(
-                        analysis,
-                        dict
-                    )
-                    else None
-                )
-
-                if isinstance(
-                    new_compilation,
-                    dict
-                ):
-
-                    compilation = (
-                        new_compilation
-                    )
-
-                    self.current_compilation = (
-                        compilation
-                    )
-
-                # -------------------------------------------------
-                # Refresh effective intent if the reasoner
-                # discovered a better safe intent.
-                # -------------------------------------------------
-
-                refreshed_intent = (
-                    self._get_compiled_intent(
-                        compilation
-                    )
-                )
-
-                if refreshed_intent:
-
-                    effective_intent = (
-                        refreshed_intent
-                    )
-
-                # -------------------------------------------------
-                # If ReasoningEngine returned no plan, use the
-                # MissionPlanner fallback.
-                # -------------------------------------------------
-
-                if not plan:
-
-                    plan = (
-                        self._create_fallback_plan(
-                            goal=self.current_goal,
-                            analysis=analysis,
-                            route=route,
-                            compilation=compilation
-                        )
-                    )
-
-                # -------------------------------------------------
-                # Route changed
-                # -------------------------------------------------
-
-                if route.get(
-                    "route"
-                ) != "existing_tools":
-
-                    break
-
-            # =====================================================
-            # REPLANNING STOPPED
-            # =====================================================
-
-            self.active = False
-
-            self.context.mark_failed()
-
-            return {
-                "success": False,
-                "stage": "replanning_stopped",
-                "message": (
-                    "The task could not be completed "
-                    "with the available execution route."
-                ),
-                "analysis": analysis,
-                "goal_compilation": compilation,
-                "history": self.task_history,
-                "context": self.context.snapshot()
-            }
+            return self._run_mission(
+                goal=goal,
+                plan=plan,
+                intent=effective_intent,
+                analysis=analysis,
+                compilation=compilation,
+                route=route
+            )
 
         # =========================================================
         # CONVERSATION ROUTE
@@ -1758,6 +2297,15 @@ class AutonomousAgent:
 
             self.active = False
 
+            self.mission_runtime.block(
+                reason=(
+                    "Required capability is available "
+                    "but its executor is not implemented "
+                    "in AutonomousAgent yet."
+                ),
+                capability=capability
+            )
+
             return {
                 "success": False,
                 "stage": "capability_not_implemented",
@@ -1770,6 +2318,9 @@ class AutonomousAgent:
                 "goal": self.current_goal,
                 "goal_compilation": compilation,
                 "plan": plan,
+                "mission": (
+                    self.mission_runtime.snapshot()
+                ),
                 "context": self.context.snapshot()
             }
 
@@ -1897,6 +2448,16 @@ class AutonomousAgent:
         )
 
     # =============================================================
+    # GET MISSION STATE
+    # =============================================================
+
+    def get_mission_state(
+        self
+    ):
+
+        return self.mission_runtime.snapshot()
+
+    # =============================================================
     # RESET CURRENT TASK
     # =============================================================
 
@@ -1915,6 +2476,8 @@ class AutonomousAgent:
         self.step_count = 0
 
         self.active = False
+
+        self.mission_runtime.reset()
 
         try:
 
@@ -1951,6 +2514,8 @@ class AutonomousAgent:
         self.step_count = 0
 
         self.active = False
+
+        self.mission_runtime.reset()
 
         try:
 
