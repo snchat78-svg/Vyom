@@ -1,30 +1,49 @@
 """
 Project : Vyom AI
-Version : 1.0
+Version : 1.1
 Module  : Mission Runtime
 
 Purpose:
     Runtime state machine for autonomous missions.
 
-The runtime does NOT directly execute Windows operations.
-Execution remains delegated to ToolManager.
+Architecture:
 
-States:
-
-    pending
+    Goal
       |
       v
-    ready
+    MissionPlanner
       |
       v
-    executing
+    MissionRuntime
       |
-      +----> verified
+      +----> next step
       |
-      +----> failed
-                |
-                v
-             retry/replan
+      v
+    ToolManager
+      |
+      v
+    Observation / Verification
+      |
+      +----> completed
+      |
+      +----> retry
+      |
+      +----> replan
+      |
+      +----> blocked
+
+Important:
+
+    - MissionRuntime NEVER executes computer actions directly.
+    - ToolManager remains the actual executor.
+    - Runtime owns mission/step lifecycle.
+    - Runtime tracks dependencies.
+    - Runtime tracks retries.
+    - Runtime supports verification results.
+    - Runtime can request re-planning after failure.
+    - Runtime supports capability-blocked missions.
+    - Runtime is bounded by max_steps.
+    - Runtime preserves mission history.
 """
 
 from typing import Any, Dict, List, Optional
@@ -32,74 +51,211 @@ from typing import Any, Dict, List, Optional
 
 class MissionRuntime:
 
+    # =========================================================
+    # TERMINAL STATES
+    # =========================================================
+
     TERMINAL_STATES = {
         "completed",
         "failed",
         "blocked"
     }
 
+    # =========================================================
+    # INITIALIZE
+    # =========================================================
+
     def __init__(
         self,
-        max_retries: int = 2
+        max_retries: int = 2,
+        max_steps: int = 10
     ):
+
         self.max_retries = max(
             0,
             int(max_retries)
         )
 
+        self.max_steps = max(
+            1,
+            int(max_steps)
+        )
+
+        # -----------------------------------------------------
+        # MISSION
+        # -----------------------------------------------------
+
         self.goal = ""
+
         self.plan: List[
             Dict[str, Any]
         ] = []
 
         self.mission_state = "idle"
+
+        # -----------------------------------------------------
+        # CURRENT STEP
+        # -----------------------------------------------------
+
         self.current_step: Optional[
             Dict[str, Any]
         ] = None
+
+        # -----------------------------------------------------
+        # EXECUTION
+        # -----------------------------------------------------
+
+        self.step_count = 0
+
+        self.completed_steps = 0
+
+        self.failed_steps = 0
+
+        # -----------------------------------------------------
+        # HISTORY
+        # -----------------------------------------------------
 
         self.history: List[
             Dict[str, Any]
         ] = []
 
+        # -----------------------------------------------------
+        # LAST RESULT
+        # -----------------------------------------------------
+
+        self.last_result: Any = None
+
+        self.last_verification: Dict[
+            str,
+            Any
+        ] = {}
+
+        self.last_error = ""
+
+        # -----------------------------------------------------
+        # REPLANNING
+        # -----------------------------------------------------
+
+        self.replan_requested = False
+
+        self.replan_reason = ""
+
+        # -----------------------------------------------------
+        # CAPABILITY
+        # -----------------------------------------------------
+
+        self.blocked_capability = None
+
     # =========================================================
-    # START
+    # START MISSION
     # =========================================================
 
     def start(
         self,
         goal: str,
         plan: List[Dict[str, Any]]
-    ):
+    ) -> Dict[str, Any]:
 
         self.goal = str(
             goal or ""
         ).strip()
 
-        self.plan = [
-            dict(step)
-            for step in plan
-            if isinstance(
-                step,
-                dict
-            )
-        ]
+        self.plan = []
 
-        self.history = []
+        if isinstance(
+            plan,
+            list
+        ):
+
+            for step in plan:
+
+                if not isinstance(
+                    step,
+                    dict
+                ):
+                    continue
+
+                self.plan.append(
+                    dict(step)
+                )
+
         self.current_step = None
 
-        self.mission_state = (
-            "running"
-            if self.plan
-            else "blocked"
+        self.step_count = 0
+
+        self.completed_steps = 0
+
+        self.failed_steps = 0
+
+        self.history = []
+
+        self.last_result = None
+
+        self.last_verification = {}
+
+        self.last_error = ""
+
+        self.replan_requested = False
+
+        self.replan_reason = ""
+
+        self.blocked_capability = None
+
+        if not self.goal:
+
+            self.mission_state = "blocked"
+
+        elif not self.plan:
+
+            self.mission_state = "blocked"
+
+        else:
+
+            self.mission_state = "ready"
+
+        return self.snapshot()
+
+    # =========================================================
+    # IS ACTIVE
+    # =========================================================
+
+    def is_active(
+        self
+    ) -> bool:
+
+        return (
+            self.mission_state
+            not in self.TERMINAL_STATES
+            and
+            self.mission_state != "idle"
         )
 
     # =========================================================
-    # GET STEP
+    # IS TERMINAL
+    # =========================================================
+
+    def is_terminal(
+        self
+    ) -> bool:
+
+        return (
+            self.mission_state
+            in self.TERMINAL_STATES
+        )
+
+    # =========================================================
+    # GET NEXT STEP
     # =========================================================
 
     def get_next_step(
         self
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[
+        Dict[str, Any]
+    ]:
+
+        # -----------------------------------------------------
+        # STOP CONDITIONS
+        # -----------------------------------------------------
 
         if self.mission_state in (
             "idle",
@@ -109,12 +265,51 @@ class MissionRuntime:
         ):
             return None
 
+        # -----------------------------------------------------
+        # SAFETY LIMIT
+        # -----------------------------------------------------
+
+        if self.step_count >= self.max_steps:
+
+            self.mission_state = "failed"
+
+            self.last_error = (
+                "Mission step limit reached."
+            )
+
+            self.history.append({
+                "event": "safety_limit",
+                "step_count": self.step_count,
+                "max_steps": self.max_steps
+            })
+
+            return None
+
+        # -----------------------------------------------------
+        # CHECK REPLAN
+        # -----------------------------------------------------
+
+        if self.replan_requested:
+
+            return None
+
+        # -----------------------------------------------------
+        # COMPLETED STEP IDS
+        # -----------------------------------------------------
+
         completed_ids = {
-            str(item.get("id"))
+            str(
+                item.get("id")
+            )
             for item in self.plan
-            if item.get("status")
-            == "completed"
+            if item.get(
+                "status"
+            ) == "completed"
         }
+
+        # -----------------------------------------------------
+        # FIND READY STEP
+        # -----------------------------------------------------
 
         for step in self.plan:
 
@@ -135,35 +330,102 @@ class MissionRuntime:
                 dependencies,
                 list
             ):
+
                 dependencies = []
 
-            if any(
-                str(dep) not in completed_ids
+            dependencies_ready = all(
+                str(dep)
+                in completed_ids
                 for dep in dependencies
-            ):
+            )
+
+            if not dependencies_ready:
+
                 continue
+
+            # -------------------------------------------------
+            # PREPARE STEP
+            # -------------------------------------------------
 
             step["status"] = "executing"
 
             self.current_step = step
 
+            self.mission_state = "executing"
+
+            self.step_count += 1
+
+            self.history.append({
+                "event": "step_started",
+                "step": step.get(
+                    "step"
+                ),
+                "id": step.get(
+                    "id"
+                ),
+                "step_count": self.step_count
+            })
+
             return step
 
         # -----------------------------------------------------
-        # NO MORE PENDING STEPS
+        # CHECK MISSION COMPLETION
         # -----------------------------------------------------
 
-        if all(
-            step.get("status")
-            == "completed"
+        if self.plan and all(
+            step.get(
+                "status"
+            ) == "completed"
             for step in self.plan
         ):
+
             self.mission_state = "completed"
+
+            self.current_step = None
+
+            self.history.append({
+                "event": "mission_completed"
+            })
+
+            return None
+
+        # -----------------------------------------------------
+        # NO EXECUTABLE STEP
+        #
+        # This usually means:
+        #
+        # - dependency problem
+        # - blocked plan
+        # - invalid mission
+        # -----------------------------------------------------
+
+        pending_steps = [
+            step
+            for step in self.plan
+            if step.get(
+                "status",
+                "pending"
+            ) == "pending"
+        ]
+
+        if pending_steps:
+
+            self.mission_state = "blocked"
+
+            self.last_error = (
+                "No executable mission step "
+                "is currently available."
+            )
+
+            self.history.append({
+                "event": "mission_blocked",
+                "reason": self.last_error
+            })
 
         return None
 
     # =========================================================
-    # COMPLETE STEP
+    # MARK STEP COMPLETED
     # =========================================================
 
     def mark_completed(
@@ -180,15 +442,41 @@ class MissionRuntime:
         )
 
         if step is None:
+
             return False
 
+        # -----------------------------------------------------
+        # UPDATE STEP
+        # -----------------------------------------------------
+
         step["status"] = "completed"
+
         step["result"] = result
+
         step["verification"] = (
             verification or {}
         )
 
+        # -----------------------------------------------------
+        # UPDATE RUNTIME
+        # -----------------------------------------------------
+
+        self.completed_steps += 1
+
+        self.last_result = result
+
+        self.last_verification = (
+            verification or {}
+        )
+
+        self.last_error = ""
+
+        # -----------------------------------------------------
+        # HISTORY
+        # -----------------------------------------------------
+
         self.history.append({
+            "event": "step_completed",
             "step": step.get(
                 "step"
             ),
@@ -202,24 +490,41 @@ class MissionRuntime:
 
         self.current_step = None
 
-        if all(
-            item.get("status")
-            == "completed"
+        # -----------------------------------------------------
+        # CHECK MISSION COMPLETE
+        # -----------------------------------------------------
+
+        if self.plan and all(
+            item.get(
+                "status"
+            ) == "completed"
             for item in self.plan
         ):
+
             self.mission_state = "completed"
+
+            self.history.append({
+                "event": "mission_completed"
+            })
+
+        else:
+
+            self.mission_state = "ready"
 
         return True
 
     # =========================================================
-    # FAIL STEP
+    # MARK STEP FAILED
     # =========================================================
 
     def mark_failed(
         self,
         step_id: str,
         result: Any = None,
-        reason: str = ""
+        reason: str = "",
+        verification: Optional[
+            Dict[str, Any]
+        ] = None
     ) -> bool:
 
         step = self._find_step(
@@ -227,6 +532,7 @@ class MissionRuntime:
         )
 
         if step is None:
+
             return False
 
         retries = int(
@@ -236,45 +542,281 @@ class MissionRuntime:
             )
         )
 
+        self.last_result = result
+
+        self.last_verification = (
+            verification or {}
+        )
+
+        self.last_error = str(
+            reason or "Step failed."
+        )
+
+        # -----------------------------------------------------
+        # RETRY AVAILABLE
+        # -----------------------------------------------------
+
         if retries < self.max_retries:
 
-            step["retries"] = retries + 1
+            retries += 1
+
+            step["retries"] = retries
+
             step["status"] = "pending"
-            step["last_error"] = reason
+
+            step["last_error"] = (
+                self.last_error
+            )
+
+            step["last_result"] = result
+
+            step["verification"] = (
+                verification or {}
+            )
 
             self.history.append({
+                "event": "step_retry",
                 "step": step.get(
                     "step"
                 ),
                 "id": step_id,
                 "status": "retry",
-                "attempt": retries + 1,
+                "attempt": retries,
                 "result": result,
-                "reason": reason
+                "verification": (
+                    verification or {}
+                ),
+                "reason": self.last_error
             })
 
             self.current_step = None
 
+            self.mission_state = "ready"
+
             return True
 
+        # -----------------------------------------------------
+        # RETRIES EXHAUSTED
+        # -----------------------------------------------------
+
         step["status"] = "failed"
+
         step["result"] = result
-        step["last_error"] = reason
+
+        step["last_error"] = (
+            self.last_error
+        )
+
+        step["verification"] = (
+            verification or {}
+        )
+
+        self.failed_steps += 1
 
         self.history.append({
+            "event": "step_failed",
             "step": step.get(
                 "step"
             ),
             "id": step_id,
             "status": "failed",
             "result": result,
-            "reason": reason
+            "verification": (
+                verification or {}
+            ),
+            "reason": self.last_error
         })
 
         self.current_step = None
-        self.mission_state = "failed"
+
+        # -----------------------------------------------------
+        # REQUEST REPLAN
+        # -----------------------------------------------------
+
+        self.request_replan(
+            reason=self.last_error
+        )
 
         return False
+
+    # =========================================================
+    # REQUEST REPLAN
+    # =========================================================
+
+    def request_replan(
+        self,
+        reason: str = ""
+    ):
+
+        self.replan_requested = True
+
+        self.replan_reason = str(
+            reason or ""
+        ).strip()
+
+        self.mission_state = "replanning"
+
+        self.history.append({
+            "event": "replan_requested",
+            "reason": self.replan_reason
+        })
+
+    # =========================================================
+    # CHECK REPLAN
+    # =========================================================
+
+    def needs_replan(
+        self
+    ) -> bool:
+
+        if self.replan_requested:
+
+            return True
+
+        if self.mission_state == "replanning":
+
+            return True
+
+        for step in self.plan:
+
+            if step.get(
+                "status"
+            ) == "failed":
+
+                return True
+
+        return False
+
+    # =========================================================
+    # APPLY NEW PLAN
+    # =========================================================
+
+    def apply_replan(
+        self,
+        plan: List[
+            Dict[str, Any]
+        ]
+    ) -> bool:
+
+        if not isinstance(
+            plan,
+            list
+        ):
+
+            return False
+
+        new_plan = []
+
+        for step in plan:
+
+            if not isinstance(
+                step,
+                dict
+            ):
+                continue
+
+            new_step = dict(
+                step
+            )
+
+            # -------------------------------------------------
+            # New plan starts pending unless explicitly marked
+            # completed.
+            # -------------------------------------------------
+
+            if new_step.get(
+                "status"
+            ) not in (
+                "completed",
+                "failed"
+            ):
+
+                new_step["status"] = "pending"
+
+            new_plan.append(
+                new_step
+            )
+
+        if not new_plan:
+
+            self.mission_state = "blocked"
+
+            self.last_error = (
+                "Re-planning produced an empty plan."
+            )
+
+            return False
+
+        self.plan = new_plan
+
+        self.current_step = None
+
+        self.replan_requested = False
+
+        self.replan_reason = ""
+
+        self.mission_state = "ready"
+
+        self.history.append({
+            "event": "plan_updated",
+            "plan_size": len(
+                self.plan
+            )
+        })
+
+        return True
+
+    # =========================================================
+    # BLOCK MISSION
+    # =========================================================
+
+    def block(
+        self,
+        reason: str = "",
+        capability: Any = None
+    ):
+
+        self.mission_state = "blocked"
+
+        self.last_error = str(
+            reason or "Mission blocked."
+        )
+
+        self.blocked_capability = (
+            capability
+        )
+
+        self.current_step = None
+
+        self.history.append({
+            "event": "mission_blocked",
+            "reason": self.last_error,
+            "capability": capability
+        })
+
+    # =========================================================
+    # UNBLOCK
+    # =========================================================
+
+    def unblock(
+        self
+    ) -> bool:
+
+        if not self.plan:
+
+            return False
+
+        self.blocked_capability = None
+
+        self.last_error = ""
+
+        self.mission_state = "ready"
+
+        self.history.append({
+            "event": "mission_unblocked"
+        })
+
+        return True
 
     # =========================================================
     # FIND STEP
@@ -283,7 +825,9 @@ class MissionRuntime:
     def _find_step(
         self,
         step_id: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[
+        Dict[str, Any]
+    ]:
 
         wanted = str(
             step_id
@@ -294,29 +838,113 @@ class MissionRuntime:
             if str(
                 step.get("id")
             ) == wanted:
+
                 return step
 
         return None
 
     # =========================================================
-    # REPLAN REQUIRED?
+    # GET CURRENT STEP
     # =========================================================
 
-    def needs_replan(
+    def get_current_step(
         self
-    ) -> bool:
+    ) -> Optional[
+        Dict[str, Any]
+    ]:
 
-        if self.mission_state == "failed":
-            return True
+        if not isinstance(
+            self.current_step,
+            dict
+        ):
 
-        for step in self.plan:
+            return None
 
+        return dict(
+            self.current_step
+        )
+
+    # =========================================================
+    # GET STEP
+    # =========================================================
+
+    def get_step(
+        self,
+        step_id: str
+    ) -> Optional[
+        Dict[str, Any]
+    ]:
+
+        step = self._find_step(
+            step_id
+        )
+
+        if step is None:
+
+            return None
+
+        return dict(
+            step
+        )
+
+    # =========================================================
+    # MISSION PROGRESS
+    # =========================================================
+
+    def progress(
+        self
+    ) -> Dict[str, Any]:
+
+        total = len(
+            self.plan
+        )
+
+        completed = sum(
+            1
+            for step in self.plan
             if step.get(
                 "status"
-            ) == "failed":
-                return True
+            ) == "completed"
+        )
 
-        return False
+        failed = sum(
+            1
+            for step in self.plan
+            if step.get(
+                "status"
+            ) == "failed"
+        )
+
+        pending = sum(
+            1
+            for step in self.plan
+            if step.get(
+                "status"
+            ) == "pending"
+        )
+
+        executing = sum(
+            1
+            for step in self.plan
+            if step.get(
+                "status"
+            ) == "executing"
+        )
+
+        percentage = (
+            (completed / total) * 100
+            if total
+            else 0
+        )
+
+        return {
+            "total": total,
+            "completed": completed,
+            "failed": failed,
+            "pending": pending,
+            "executing": executing,
+            "percentage": percentage
+        }
 
     # =========================================================
     # SNAPSHOT
@@ -328,35 +956,111 @@ class MissionRuntime:
 
         return {
             "goal": self.goal,
+
             "mission_state": (
                 self.mission_state
             ),
+
             "current_step": (
-                dict(self.current_step)
+                dict(
+                    self.current_step
+                )
                 if isinstance(
                     self.current_step,
                     dict
                 )
                 else None
             ),
+
             "plan": [
                 dict(step)
                 for step in self.plan
             ],
+
             "history": [
                 dict(item)
                 for item in self.history
-            ]
+            ],
+
+            "step_count": (
+                self.step_count
+            ),
+
+            "max_steps": (
+                self.max_steps
+            ),
+
+            "completed_steps": (
+                self.completed_steps
+            ),
+
+            "failed_steps": (
+                self.failed_steps
+            ),
+
+            "last_result": (
+                self.last_result
+            ),
+
+            "last_verification": (
+                dict(
+                    self.last_verification
+                )
+            ),
+
+            "last_error": (
+                self.last_error
+            ),
+
+            "replan_requested": (
+                self.replan_requested
+            ),
+
+            "replan_reason": (
+                self.replan_reason
+            ),
+
+            "blocked_capability": (
+                self.blocked_capability
+            ),
+
+            "progress": (
+                self.progress()
+            )
         }
 
     # =========================================================
     # RESET
     # =========================================================
 
-    def reset(self):
+    def reset(
+        self
+    ):
 
         self.goal = ""
+
         self.plan = []
-        self.current_step = None
-        self.history = []
+
         self.mission_state = "idle"
+
+        self.current_step = None
+
+        self.step_count = 0
+
+        self.completed_steps = 0
+
+        self.failed_steps = 0
+
+        self.history = []
+
+        self.last_result = None
+
+        self.last_verification = {}
+
+        self.last_error = ""
+
+        self.replan_requested = False
+
+        self.replan_reason = ""
+
+        self.blocked_capability = None
