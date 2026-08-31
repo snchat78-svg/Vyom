@@ -1,6 +1,6 @@
 """
 Project : Vyom AI
-Version : 1.0
+Version : 1.1
 Module  : Autonomous Agent
 
 Purpose:
@@ -14,13 +14,22 @@ Architecture:
     Session Memory
           |
           v
+    Goal Compiler
+          |
+          v
+    World State
+          |
+          v
        Brain
           |
           v
-      Reasoning
+    Deep Reasoning
           |
           v
-       Planning
+    Mission Planning
+          |
+          v
+    Capability / Tool Route
           |
           v
       ToolManager
@@ -40,20 +49,31 @@ Architecture:
 Important:
 
     - Existing ToolManager remains the actual executor.
+    - GoalCompiler only understands/structures goals.
+    - MissionPlanner only creates/normalizes plans.
+    - ReasoningEngine remains the central reasoning layer.
+    - DeepReasoner may enrich complex goals.
     - ObservationVerifier checks the actual computer state.
     - SkillBuilder does not execute arbitrary generated code.
     - Autonomous execution is limited by max_steps.
     - Security/core modification is not allowed here.
     - SessionMemory keeps the current conversational state.
+    - Existing fast execution for simple commands is preserved.
 """
 
 from typing import Any, Dict, Optional, List
 
 from ai_core.brain import Brain
 from ai_core.reasoning_engine import ReasoningEngine
+from ai_core.goal_compiler import GoalCompiler
+from ai_core.mission_planner import MissionPlanner
+
 from tools.tool_manager import ToolManager
+
 from ai_core.skill_builder import SkillBuilder
+
 from memory.session_memory import SessionMemory
+
 from ai_core.observation_verifier import ObservationVerifier
 from ai_core.world_state import WorldStateModel
 
@@ -90,6 +110,34 @@ class AutonomousAgent:
             else ReasoningEngine()
         )
 
+        # =========================================================
+        # GOAL-CENTRIC ARCHITECTURE
+        # =========================================================
+
+        # GoalCompiler understands natural-language goals.
+        #
+        # It NEVER executes anything.
+        #
+        # Existing ReasoningEngine also owns a GoalCompiler,
+        # but keeping a reference here allows AutonomousAgent
+        # to perform the first goal-understanding stage before
+        # deciding whether a fast lane is appropriate.
+
+        self.goal_compiler = GoalCompiler()
+
+        # MissionPlanner never executes actions.
+        #
+        # It converts structured reasoning/goal information
+        # into executable plan steps.
+
+        self.mission_planner = MissionPlanner(
+            max_steps=max_steps
+        )
+
+        # =========================================================
+        # CAPABILITY BUILDING
+        # =========================================================
+
         self.skill_builder = SkillBuilder()
 
         # =========================================================
@@ -98,7 +146,10 @@ class AutonomousAgent:
 
         self.verifier = ObservationVerifier()
 
-        # Lightweight computer-state observer. It never executes actions.
+        # Lightweight computer-state observer.
+        #
+        # It never executes actions.
+
         self.world_state = WorldStateModel()
 
         # =========================================================
@@ -129,6 +180,15 @@ class AutonomousAgent:
         self.step_count = 0
 
         self.active = False
+
+        # =========================================================
+        # CURRENT COMPILED GOAL
+        # =========================================================
+
+        self.current_compilation: Dict[
+            str,
+            Any
+        ] = {}
 
     # =============================================================
     # RESULT CHECK
@@ -212,6 +272,162 @@ class AutonomousAgent:
         return True
 
     # =============================================================
+    # GOAL COMPILATION
+    # =============================================================
+
+    def _compile_goal(
+        self,
+        goal: str,
+        intent: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+
+        """
+        Convert the user's natural-language goal into
+        a structured goal.
+
+        This method only understands the goal.
+
+        It does NOT execute anything.
+        """
+
+        try:
+
+            context_snapshot = (
+                self.context.snapshot()
+            )
+
+            compilation = (
+                self.goal_compiler.compile(
+                    goal=goal,
+                    intent=intent,
+                    context=context_snapshot
+                )
+            )
+
+            if isinstance(
+                compilation,
+                dict
+            ):
+
+                self.current_compilation = (
+                    compilation
+                )
+
+                return compilation
+
+        except Exception as error:
+
+            compilation = {
+                "success": False,
+                "understood": False,
+                "goal": goal,
+                "objective": goal,
+                "suggested_intents": [],
+                "sub_goals": [],
+                "requires_new_capability": True,
+                "reason": (
+                    "GoalCompiler failed."
+                ),
+                "error": str(error)
+            }
+
+            self.current_compilation = (
+                compilation
+            )
+
+            return compilation
+
+        compilation = {
+            "success": False,
+            "understood": False,
+            "goal": goal,
+            "objective": goal,
+            "suggested_intents": [],
+            "sub_goals": [],
+            "requires_new_capability": True,
+            "reason": (
+                "GoalCompiler returned "
+                "an invalid result."
+            )
+        }
+
+        self.current_compilation = (
+            compilation
+        )
+
+        return compilation
+
+    # =============================================================
+    # GET SAFE COMPILED INTENT
+    # =============================================================
+
+    def _get_compiled_intent(
+        self,
+        compilation: Optional[
+            Dict[str, Any]
+        ]
+    ) -> Optional[Dict[str, Any]]:
+
+        if not isinstance(
+            compilation,
+            dict
+        ):
+
+            return None
+
+        suggested = compilation.get(
+            "suggested_intents",
+            []
+        )
+
+        if not isinstance(
+            suggested,
+            list
+        ):
+
+            return None
+
+        for candidate in suggested:
+
+            if not isinstance(
+                candidate,
+                dict
+            ):
+
+                continue
+
+            intent_name = str(
+                candidate.get(
+                    "intent",
+                    ""
+                )
+            ).strip()
+
+            target = str(
+                candidate.get(
+                    "target",
+                    ""
+                )
+            ).strip()
+
+            if (
+                intent_name
+                and
+                target
+            ):
+
+                return {
+                    "intent": intent_name,
+                    "target": target,
+                    "source": candidate.get(
+                        "source",
+                        "goal_compiler"
+                    )
+                }
+
+        return None
+
+    # =============================================================
     # UPDATE SESSION CONTEXT FROM INTENT
     # =============================================================
 
@@ -280,6 +496,83 @@ class AutonomousAgent:
                 self.context.set_current_app(
                     target
                 )
+
+    # =============================================================
+    # CREATE FALLBACK PLAN
+    # =============================================================
+
+    def _create_fallback_plan(
+        self,
+        goal: str,
+        analysis: Optional[
+            Dict[str, Any]
+        ],
+        route: Optional[
+            Dict[str, Any]
+        ],
+        compilation: Optional[
+            Dict[str, Any]
+        ]
+    ) -> List[
+        Dict[str, Any]
+    ]:
+
+        """
+        MissionPlanner fallback.
+
+        ReasoningEngine normally creates the plan itself.
+        This method exists so AutonomousAgent remains robust
+        if an older/custom ReasoningEngine returns analysis
+        without a plan.
+        """
+
+        try:
+
+            plan = self.mission_planner.plan(
+                goal=goal,
+                analysis=(
+                    analysis
+                    if isinstance(
+                        analysis,
+                        dict
+                    )
+                    else {}
+                ),
+                compiled_goal=(
+                    compilation
+                    if isinstance(
+                        compilation,
+                        dict
+                    )
+                    else {}
+                ),
+                route=(
+                    route
+                    if isinstance(
+                        route,
+                        dict
+                    )
+                    else {}
+                )
+            )
+
+            if isinstance(
+                plan,
+                list
+            ):
+
+                return plan
+
+        except Exception as error:
+
+            self.task_history.append(
+                {
+                    "stage": "mission_planner",
+                    "error": str(error)
+                }
+            )
+
+        return []
 
     # =============================================================
     # EXECUTE ONE PLAN STEP
@@ -351,6 +644,50 @@ class AutonomousAgent:
                 "message": (
                     "This plan step requires "
                     "a capability route."
+                ),
+                "step": step
+            }
+
+        # =========================================================
+        # INVALID EXECUTION INTENT
+        # =========================================================
+
+        if not isinstance(
+            current_intent,
+            dict
+        ):
+
+            return {
+                "success": False,
+                "stage": "invalid_intent",
+                "message": (
+                    "The execution step does not "
+                    "contain a valid intent."
+                ),
+                "step": step
+            }
+
+        intent_name = str(
+            current_intent.get(
+                "intent",
+                ""
+            )
+        ).strip()
+
+        intent_target = str(
+            current_intent.get(
+                "target",
+                ""
+            )
+        ).strip()
+
+        if not intent_name:
+
+            return {
+                "success": False,
+                "stage": "invalid_intent",
+                "message": (
+                    "Execution intent is missing."
                 ),
                 "step": step
             }
@@ -452,7 +789,9 @@ class AutonomousAgent:
 
                 verification = {
                     "verified": False,
-                    "state": "invalid_verification_result",
+                    "state": (
+                        "invalid_verification_result"
+                    ),
                     "reason": (
                         "ObservationVerifier returned "
                         "an invalid result."
@@ -477,7 +816,7 @@ class AutonomousAgent:
         # =========================================================
         # FINAL TASK SUCCESS
         #
-        # A ToolManager success result alone is NOT enough.
+        # ToolManager success alone is NOT enough.
         #
         # The action must also be verified by observing the
         # expected computer state.
@@ -492,6 +831,14 @@ class AutonomousAgent:
         self.context.record_result(
             result,
             successful
+        )
+
+        # =========================================================
+        # UPDATE CURRENT CONTEXT
+        # =========================================================
+
+        self._update_context_from_intent(
+            current_intent
         )
 
         # =========================================================
@@ -524,14 +871,50 @@ class AutonomousAgent:
             result_lower = result.lower()
 
             if (
-                "multiple items found" in result_lower
+                "multiple items found"
+                in result_lower
                 or
-                "please select a number" in result_lower
+                "please select a number"
+                in result_lower
             ):
 
                 self.context.set_pending_selection(
                     target=self.context.current_target,
                     options=[]
+                )
+
+        # Dictionary selection result support.
+
+        elif isinstance(
+            result,
+            dict
+        ):
+
+            if (
+                result.get(
+                    "multiple"
+                )
+                or
+                result.get(
+                    "requires_selection"
+                )
+            ):
+
+                options = result.get(
+                    "options",
+                    []
+                )
+
+                if not isinstance(
+                    options,
+                    list
+                ):
+
+                    options = []
+
+                self.context.set_pending_selection(
+                    target=self.context.current_target,
+                    options=options
                 )
 
         # =========================================================
@@ -552,7 +935,11 @@ class AutonomousAgent:
         # VERIFICATION FAILURE
         # =========================================================
 
-        if result_successful and not verified:
+        if (
+            result_successful
+            and
+            not verified
+        ):
 
             return {
                 "success": False,
@@ -641,26 +1028,74 @@ class AutonomousAgent:
                 "error": str(error)
             }
 
-        self._update_context_from_intent(
+        # =========================================================
+        # GOAL COMPILER
+        # =========================================================
+
+        compilation = self._compile_goal(
+            goal=goal,
+            intent=intent
+        )
+
+        # =========================================================
+        # COMPILED INTENT
+        # =========================================================
+
+        compiled_intent = (
+            self._get_compiled_intent(
+                compilation
+            )
+        )
+
+        # Explicit intent always has priority.
+        #
+        # If no explicit intent was provided,
+        # use the safe intent discovered by GoalCompiler.
+
+        effective_intent = (
             intent
+            if isinstance(
+                intent,
+                dict
+            )
+            else compiled_intent
+        )
+
+        self._update_context_from_intent(
+            effective_intent
         )
 
         # =========================================================
         # FAST LANE FOR SIMPLE, ALREADY-KNOWN ACTIONS
         #
-        # A simple command such as "Chrome खोल दो" should not spend
-        # time in unnecessary planning layers. It still goes through
-        # ToolManager and ObservationVerifier, so the action remains
-        # observable and verifiable.
+        # GoalCompiler now performs the first understanding stage.
+        #
+        # A simple command such as:
+        #
+        #     Chrome खोल दो
+        #
+        # can still execute immediately.
+        #
+        # It does NOT bypass safety:
+        #
+        # GoalCompiler
+        #       |
+        #       v
+        # ToolManager
+        #       |
+        #       v
+        # ObservationVerifier
+        #
+        # Complex goals continue through ReasoningEngine.
         # =========================================================
 
         if isinstance(
-            intent,
+            effective_intent,
             dict
         ):
 
             fast_intent = str(
-                intent.get(
+                effective_intent.get(
                     "intent",
                     ""
                 )
@@ -674,14 +1109,35 @@ class AutonomousAgent:
                 "close_app"
             )
 
+            target_value = str(
+                effective_intent.get(
+                    "target"
+                ) or ""
+            ).strip()
+
+            # Only use fast lane when the GoalCompiler itself
+            # recognizes the goal as a safe/simple intent,
+            # or when the caller supplied an explicit intent.
+
+            compiler_confirmed = bool(
+                compiled_intent
+            )
+
+            explicit_intent = isinstance(
+                intent,
+                dict
+            )
+
             if (
                 fast_intent in fast_targets
                 and
-                str(
-                    intent.get(
-                        "target"
-                    ) or ""
-                ).strip()
+                target_value
+                and
+                (
+                    compiler_confirmed
+                    or
+                    explicit_intent
+                )
             ):
 
                 fast_plan = [
@@ -689,7 +1145,7 @@ class AutonomousAgent:
                         "step": 1,
                         "type": "execute_existing_intent",
                         "goal": goal,
-                        "intent": intent
+                        "intent": effective_intent
                     }
                 ]
 
@@ -712,12 +1168,20 @@ class AutonomousAgent:
                         "result": fast_result.get(
                             "result"
                         ),
+                        "goal": goal,
+                        "goal_compilation": compilation,
                         "history": self.task_history,
                         "context": self.context.snapshot()
                     }
 
-                # Do not run the old multi-step re-planning loop for a
-                # simple command that already has a concrete intent.
+                # -------------------------------------------------
+                # Simple command failed.
+                #
+                # Do not execute blindly.
+                #
+                # Return the failure so caller can decide whether
+                # to provide another instruction.
+                # -------------------------------------------------
 
                 self.active = False
 
@@ -739,6 +1203,8 @@ class AutonomousAgent:
                         "message",
                         "The requested action could not be completed."
                     ),
+                    "goal": goal,
+                    "goal_compilation": compilation,
                     "history": self.task_history,
                     "context": self.context.snapshot()
                 }
@@ -748,14 +1214,14 @@ class AutonomousAgent:
         # =========================================================
 
         if isinstance(
-            intent,
+            effective_intent,
             dict
         ):
 
             try:
 
                 self.brain.think(
-                    intent
+                    effective_intent
                 )
 
             except Exception as error:
@@ -771,22 +1237,22 @@ class AutonomousAgent:
         # INITIAL REASONING
         # =========================================================
 
-        # =========================================================
-        # WORLD STATE -> REASONING
-        # =========================================================
-
         try:
 
-            state_snapshot = self.world_state.snapshot(
-                self.context.snapshot()
+            state_snapshot = (
+                self.world_state.snapshot(
+                    self.context.snapshot()
+                )
             )
 
             reasoning = (
                 self.reasoning_engine.reason(
                     goal,
-                    intent,
+                    effective_intent,
                     context=state_snapshot,
-                    previous_result=self.context.last_result
+                    previous_result=(
+                        self.context.last_result
+                    )
                 )
             )
 
@@ -801,6 +1267,7 @@ class AutonomousAgent:
                 "stage": "reasoning_error",
                 "error": str(error),
                 "goal": goal,
+                "goal_compilation": compilation,
                 "context": self.context.snapshot()
             }
 
@@ -824,7 +1291,8 @@ class AutonomousAgent:
                     "ReasoningEngine returned "
                     "an invalid result."
                 ),
-                "goal": goal
+                "goal": goal,
+                "goal_compilation": compilation
             }
 
         analysis = reasoning.get(
@@ -864,6 +1332,58 @@ class AutonomousAgent:
             analysis = {}
 
         # =========================================================
+        # KEEP GOAL COMPILATION AVAILABLE
+        # =========================================================
+
+        reasoning_compilation = (
+            analysis.get(
+                "goal_compilation"
+            )
+            if isinstance(
+                analysis,
+                dict
+            )
+            else None
+        )
+
+        if isinstance(
+            reasoning_compilation,
+            dict
+        ):
+
+            compilation = (
+                reasoning_compilation
+            )
+
+            self.current_compilation = (
+                compilation
+            )
+
+        # =========================================================
+        # FALLBACK PLAN
+        #
+        # Normally ReasoningEngine already calls MissionPlanner.
+        #
+        # If a custom/older ReasoningEngine returns no plan,
+        # AutonomousAgent uses its own MissionPlanner.
+        # =========================================================
+
+        if not plan:
+
+            fallback_plan = (
+                self._create_fallback_plan(
+                    goal=goal,
+                    analysis=analysis,
+                    route=route,
+                    compilation=compilation
+                )
+            )
+
+            if fallback_plan:
+
+                plan = fallback_plan
+
+        # =========================================================
         # EXISTING TOOLS
         # =========================================================
 
@@ -886,6 +1406,7 @@ class AutonomousAgent:
                         "step available yet."
                     ),
                     "analysis": analysis,
+                    "goal_compilation": compilation,
                     "context": self.context.snapshot()
                 }
 
@@ -985,6 +1506,9 @@ class AutonomousAgent:
                         "success": True,
                         "stage": "completed",
                         "result": last_result,
+                        "goal": goal,
+                        "goal_compilation": compilation,
+                        "analysis": analysis,
                         "history": self.task_history,
                         "context": self.context.snapshot()
                     }
@@ -1012,14 +1536,24 @@ class AutonomousAgent:
 
                 try:
 
+                    # ---------------------------------------------
+                    # Refresh world state after failure.
+                    # ---------------------------------------------
+
+                    refreshed_state = (
+                        self.world_state.snapshot(
+                            self.context.snapshot()
+                        )
+                    )
+
                     re_reasoning = (
                         self.reasoning_engine.reason(
                             self.current_goal,
-                            intent,
-                            context=self.world_state.snapshot(
-                                self.context.snapshot()
-                            ),
-                            previous_result=self.context.last_result
+                            effective_intent,
+                            context=refreshed_state,
+                            previous_result=(
+                                self.context.last_result
+                            )
                         )
                     )
 
@@ -1093,6 +1627,67 @@ class AutonomousAgent:
                     analysis = {}
 
                 # -------------------------------------------------
+                # Refresh compilation from re-planning.
+                # -------------------------------------------------
+
+                new_compilation = (
+                    analysis.get(
+                        "goal_compilation"
+                    )
+                    if isinstance(
+                        analysis,
+                        dict
+                    )
+                    else None
+                )
+
+                if isinstance(
+                    new_compilation,
+                    dict
+                ):
+
+                    compilation = (
+                        new_compilation
+                    )
+
+                    self.current_compilation = (
+                        compilation
+                    )
+
+                # -------------------------------------------------
+                # Refresh effective intent if the reasoner
+                # discovered a better safe intent.
+                # -------------------------------------------------
+
+                refreshed_intent = (
+                    self._get_compiled_intent(
+                        compilation
+                    )
+                )
+
+                if refreshed_intent:
+
+                    effective_intent = (
+                        refreshed_intent
+                    )
+
+                # -------------------------------------------------
+                # If ReasoningEngine returned no plan, use the
+                # MissionPlanner fallback.
+                # -------------------------------------------------
+
+                if not plan:
+
+                    plan = (
+                        self._create_fallback_plan(
+                            goal=self.current_goal,
+                            analysis=analysis,
+                            route=route,
+                            compilation=compilation
+                        )
+                    )
+
+                # -------------------------------------------------
                 # Route changed
                 # -------------------------------------------------
 
@@ -1118,7 +1713,34 @@ class AutonomousAgent:
                     "with the available execution route."
                 ),
                 "analysis": analysis,
+                "goal_compilation": compilation,
                 "history": self.task_history,
+                "context": self.context.snapshot()
+            }
+
+        # =========================================================
+        # CONVERSATION ROUTE
+        # =========================================================
+
+        if route.get(
+            "route"
+        ) == "conversation":
+
+            self.active = False
+
+            return {
+                "success": True,
+                "stage": "conversation",
+                "message": analysis.get(
+                    "response",
+                    analysis.get(
+                        "reason",
+                        "The task requires conversation."
+                    )
+                ),
+                "goal": self.current_goal,
+                "goal_compilation": compilation,
+                "analysis": analysis,
                 "context": self.context.snapshot()
             }
 
@@ -1146,6 +1768,7 @@ class AutonomousAgent:
                 ),
                 "capability": capability,
                 "goal": self.current_goal,
+                "goal_compilation": compilation,
                 "plan": plan,
                 "context": self.context.snapshot()
             }
@@ -1182,6 +1805,7 @@ class AutonomousAgent:
                     ),
                     "error": str(error),
                     "goal": self.current_goal,
+                    "goal_compilation": compilation,
                     "plan": plan,
                     "context": self.context.snapshot()
                 }
@@ -1208,6 +1832,7 @@ class AutonomousAgent:
                         "created a capability plan."
                     ),
                     "goal": self.current_goal,
+                    "goal_compilation": compilation,
                     "plan": plan,
                     "skill": skill_result.get(
                         "skill"
@@ -1225,6 +1850,7 @@ class AutonomousAgent:
                     skill_result
                 ),
                 "goal": self.current_goal,
+                "goal_compilation": compilation,
                 "plan": plan,
                 "context": self.context.snapshot()
             }
@@ -1242,6 +1868,9 @@ class AutonomousAgent:
                 "reason",
                 "Task stopped."
             ),
+            "goal": self.current_goal,
+            "goal_compilation": compilation,
+            "analysis": analysis,
             "context": self.context.snapshot()
         }
 
@@ -1256,6 +1885,18 @@ class AutonomousAgent:
         return self.context.snapshot()
 
     # =============================================================
+    # GET CURRENT GOAL COMPILATION
+    # =============================================================
+
+    def get_goal_compilation(
+        self
+    ):
+
+        return dict(
+            self.current_compilation
+        )
+
+    # =============================================================
     # RESET CURRENT TASK
     # =============================================================
 
@@ -1267,6 +1908,8 @@ class AutonomousAgent:
 
         self.current_goal = ""
 
+        self.current_compilation = {}
+
         self.task_history = []
 
         self.step_count = 0
@@ -1276,6 +1919,14 @@ class AutonomousAgent:
         try:
 
             self.reasoning_engine.reset()
+
+        except Exception:
+
+            pass
+
+        try:
+
+            self.mission_planner.reset()
 
         except Exception:
 
@@ -1293,6 +1944,8 @@ class AutonomousAgent:
 
         self.current_goal = ""
 
+        self.current_compilation = {}
+
         self.task_history = []
 
         self.step_count = 0
@@ -1307,3 +1960,10 @@ class AutonomousAgent:
 
             pass
 
+        try:
+
+            self.mission_planner.reset()
+
+        except Exception:
+
+            pass
