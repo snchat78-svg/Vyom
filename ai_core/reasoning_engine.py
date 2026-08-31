@@ -4,17 +4,39 @@ Version : 1.0
 Module  : Reasoning Engine
 
 Purpose:
-    Hybrid goal-centric reasoning and planning layer.
+    Context-aware goal reasoning for Vyom.
 
-    Existing IntentEngine/ToolManager behaviour remains intact.
-    Unknown natural-language goals are first compiled locally.
-    A configured AI model may then provide deeper reasoning.
+Architecture:
+
+    Goal
+      |
+      v
+    Goal Analysis
+      |
+      +--> Existing Intent
+      |
+      +--> Known Capability
+      |
+      +--> Compound Goal
+      |
+      +--> Missing Capability
+      |
+      v
+    Route Decision
+      |
+      v
+    Structured Mission Plan
+
+IMPORTANT:
+    - Never executes computer actions.
+    - Never executes generated code.
+    - ToolManager remains the executor.
 """
 
-from ai_core.capability_manager import CapabilityManager
-from ai_core.deep_reasoner import DeepReasoner
+from typing import Any, Dict, List, Optional
+
 from ai_core.goal_compiler import GoalCompiler
-from ai_core.mission_planner import MissionPlanner
+from ai_core.capability_manager import CapabilityManager
 
 
 class ReasoningEngine:
@@ -22,250 +44,491 @@ class ReasoningEngine:
     def __init__(
         self,
         capability_manager=None,
-        deep_reasoner=None,
-        goal_compiler=None,
-        mission_planner=None,
+        goal_compiler=None
     ):
         self.capability_manager = (
             capability_manager
             if capability_manager is not None
             else CapabilityManager()
         )
+
         self.goal_compiler = (
             goal_compiler
             if goal_compiler is not None
             else GoalCompiler()
         )
-        self.deep_reasoner = (
-            deep_reasoner
-            if deep_reasoner is not None
-            else DeepReasoner(
-                goal_compiler=self.goal_compiler
-            )
-        )
-        self.mission_planner = (
-            mission_planner
-            if mission_planner is not None
-            else MissionPlanner()
-        )
 
         self.last_goal = ""
-        self.last_analysis = None
-        self.last_plan = []
-        self.last_capabilities = []
-        self.last_compilation = None
+        self.last_analysis: Optional[Dict[str, Any]] = None
+        self.last_plan: List[Dict[str, Any]] = []
+        self.last_route: Dict[str, Any] = {}
 
-    def _normalize(self, text):
-        return str(text or "").strip()
+    # =========================================================
+    # NORMALIZE
+    # =========================================================
 
-    def _capabilities(self):
-        return self.capability_manager.list_capabilities(
-            enabled_only=True
-        )
+    def _normalize(self, value: Any) -> str:
+        return str(value or "").strip()
 
-    def _fallback_analysis(self, goal, intent=None, compiled=None):
-        compiled = compiled or self.goal_compiler.compile(
-            goal, intent=intent
-        )
-        capabilities = self.capability_manager.match(goal)
-
-        suggested = compiled.get("suggested_intents", [])
-        if suggested:
-            route = "existing_tools"
-        elif capabilities:
-            route = "capability"
-        else:
-            route = "missing_capability"
-
-        return {
-            "understood": True,
-            "goal": goal,
-            "objective": compiled.get("objective", goal),
-            "type": "known_command" if suggested else "unknown_goal",
-            "complexity": compiled.get("complexity", "simple"),
-            "intent": suggested[0] if suggested else intent,
-            "capabilities": capabilities,
-            "route": route,
-            "plan": [],
-            "goal_compilation": compiled,
-            "reason": compiled.get("reason", "Local fallback reasoning was used."),
-        }
+    # =========================================================
+    # ANALYZE GOAL
+    # =========================================================
 
     def analyze_goal(
         self,
-        goal,
-        intent=None,
-        context=None,
-        previous_result=None
-    ):
+        goal: str,
+        intent: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        previous_result: Any = None
+    ) -> Dict[str, Any]:
+
         goal = self._normalize(goal)
+
         self.last_goal = goal
 
         if not goal:
-            analysis = {
+            result = {
                 "understood": False,
                 "goal": "",
+                "objective": "",
                 "type": "empty",
                 "complexity": "none",
                 "intent": intent,
-                "reason": "Empty goal.",
+                "suggested_intents": [],
+                "sub_goals": [],
+                "requires_new_capability": False,
+                "reason": "Empty goal."
             }
-            self.last_analysis = analysis
-            return analysis
 
-        compiled = self.goal_compiler.compile(
-            goal=goal,
-            intent=intent,
-            context=context,
-        )
-        self.last_compilation = compiled
+            self.last_analysis = result
+            return result
 
-        capabilities = self._capabilities()
-        self.last_capabilities = capabilities
-
-        # DeepReasoner is now allowed to run even for an already-known
-        # intent. It can enrich the plan while still falling back locally.
-        ai_result = self.deep_reasoner.reason(
-            goal=goal,
-            context=context,
-            capabilities=capabilities,
-            previous_result=previous_result,
-            intent=intent,
+        ctx = (
+            context
+            if isinstance(context, dict)
+            else {}
         )
 
-        if isinstance(ai_result, dict) and ai_result.get("success", False):
-            data = ai_result.get("data", {})
-            if isinstance(data, dict):
-                data.setdefault("goal", goal)
-                data.setdefault("intent", intent)
-                data.setdefault("capabilities", capabilities)
-                data.setdefault("goal_compilation", compiled)
-                self.last_analysis = data
-                return data
+        # -----------------------------------------------------
+        # GOAL COMPILATION
+        # -----------------------------------------------------
 
-        analysis = self._fallback_analysis(
-            goal,
-            intent,
-            compiled=compiled
+        try:
+            compiled = self.goal_compiler.compile(
+                goal=goal,
+                intent=intent,
+                context=ctx
+            )
+        except Exception as error:
+            compiled = {
+                "success": False,
+                "understood": False,
+                "goal": goal,
+                "objective": goal,
+                "complexity": "unknown",
+                "suggested_intents": [],
+                "sub_goals": [],
+                "requires_new_capability": True,
+                "reason": str(error)
+            }
+
+        suggested_intents = compiled.get(
+            "suggested_intents",
+            []
         )
+
+        sub_goals = compiled.get(
+            "sub_goals",
+            []
+        )
+
+        # -----------------------------------------------------
+        # CAPABILITY DISCOVERY
+        # -----------------------------------------------------
+
+        capabilities = []
+
+        if not suggested_intents:
+            try:
+                capabilities = (
+                    self.capability_manager.match(
+                        goal
+                    )
+                )
+            except Exception:
+                capabilities = []
+
+        # -----------------------------------------------------
+        # CLASSIFY
+        # -----------------------------------------------------
+
+        if suggested_intents:
+            if len(suggested_intents) == 1:
+                goal_type = "known_action"
+                complexity = (
+                    compiled.get(
+                        "complexity",
+                        "simple"
+                    )
+                )
+            else:
+                goal_type = "compound_goal"
+                complexity = "medium"
+
+        elif capabilities:
+            goal_type = "capability_goal"
+            complexity = "complex"
+
+        else:
+            goal_type = "unknown_goal"
+            complexity = "unknown"
+
+        analysis = {
+            "understood": True,
+            "goal": goal,
+            "objective": compiled.get(
+                "objective",
+                goal
+            ),
+            "type": goal_type,
+            "complexity": complexity,
+            "intent": intent,
+            "suggested_intents": suggested_intents,
+            "sub_goals": sub_goals,
+            "capabilities": capabilities,
+            "requires_new_capability": (
+                not bool(suggested_intents)
+                and not bool(capabilities)
+            ),
+            "context": ctx,
+            "previous_result": previous_result,
+            "compiled_goal": compiled
+        }
+
         self.last_analysis = analysis
+
         return analysis
 
-    def decide_route(self, analysis):
-        if not isinstance(analysis, dict):
-            return {"route": "stop", "reason": "Invalid analysis."}
+    # =========================================================
+    # ROUTE DECISION
+    # =========================================================
 
-        if not analysis.get("understood", False):
-            return {
-                "route": "stop",
-                "reason": analysis.get("reason", "Goal not understood."),
-            }
+    def decide_route(
+        self,
+        analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
 
-        requested_route = str(
-            analysis.get("route", "")
-        ).strip().lower()
-
-        valid_routes = {
-            "existing_tools",
-            "capability",
-            "missing_capability",
-            "conversation",
-        }
-
-        if requested_route in valid_routes:
+        if not isinstance(
+            analysis,
+            dict
+        ):
             route = {
-                "route": requested_route,
-                "reason": analysis.get(
-                    "reason",
-                    "Reasoning selected this route."
-                ),
+                "route": "stop",
+                "reason": "Invalid analysis."
             }
-            if analysis.get("capability"):
-                route["capability"] = analysis.get("capability")
+
+            self.last_route = route
             return route
 
-        compiled = analysis.get("goal_compilation", {})
-        if (
-            isinstance(compiled, dict)
-            and compiled.get("suggested_intents")
+        if not analysis.get(
+            "understood",
+            False
         ):
-            return {
-                "route": "existing_tools",
-                "reason": "Goal compiler mapped the goal to existing tools.",
+            route = {
+                "route": "stop",
+                "reason": "Goal could not be understood."
             }
 
-        if analysis.get("type") == "known_command":
-            return {
+            self.last_route = route
+            return route
+
+        suggested = analysis.get(
+            "suggested_intents",
+            []
+        )
+
+        capabilities = analysis.get(
+            "capabilities",
+            []
+        )
+
+        # -----------------------------------------------------
+        # SINGLE KNOWN ACTION
+        # -----------------------------------------------------
+
+        if (
+            isinstance(suggested, list)
+            and len(suggested) == 1
+        ):
+            route = {
                 "route": "existing_tools",
-                "reason": "Existing ToolManager can execute this command.",
+                "reason": (
+                    "A directly executable "
+                    "intent is available."
+                )
             }
 
-        capabilities = analysis.get("capabilities", [])
+            self.last_route = route
+            return route
+
+        # -----------------------------------------------------
+        # COMPOUND MISSION
+        # -----------------------------------------------------
+
+        if (
+            isinstance(suggested, list)
+            and len(suggested) > 1
+        ):
+            route = {
+                "route": "mission",
+                "reason": (
+                    "The goal contains multiple "
+                    "executable stages."
+                )
+            }
+
+            self.last_route = route
+            return route
+
+        # -----------------------------------------------------
+        # KNOWN CAPABILITY
+        # -----------------------------------------------------
+
         if capabilities:
-            return {
+            route = {
                 "route": "capability",
-                "reason": "A matching capability was found.",
-                "capability": capabilities[0],
+                "reason": (
+                    "A capability can potentially "
+                    "satisfy the goal."
+                ),
+                "capability": capabilities[0]
             }
 
-        return {
+            self.last_route = route
+            return route
+
+        # -----------------------------------------------------
+        # NEW CAPABILITY
+        # -----------------------------------------------------
+
+        route = {
             "route": "missing_capability",
-            "reason": "No executable capability is currently available.",
+            "reason": (
+                "No existing executable intent "
+                "or enabled capability matches "
+                "the goal."
+            )
         }
 
-    def create_plan(self, analysis, route):
-        if not isinstance(analysis, dict):
+        self.last_route = route
+        return route
+
+    # =========================================================
+    # CREATE PLAN
+    # =========================================================
+
+    def create_plan(
+        self,
+        analysis: Dict[str, Any],
+        route: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+
+        if not isinstance(
+            analysis,
+            dict
+        ):
             self.last_plan = []
             return []
 
-        goal = analysis.get("goal", "")
-        compiled = analysis.get("goal_compilation", {})
-
-        plan = self.mission_planner.plan(
-            goal=goal,
-            analysis=analysis,
-            compiled_goal=compiled,
-            route=route,
+        route_name = (
+            route.get(
+                "route",
+                "stop"
+            )
+            if isinstance(route, dict)
+            else "stop"
         )
 
-        self.last_plan = plan
-        return plan
+        goal = analysis.get(
+            "goal",
+            ""
+        )
+
+        suggested = analysis.get(
+            "suggested_intents",
+            []
+        )
+
+        # -----------------------------------------------------
+        # SINGLE ACTION
+        # -----------------------------------------------------
+
+        if route_name == "existing_tools":
+
+            if (
+                isinstance(suggested, list)
+                and suggested
+            ):
+                intent = suggested[0]
+
+                plan = [{
+                    "step": 1,
+                    "id": "action_1",
+                    "type": "execute_existing_intent",
+                    "goal": goal,
+                    "intent": {
+                        "intent": intent.get(
+                            "intent"
+                        ),
+                        "target": intent.get(
+                            "target"
+                        )
+                    },
+                    "depends_on": [],
+                    "status": "pending"
+                }]
+
+                self.last_plan = plan
+                return plan
+
+        # -----------------------------------------------------
+        # COMPOUND MISSION
+        # -----------------------------------------------------
+
+        if route_name == "mission":
+
+            plan = []
+
+            for index, intent in enumerate(
+                suggested,
+                start=1
+            ):
+
+                if not isinstance(
+                    intent,
+                    dict
+                ):
+                    continue
+
+                name = self._normalize(
+                    intent.get("intent")
+                )
+
+                target = self._normalize(
+                    intent.get("target")
+                )
+
+                if not name or not target:
+                    continue
+
+                depends_on = []
+
+                if index > 1:
+                    depends_on.append(
+                        f"action_{index - 1}"
+                    )
+
+                plan.append({
+                    "step": index,
+                    "id": f"action_{index}",
+                    "type": "execute_existing_intent",
+                    "goal": goal,
+                    "intent": {
+                        "intent": name,
+                        "target": target
+                    },
+                    "depends_on": depends_on,
+                    "status": "pending"
+                })
+
+            self.last_plan = plan
+            return plan
+
+        # -----------------------------------------------------
+        # CAPABILITY
+        # -----------------------------------------------------
+
+        if route_name == "capability":
+
+            plan = [{
+                "step": 1,
+                "id": "capability_1",
+                "type": "use_capability",
+                "goal": goal,
+                "capability": route.get(
+                    "capability"
+                ),
+                "depends_on": [],
+                "status": "pending"
+            }]
+
+            self.last_plan = plan
+            return plan
+
+        # -----------------------------------------------------
+        # MISSING CAPABILITY
+        # -----------------------------------------------------
+
+        if route_name == "missing_capability":
+
+            plan = [{
+                "step": 1,
+                "id": "capability_request_1",
+                "type": "request_new_capability",
+                "goal": goal,
+                "depends_on": [],
+                "status": "pending"
+            }]
+
+            self.last_plan = plan
+            return plan
+
+        self.last_plan = []
+
+        return []
+
+    # =========================================================
+    # MAIN REASON
+    # =========================================================
 
     def reason(
         self,
-        goal,
-        intent=None,
-        context=None,
-        previous_result=None
-    ):
+        goal: str,
+        intent: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        previous_result: Any = None
+    ) -> Dict[str, Any]:
+
         analysis = self.analyze_goal(
-            goal,
-            intent,
+            goal=goal,
+            intent=intent,
             context=context,
-            previous_result=previous_result,
+            previous_result=previous_result
         )
-        route = self.decide_route(analysis)
-        plan = self.create_plan(analysis, route)
+
+        route = self.decide_route(
+            analysis
+        )
+
+        plan = self.create_plan(
+            analysis,
+            route
+        )
 
         return {
+            "success": True,
             "analysis": analysis,
             "route": route,
-            "plan": plan,
+            "plan": plan
         }
 
+    # =========================================================
+    # RESET
+    # =========================================================
+
     def reset(self):
+
         self.last_goal = ""
         self.last_analysis = None
         self.last_plan = []
-        self.last_capabilities = []
-        self.last_compilation = None
-
-        try:
-            self.deep_reasoner.reset()
-        except Exception:
-            pass
-
-        try:
-            self.mission_planner.reset()
-        except Exception:
-            pass
+        self.last_route = {}
