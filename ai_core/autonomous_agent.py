@@ -133,17 +133,6 @@ class AutonomousAgent:
 
         # =========================================================
         # MISSION RUNTIME
-        #
-        # MissionRuntime is now the owner of:
-        #
-        #     - mission state
-        #     - current step
-        #     - dependency resolution
-        #     - retry state
-        #     - re-plan request
-        #     - mission history
-        #
-        # It NEVER executes Windows actions directly.
         # =========================================================
 
         self.mission_runtime = MissionRuntime(
@@ -162,10 +151,6 @@ class AutonomousAgent:
         # =========================================================
 
         self.verifier = ObservationVerifier()
-
-        # Lightweight computer-state observer.
-        #
-        # It never executes actions.
 
         self.world_state = WorldStateModel()
 
@@ -217,12 +202,7 @@ class AutonomousAgent:
     ) -> bool:
 
         if result is None:
-
             return False
-
-        # ---------------------------------------------------------
-        # Dictionary result
-        # ---------------------------------------------------------
 
         if isinstance(
             result,
@@ -243,10 +223,6 @@ class AutonomousAgent:
 
             return True
 
-        # ---------------------------------------------------------
-        # Boolean result
-        # ---------------------------------------------------------
-
         if isinstance(
             result,
             bool
@@ -254,16 +230,11 @@ class AutonomousAgent:
 
             return result
 
-        # ---------------------------------------------------------
-        # Text result
-        # ---------------------------------------------------------
-
         text = str(
             result
         ).strip().lower()
 
         if not text:
-
             return False
 
         failure_phrases = [
@@ -297,15 +268,6 @@ class AutonomousAgent:
         goal: str,
         intent: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-
-        """
-        Convert the user's natural-language goal into
-        a structured goal.
-
-        This method only understands the goal.
-
-        It does NOT execute anything.
-        """
 
         try:
 
@@ -404,20 +366,6 @@ class AutonomousAgent:
 
             return None
 
-        # ---------------------------------------------------------
-        # IMPORTANT:
-        #
-        # Only return an automatic intent when exactly ONE
-        # executable intent was compiled.
-        #
-        # This prevents a compound mission such as:
-        #
-        #     Chrome खोलो और Google search करो
-        #
-        # from accidentally taking the first action through
-        # the fast lane and skipping the rest of the mission.
-        # ---------------------------------------------------------
-
         if len(suggested) != 1:
 
             return None
@@ -492,10 +440,6 @@ class AutonomousAgent:
                 target
             )
 
-        # ---------------------------------------------------------
-        # OPEN APPLICATION
-        # ---------------------------------------------------------
-
         if intent_name == "open":
 
             if target:
@@ -503,10 +447,6 @@ class AutonomousAgent:
                 self.context.set_current_app(
                     target
                 )
-
-        # ---------------------------------------------------------
-        # FILE OPERATIONS
-        # ---------------------------------------------------------
 
         elif intent_name in (
             "open_file",
@@ -519,10 +459,6 @@ class AutonomousAgent:
                 self.context.set_current_file(
                     target
                 )
-
-        # ---------------------------------------------------------
-        # CLOSE APPLICATION
-        # ---------------------------------------------------------
 
         elif intent_name == "close_app":
 
@@ -551,15 +487,6 @@ class AutonomousAgent:
     ) -> List[
         Dict[str, Any]
     ]:
-
-        """
-        MissionPlanner fallback.
-
-        ReasoningEngine normally creates the plan itself.
-        This method exists so AutonomousAgent remains robust
-        if an older/custom ReasoningEngine returns analysis
-        without a plan.
-        """
 
         try:
 
@@ -618,10 +545,6 @@ class AutonomousAgent:
         step
     ) -> Dict[str, Any]:
 
-        # =========================================================
-        # VALIDATE STEP
-        # =========================================================
-
         if not isinstance(
             step,
             dict
@@ -635,10 +558,6 @@ class AutonomousAgent:
                 )
             }
 
-        # =========================================================
-        # SAFETY LIMIT
-        # =========================================================
-
         if self.step_count >= self.max_steps:
 
             return {
@@ -648,15 +567,6 @@ class AutonomousAgent:
                     "Autonomous step limit reached."
                 )
             }
-
-        # =========================================================
-        # STEP COUNT
-        #
-        # MissionRuntime keeps its own runtime step counter.
-        #
-        # AutonomousAgent also retains its backward-compatible
-        # step counter for existing callers/history.
-        # =========================================================
 
         self.step_count += 1
 
@@ -732,8 +642,6 @@ class AutonomousAgent:
                 "step": step
             }
 
-        # Keep variable intentionally available for validation/
-        # future executor expansion.
         _ = intent_target
 
         # =========================================================
@@ -859,8 +767,6 @@ class AutonomousAgent:
 
         # =========================================================
         # FINAL STEP SUCCESS
-        #
-        # ToolManager success alone is NOT enough.
         # =========================================================
 
         successful = (
@@ -1055,8 +961,6 @@ class AutonomousAgent:
             )
         )
 
-        # Defensive validation.
-
         if not isinstance(
             runtime_snapshot,
             dict
@@ -1079,14 +983,6 @@ class AutonomousAgent:
 
         # =========================================================
         # MISSION LOOP
-        #
-        # MissionRuntime selects each dependency-ready step.
-        #
-        # AutonomousAgent only performs:
-        #
-        #     execute -> observe -> verify
-        #
-        # and reports the result back to Runtime.
         # =========================================================
 
         while (
@@ -1099,10 +995,6 @@ class AutonomousAgent:
             # -----------------------------------------------------
 
             if self.mission_runtime.needs_replan():
-
-                # If Runtime explicitly needs a new plan,
-                # ReasoningEngine gets the latest world state
-                # and session result.
 
                 break
 
@@ -1278,8 +1170,6 @@ class AutonomousAgent:
                     )
                 )
 
-                # Runtime now decides which next step is ready.
-
                 continue
 
             # -----------------------------------------------------
@@ -1312,8 +1202,6 @@ class AutonomousAgent:
 
             # -----------------------------------------------------
             # Retries exhausted.
-            #
-            # Runtime has now requested re-planning.
             # -----------------------------------------------------
 
             if self.mission_runtime.needs_replan():
@@ -1442,7 +1330,7 @@ class AutonomousAgent:
                 new_reasoning_plan = []
 
             # -----------------------------------------------------
-            # Refresh compilation if the ReasoningEngine exposes it.
+            # Refresh compilation
             # -----------------------------------------------------
 
             new_compilation = (
@@ -1470,7 +1358,7 @@ class AutonomousAgent:
                 )
 
             # -----------------------------------------------------
-            # Fallback plan if ReasoningEngine didn't provide one.
+            # Fallback plan
             # -----------------------------------------------------
 
             if not new_reasoning_plan:
@@ -1485,7 +1373,7 @@ class AutonomousAgent:
                 )
 
             # -----------------------------------------------------
-            # New route must have an executable/mission plan.
+            # Validate route
             # -----------------------------------------------------
 
             if new_route.get(
@@ -1533,7 +1421,7 @@ class AutonomousAgent:
                 }
 
             # -----------------------------------------------------
-            # Apply new mission plan to Runtime.
+            # Apply new mission plan
             # -----------------------------------------------------
 
             if not self.mission_runtime.apply_replan(
@@ -1559,10 +1447,7 @@ class AutonomousAgent:
                 }
 
             # -----------------------------------------------------
-            # Continue from the updated Runtime.
-            #
-            # Do not call _run_mission() recursively.
-            # Continue the same method with the new plan.
+            # Continue replanned mission
             # -----------------------------------------------------
 
             return self._continue_replanned_mission(
@@ -1742,6 +1627,17 @@ class AutonomousAgent:
 
                 continue
 
+            # =====================================================
+            # FIX:
+            # Close both:
+            #
+            #     mark_failed(...)
+            #
+            # and:
+            #
+            #     retry_available = (...)
+            # =====================================================
+
             retry_available = (
                 self.mission_runtime.mark_failed(
                     step_id=step_id,
@@ -1756,6 +1652,7 @@ class AutonomousAgent:
                         "verification"
                     )
                 )
+            )
 
             if retry_available:
 
@@ -1850,10 +1747,6 @@ class AutonomousAgent:
 
         self.active = True
 
-        # New run = new runtime mission.
-        #
-        # SessionMemory itself remains persistent.
-
         try:
 
             self.context.start_task(
@@ -1894,8 +1787,6 @@ class AutonomousAgent:
             )
         )
 
-        # Explicit intent always has priority.
-
         effective_intent = (
             intent
             if isinstance(
@@ -1911,13 +1802,6 @@ class AutonomousAgent:
 
         # =========================================================
         # SIMPLE FAST LANE
-        #
-        # IMPORTANT:
-        #
-        # It only runs when exactly one safe executable intent
-        # was recognized.
-        #
-        # Compound goals ALWAYS continue to Reasoning/Mission.
         # =========================================================
 
         if isinstance(
@@ -1955,8 +1839,6 @@ class AutonomousAgent:
                 dict
             )
 
-            # Also ensure the compilation itself is not compound.
-
             suggested_intents = compilation.get(
                 "suggested_intents",
                 []
@@ -1989,10 +1871,6 @@ class AutonomousAgent:
                 )
             ):
 
-                # -------------------------------------------------
-                # Brain still observes explicit intent.
-                # -------------------------------------------------
-
                 try:
 
                     self.brain.think(
@@ -2021,10 +1899,6 @@ class AutonomousAgent:
                         "status": "pending"
                     }
                 ]
-
-                # Use the normal MissionRuntime even for one-step
-                # commands. This keeps a single execution lifecycle
-                # across fast and mission paths.
 
                 result = self._run_mission(
                     goal=goal,
@@ -2214,13 +2088,6 @@ class AutonomousAgent:
 
         # =========================================================
         # EXECUTABLE / MISSION ROUTES
-        #
-        # ReasoningEngine uses:
-        #
-        #     existing_tools
-        #     mission
-        #
-        # for known executable goals.
         # =========================================================
 
         if route.get(
