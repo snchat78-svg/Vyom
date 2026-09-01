@@ -1,56 +1,70 @@
 # ============================================================
 # Project : Vyom AI
 # Module  : voice_controller.py
-# Version : 0.2
+# Version : 0.3
 #
 # Purpose:
-#     Connect Speech-To-Text + Command Engine + Text-To-Speech
+#     Controlled voice interface for Vyom AI.
 #
-# Flow:
+# Voice State:
 #
-#     Microphone
-#          ↓
-#     SpeechToText
-#          ↓
-#     VoiceController
-#          ↓
-#     Command Executor
-#          ↓
-#     AutonomousAgent
-#          ↓
-#     ReasoningEngine
-#          ↓
-#     ToolManager
-#          ↓
-#     Windows / Files / Applications
-#          ↓
-#     TextToSpeech
-#          ↓
-#     Speaker
+#     IDLE
+#       ↓
+#     WAKE / ACTIVATION
+#       ↓
+#     LISTENING
+#       ↓
+#     PROCESSING
+#       ↓
+#     EXECUTION
+#       ↓
+#     SPEAKING
+#       ↓
+#     IDLE
 #
 # IMPORTANT:
 #
-#     Existing IntentEngine / ToolManager behaviour is preserved.
+#     Existing Executor / AutonomousAgent / ToolManager
+#     integration is preserved.
+#
+#     This module does NOT duplicate IntentEngine logic.
 # ============================================================
-
-
-from voice.speech_to_text import SpeechToText
-from voice.text_to_speech import TextToSpeech
-
-from command_engine.executor import execute
 
 import time
 
+from voice.speech_to_text import SpeechToText
+from voice.text_to_speech import TextToSpeech
+from command_engine.executor import execute
+
+
+# ============================================================
+# SAFE PRINT
+# ============================================================
 
 def _safe_print(*args, **kwargs):
-    """Never allow a broken Windows console to terminate Vyom."""
+
     try:
-        print(*args, **kwargs)
-    except (PermissionError, OSError):
-        pass
-    except Exception:
+
+        print(
+            *args,
+            **kwargs
+        )
+
+    except (
+        PermissionError,
+        OSError
+    ):
+
         pass
 
+    except Exception:
+
+        pass
+
+
+# ============================================================
+# VOICE CONTROLLER
+# ============================================================
 
 class VoiceController:
 
@@ -58,13 +72,56 @@ class VoiceController:
     # INITIALIZATION
     # ========================================================
 
-    def __init__(self):
+    def __init__(
+        self,
+        wake_words=None
+    ):
 
         self.speech_to_text = SpeechToText()
 
         self.text_to_speech = TextToSpeech()
 
         self.running = False
+
+        # ----------------------------------------------------
+        # Voice state
+        # ----------------------------------------------------
+
+        self.state = "idle"
+
+        # ----------------------------------------------------
+        # Wake words
+        #
+        # Hindi + English variants.
+        # ----------------------------------------------------
+
+        if wake_words is None:
+
+            wake_words = [
+                "vyom",
+                "व्योम",
+                "व्योम जी",
+                "hey vyom",
+                "हे व्योम"
+            ]
+
+        self.wake_words = [
+            str(word).strip().lower()
+            for word in wake_words
+            if str(word).strip()
+        ]
+
+        # ----------------------------------------------------
+        # Activation mode
+        #
+        # False:
+        #     Vyom waits for wake word.
+        #
+        # True:
+        #     Vyom is currently accepting one command.
+        # ----------------------------------------------------
+
+        self.activated = False
 
     # ========================================================
     # STATUS
@@ -94,6 +151,86 @@ class VoiceController:
         return self.text_to_speech.speak(
             text
         )
+
+    # ========================================================
+    # WAKE WORD CHECK
+    # ========================================================
+
+    def _is_wake_word(
+        self,
+        text
+    ):
+
+        value = str(
+            text or ""
+        ).strip().lower()
+
+        if not value:
+
+            return False
+
+        for wake_word in self.wake_words:
+
+            if value == wake_word:
+
+                return True
+
+        return False
+
+    # ========================================================
+    # REMOVE WAKE WORD FROM COMMAND
+    # ========================================================
+
+    def _remove_wake_word(
+        self,
+        text
+    ):
+
+        value = str(
+            text or ""
+        ).strip()
+
+        lower_value = value.lower()
+
+        for wake_word in self.wake_words:
+
+            if lower_value == wake_word:
+
+                return ""
+
+            if lower_value.startswith(
+                wake_word + " "
+            ):
+
+                return value[
+                    len(wake_word):
+                ].strip()
+
+        return value
+
+    # ========================================================
+    # ACTIVATE
+    # ========================================================
+
+    def _activate(self):
+
+        self.activated = True
+
+        self.state = "listening"
+
+        _safe_print(
+            "Vyom : Listening for your command..."
+        )
+
+    # ========================================================
+    # DEACTIVATE
+    # ========================================================
+
+    def _deactivate(self):
+
+        self.activated = False
+
+        self.state = "idle"
 
     # ========================================================
     # PROCESS TEXT COMMAND
@@ -131,18 +268,10 @@ class VoiceController:
             }
 
         # ----------------------------------------------------
-        # Existing command pipeline
-        #
-        # DO NOT duplicate IntentEngine logic here.
-        #
-        # Executor already handles:
-        #
-        #     IntentEngine
-        #     Brain
-        #     AutonomousAgent
-        #     ReasoningEngine
-        #     ToolManager
+        # PROCESSING STATE
         # ----------------------------------------------------
+
+        self.state = "processing"
 
         try:
 
@@ -150,14 +279,12 @@ class VoiceController:
                 text
             )
 
-            message = str(
-                result
-            )
-
             return {
                 "success": True,
                 "text": text,
-                "message": message,
+                "message": str(
+                    result
+                ),
                 "result": result
             }
 
@@ -197,19 +324,29 @@ class VoiceController:
                 "result": None
             }
 
-        speech_result = self.speech_to_text.listen(
-            timeout=timeout,
-            phrase_time_limit=phrase_time_limit,
-            announce=announce
-        )
+        try:
 
-        # ----------------------------------------------------
-        # Silence is normal.
-        #
-        # Do not speak an error and do not create a new task.
-        # ----------------------------------------------------
+            speech_result = (
+                self.speech_to_text.listen(
+                    timeout=timeout,
+                    phrase_time_limit=phrase_time_limit,
+                    announce=announce
+                )
+            )
 
-        if speech_result.get("status") == "silence":
+        except Exception as error:
+
+            return {
+                "success": False,
+                "status": "error",
+                "text": "",
+                "message": str(error),
+                "result": None
+            }
+
+        if speech_result.get(
+            "status"
+        ) == "silence":
 
             return {
                 "success": False,
@@ -233,7 +370,7 @@ class VoiceController:
                 "text": "",
                 "message": speech_result.get(
                     "message",
-                    "Speech recognition failed."
+                    ""
                 ),
                 "result": None
             }
@@ -242,9 +379,6 @@ class VoiceController:
             "text",
             ""
         ).strip()
-
-        if text:
-            _safe_print("You : " + text)
 
         if not text:
 
@@ -256,12 +390,106 @@ class VoiceController:
                 "result": None
             }
 
-        return self.process_text(
+        _safe_print(
+            "You : " + text
+        )
+
+        return {
+            "success": True,
+            "status": "recognized",
+            "text": text,
+            "message": text,
+            "result": None
+        }
+
+    # ========================================================
+    # WAIT FOR WAKE WORD
+    # ========================================================
+
+    def _wait_for_activation(self):
+
+        self.state = "idle"
+
+        result = self.listen_once(
+            announce=False,
+            timeout=2.5,
+            phrase_time_limit=4
+        )
+
+        if not result.get(
+            "success",
+            False
+        ):
+
+            return False
+
+        text = result.get(
+            "text",
+            ""
+        ).strip()
+
+        if not text:
+
+            return False
+
+        # ----------------------------------------------------
+        # Wake word + command in same sentence
+        #
+        # Example:
+        #
+        #     "Vyom open notepad"
+        # ----------------------------------------------------
+
+        command = self._remove_wake_word(
             text
         )
 
+        if command != text:
+
+            self._activate()
+
+            if command:
+
+                return command
+
+            return True
+
+        return False
+
     # ========================================================
-    # RUN VOICE LOOP
+    # LISTEN FOR ONE ACTIVE COMMAND
+    # ========================================================
+
+    def _listen_active_command(self):
+
+        self.state = "listening"
+
+        result = self.listen_once(
+            announce=True,
+            timeout=5,
+            phrase_time_limit=8
+        )
+
+        if not result.get(
+            "success",
+            False
+        ):
+
+            return None
+
+        text = result.get(
+            "text",
+            ""
+        ).strip()
+
+        if not text:
+
+            return None
+
+        return text
+
+    # ========================================================
+    # RUN VOICE MODE
     # ========================================================
 
     def run(self):
@@ -281,207 +509,239 @@ class VoiceController:
 
         self.running = True
 
+        self.state = "idle"
+
+        self.activated = False
+
         _safe_print("")
         _safe_print("=" * 60)
-        _safe_print("Vyom AI - Voice Command Mode")
+        _safe_print(
+            "Vyom AI - Voice Assistant"
+        )
         _safe_print("=" * 60)
         _safe_print("")
         _safe_print(
-            "Vyom : I'm ready. Tell me what you want to do."
+            "Vyom : Say 'Vyom' when you want me."
         )
         _safe_print(
-            "Vyom : You can speak naturally. Say 'exit' or 'quit' to stop."
+            "Vyom : Say 'exit' to close voice mode."
         )
         _safe_print("")
 
-        # Open one microphone/PyAudio stream for the whole voice session.
-        # This is the key stability change for older Windows systems.
+        # ----------------------------------------------------
+        # Persistent microphone session
+        # ----------------------------------------------------
+
         if not self.speech_to_text.start_session():
 
             _safe_print(
                 "Vyom : I could not start the microphone."
             )
+
             _safe_print(
                 "Reason : "
                 + self.speech_to_text.error_message
             )
-            self.running = False
-            return
 
-        first_listen = True
+            self.running = False
+
+            return
 
         try:
 
             while self.running:
 
-                try:
+                # =================================================
+                # IDLE
+                #
+                # ONLY wake-word detection happens here.
+                # No command execution.
+                # =================================================
 
-                    result = self.listen_once(
-                        announce=first_listen,
-                        timeout=4,
-                        phrase_time_limit=7
+                if not self.activated:
+
+                    wake_result = (
+                        self._wait_for_activation()
                     )
 
-                    first_listen = False
+                    # ---------------------------------------------
+                    # Wake word detected
+                    # ---------------------------------------------
 
-                    # Silence is normal. Keep waiting quietly.
-                    if result.get("status") == "silence":
-                        continue
+                    if wake_result:
 
-                    if not result.get("success", False):
-
-                        status = result.get("status", "error")
-                        message = result.get("message", "")
-
-                        # Unrecognized speech and silence are deliberately
-                        # silent states. Device errors are recoverable and
-                        # are handled by SpeechToText.
-                        if status in (
-                            "unrecognized",
-                            "silence"
+                        # Wake word + command
+                        if isinstance(
+                            wake_result,
+                            str
                         ):
+
+                            command = wake_result
+
+                            self.activated = True
+
+                        else:
+
+                            command = None
+
+                        # -----------------------------------------
+                        # If only "Vyom" was spoken
+                        # -----------------------------------------
+
+                        if not command:
+
+                            response = (
+                                "हाँ, बताइए।"
+                            )
+
+                            _safe_print(
+                                "Vyom : "
+                                + response
+                            )
+
+                            self.speak(
+                                response
+                            )
+
+                            # Wait for exactly one command.
+                            command = (
+                                self._listen_active_command()
+                            )
+
+                        # -----------------------------------------
+                        # No command after activation
+                        # -----------------------------------------
+
+                        if not command:
+
+                            self._deactivate()
+
                             continue
 
-                        if status == "service_timeout":
+                        # -----------------------------------------
+                        # STOP COMMAND
+                        # -----------------------------------------
+
+                        command_lower = (
+                            command.lower().strip()
+                        )
+
+                        if command_lower in (
+                            "exit",
+                            "quit",
+                            "stop voice",
+                            "stop voice mode",
+                            "बंद करो",
+                            "वॉइस बंद करो",
+                            "वॉयस बंद करो"
+                        ):
+
+                            self.running = False
+
+                            response = (
+                                "ठीक है, voice mode बंद कर रहा हूँ।"
+                            )
+
                             _safe_print(
-                                "Vyom : Voice recognition took too long. Please speak again."
+                                "Vyom : "
+                                + response
                             )
-                            _safe_print("")
-                            continue
 
-                        if message:
+                            self.speak(
+                                response
+                            )
+
+                            break
+
+                        # =================================================
+                        # PROCESS COMMAND
+                        # =================================================
+
+                        self.state = "processing"
+
+                        _safe_print(
+                            "Vyom : Processing command..."
+                        )
+
+                        result = self.process_text(
+                            command
+                        )
+
+                        # =================================================
+                        # SPEAK RESULT
+                        # =================================================
+
+                        response = result.get(
+                            "message",
+                            ""
+                        )
+
+                        if response:
+
+                            self.state = "speaking"
+
                             _safe_print(
-                                "Vyom : " + message
+                                "Vyom : "
+                                + response
                             )
-                            _safe_print("")
+
+                            self.speak(
+                                response
+                            )
+
+                        # =================================================
+                        # IMPORTANT:
+                        #
+                        # After ONE command:
+                        #
+                        #     active → idle
+                        #
+                        # Vyom will NOT immediately process another
+                        # microphone input.
+                        # =================================================
+
+                        self._deactivate()
+
+                        time.sleep(
+                            0.15
+                        )
 
                         continue
 
-                    text = result.get("text", "").strip()
+                else:
 
-                    if not text:
-                        continue
+                    # ------------------------------------------------
+                    # Safety fallback
+                    # ------------------------------------------------
 
-                    text_lower = text.lower().strip()
+                    self._deactivate()
 
-                    if text_lower in (
-                        "exit",
-                        "quit",
-                        "stop voice",
-                        "stop voice mode",
-                        "बंद करो",
-                        "वॉइस बंद करो",
-                        "वॉयस बंद करो"
-                    ):
+        except KeyboardInterrupt:
 
-                        self.running = False
+            self.running = False
 
-                        response = (
-                            "ठीक है, voice mode बंद कर रहा हूँ।"
-                            if any(
-                                token in text_lower
-                                for token in ("बंद", "करो")
-                            )
-                            else "Okay, voice mode stopped."
-                        )
+            _safe_print(
+                ""
+            )
 
-                        _safe_print(
-                            "Vyom : " + response
-                        )
-                        self.speak(response)
-                        break
-
-                    response = result.get(
-                        "message",
-                        ""
-                    )
-
-                    if not response:
-                        continue
-
-                    _safe_print(
-                        "Vyom : " + response
-                    )
-                    _safe_print("")
-
-                    # Give the Windows audio driver a small handoff period
-                    # after TTS before the next microphone capture.
-                    tts_result = self.speak(response)
-
-                    if not tts_result.get("success", False):
-                        _safe_print(
-                            "Vyom TTS : "
-                            + tts_result.get(
-                                "message",
-                                "Speech output failed."
-                            )
-                        )
-
-                    time.sleep(0.10)
-
-                except KeyboardInterrupt:
-
-                    self.running = False
-                    _safe_print("")
-                    _safe_print("Vyom : Voice mode stopped.")
-                    break
-
-                except PermissionError as error:
-
-                    # Do not let WinError 31 escape through the console or
-                    # terminate the EXE. Reinitialize the microphone once.
-                    _safe_print(
-                        "Vyom : Microphone connection was interrupted. Recovering..."
-                    )
-
-                    try:
-                        self.speech_to_text.stop_session()
-                    except Exception:
-                        pass
-
-                    import time
-                    time.sleep(0.50)
-
-                    if not self.speech_to_text.start_session():
-                        _safe_print(
-                            "Vyom : Microphone could not be recovered yet. Waiting..."
-                        )
-                        time.sleep(1.0)
-
-                except OSError as error:
-
-                    _safe_print(
-                        "Vyom : Audio device temporarily failed. Recovering..."
-                    )
-
-                    try:
-                        self.speech_to_text.stop_session()
-                    except Exception:
-                        pass
-
-                    import time
-                    time.sleep(0.50)
-
-                    self.speech_to_text.start_session()
-
-                except Exception as error:
-
-                    # Any unexpected command/voice error is contained inside
-                    # the session. The next user instruction can continue.
-                    _safe_print(
-                        "Vyom : Voice command error recovered: "
-                        + str(error)
-                    )
-                    import time
-                    time.sleep(0.25)
+            _safe_print(
+                "Vyom : Voice mode stopped."
+            )
 
         finally:
 
             self.running = False
 
+            self.activated = False
+
+            self.state = "idle"
+
             try:
+
                 self.speech_to_text.stop_session()
+
             except Exception:
+
                 pass
 
     # ========================================================
@@ -492,6 +752,10 @@ class VoiceController:
 
         self.running = False
 
+        self.activated = False
+
+        self.state = "idle"
+
         try:
 
             self.text_to_speech.stop()
@@ -500,92 +764,46 @@ class VoiceController:
 
             pass
 
+        try:
+
+            self.speech_to_text.stop_session()
+
+        except Exception:
+
+            pass
+
 
 # ============================================================
-# STANDALONE TEXT TEST
+# STANDALONE TEST
 # ============================================================
 
 def main():
 
-    _safe_print("=" * 60)
+    _safe_print(
+        "=" * 60
+    )
 
     _safe_print(
         "Vyom AI - Voice Controller Test"
     )
 
-    _safe_print("=" * 60)
+    _safe_print(
+        "=" * 60
+    )
 
     _safe_print("")
 
     controller = VoiceController()
 
-    _safe_print(
-        "Text integration test."
-    )
-
-    _safe_print(
-        "Type commands instead of speaking."
-    )
-
-    _safe_print(
-        "Type 'exit' to stop."
-    )
-
-    _safe_print("")
-
-    while True:
-
-        try:
-
-            command = input(
-                "You : "
-            ).strip()
-
-        except (
-            KeyboardInterrupt,
-            EOFError
-        ):
-
-            _safe_print("")
-
-            break
-
-        if not command:
-
-            continue
-
-        if command.lower() in (
-            "exit",
-            "quit"
-        ):
-
-            _safe_print(
-                "Vyom : Test stopped."
-            )
-
-            break
-
-        result = controller.process_text(
-            command
-        )
-
-        message = result.get(
-            "message",
-            ""
-        )
+    if not controller.is_available():
 
         _safe_print(
-            "Vyom : "
-            + message
+            "Voice input unavailable."
         )
 
-        # TTS test
+        return
 
-        controller.speak(
-            message
-        )
-
-        _safe_print("")
+    controller.run()
 
 
 if __name__ == "__main__":
