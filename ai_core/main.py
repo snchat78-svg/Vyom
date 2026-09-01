@@ -50,6 +50,26 @@ IMPORTANT:
 
     No duplicate IntentEngine or ToolManager logic is
     created here.
+
+STEP 1:
+
+    Voice mode uses VoiceController for:
+
+        Wake Word
+          ↓
+        Continuous Conversation
+          ↓
+        Existing Executor
+          ↓
+        Persistent AutonomousAgent / SessionMemory
+          ↓
+        Response
+          ↓
+        Listen Again
+
+    Main.py only starts/stops the voice controller.
+    Continuous voice-session logic remains inside
+    VoiceController.
 """
 
 import os
@@ -79,12 +99,16 @@ def _configure_console():
 
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            stream.reconfigure(
+                encoding="utf-8",
+                errors="replace"
+            )
         except Exception:
             pass
 
 
 _configure_console()
+
 
 from command_engine.parser import CommandParser
 from command_engine.executor import execute
@@ -206,12 +230,58 @@ while True:
             "Vyom : Voice mode starting..."
         )
 
-        _safe_print(
-            "Vyom : Speak your command."
-        )
+        # ----------------------------------------------------
+        # STEP 1 - WAKE WORD
+        #
+        # VoiceController now waits for:
+        #
+        #     "Vyom"
+        #
+        # before entering active conversation.
+        # ----------------------------------------------------
 
         _safe_print(
-            "Vyom : Say 'exit' or 'quit' to stop voice mode."
+            "Vyom : Say 'Vyom' to activate me."
+        )
+
+        # ----------------------------------------------------
+        # STEP 1 - CONTINUOUS CONVERSATION
+        #
+        # After activation, VoiceController keeps listening
+        # after each completed command.
+        #
+        # Example:
+        #
+        #     Vyom
+        #     Excel खोलो
+        #     नई sheet बनाओ
+        #     इसमें मेरा नाम लिखो
+        #     इसे save करो
+        #
+        # The same persistent Executor /
+        # AutonomousAgent / SessionMemory remains active.
+        # ----------------------------------------------------
+
+        _safe_print(
+            "Vyom : After activation, keep speaking naturally."
+        )
+
+        # ----------------------------------------------------
+        # EXIT
+        #
+        # VoiceController handles voice-session exit commands:
+        #
+        #     exit
+        #     quit
+        #     stop voice
+        #     वॉइस बंद करो
+        #
+        # Main.py remains responsible for returning to text
+        # mode after VoiceController stops.
+        # ----------------------------------------------------
+
+        _safe_print(
+            "Vyom : Say 'exit' to close voice mode."
         )
 
         _safe_print("")
@@ -228,6 +298,12 @@ while True:
                 + str(error)
             )
 
+
+        # ----------------------------------------------------
+        # VoiceController has stopped.
+        #
+        # Return to the existing text-mode loop.
+        # ----------------------------------------------------
 
         _safe_print("")
         _safe_print(
@@ -270,4 +346,3 @@ while True:
     )
 
     _safe_print("")
-
