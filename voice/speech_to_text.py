@@ -1,7 +1,7 @@
 # ============================================================
 # Project : Vyom AI
 # Module  : speech_to_text.py
-# Version : 0.3
+# Version : 0.4
 #
 # Purpose:
 #     Stable Speech-To-Text foundation for Vyom AI.
@@ -11,7 +11,11 @@
 #     - Controlled Windows audio-device recovery.
 #     - WinError 31 never escapes the STT layer.
 #     - Silence and unrecognized speech are normal states.
-#     - Safe console output so a console/device error cannot crash Vyom.
+#     - Safe console output.
+#     - Hindi + English recognition support.
+#     - Wake-mode dual-language recognition.
+#     - Prevents Hindi STT from permanently swallowing
+#       English wake words such as "Vyom".
 # ============================================================
 
 import sys
@@ -37,18 +41,29 @@ class SpeechToText:
         self._device_error_count = 0
         self._last_device_error = ""
 
+        # ----------------------------------------------------
         # Persistent voice-session source.
-        # Keeping one PyAudio stream alive avoids repeatedly opening and
-        # closing the microphone on older Windows/PyAudio combinations.
+        # ----------------------------------------------------
+
         self._session_active = False
         self._session_source = None
 
-        # Fast recognition configuration.
-        # One recognition request is used in the normal path so a simple
-        # command is not delayed by three sequential network requests.
+        # ----------------------------------------------------
+        # Recognition configuration.
+        # ----------------------------------------------------
+
         self.preferred_language = "hi-IN"
         self.fallback_language = "en-IN"
+
         self.recognition_timeout = 4.0
+
+        # ----------------------------------------------------
+        # Last recognized text.
+        # Useful for diagnostics.
+        # ----------------------------------------------------
+
+        self.last_text = ""
+        self.last_language = ""
 
         self._initialize()
 
@@ -60,11 +75,21 @@ class SpeechToText:
     def _safe_print(*args, **kwargs):
 
         try:
-            print(*args, **kwargs)
-        except (PermissionError, OSError):
-            # A broken Windows console must never terminate the voice agent.
+
+            print(
+                *args,
+                **kwargs
+            )
+
+        except (
+            PermissionError,
+            OSError
+        ):
+
             pass
+
         except Exception:
+
             pass
 
     # ========================================================
@@ -79,31 +104,50 @@ class SpeechToText:
 
             self.recognizer = sr.Recognizer()
 
-            # Keep speech onset/ending responsive.
+            # ------------------------------------------------
+            # Speech timing.
+            # ------------------------------------------------
+
             self.recognizer.pause_threshold = 0.65
+
             self.recognizer.non_speaking_duration = 0.35
+
             self.recognizer.dynamic_energy_threshold = True
 
-            # Hard network timeout for Google recognition.
-            # Prevents "Processing speech..." from hanging indefinitely.
+            # ------------------------------------------------
+            # Network timeout.
+            # ------------------------------------------------
+
             try:
+
                 self.recognizer.operation_timeout = (
                     self.recognition_timeout
                 )
+
             except Exception:
+
                 pass
+
+            # ------------------------------------------------
+            # Microphone.
+            # ------------------------------------------------
 
             self.microphone = sr.Microphone()
 
             self.available = True
+
             self.error_message = ""
+
             self._calibrated = False
+
             self._device_error_count = 0
+
             self._last_device_error = ""
 
         except ImportError:
 
             self.available = False
+
             self.error_message = (
                 "SpeechRecognition package is not installed."
             )
@@ -111,13 +155,17 @@ class SpeechToText:
         except Exception as error:
 
             self.available = False
-            self.error_message = str(error)
+
+            self.error_message = str(
+                error
+            )
 
     # ========================================================
     # STATUS
     # ========================================================
 
     def is_available(self):
+
         return self.available
 
     # ========================================================
@@ -125,12 +173,21 @@ class SpeechToText:
     # ========================================================
 
     def start_session(self):
-        """Open one microphone session for the complete Voice Mode."""
+        """
+        Open one persistent microphone session for complete
+        Voice Mode.
+        """
 
         if not self.available:
+
             return False
 
-        if self._session_active and self._session_source is not None:
+        if (
+            self._session_active
+            and
+            self._session_source is not None
+        ):
+
             return True
 
         for attempt in range(2):
@@ -138,30 +195,56 @@ class SpeechToText:
             try:
 
                 if self.microphone is None:
+
                     import speech_recognition as sr
+
                     self.microphone = sr.Microphone()
 
-                self._session_source = self.microphone.__enter__()
+                self._session_source = (
+                    self.microphone.__enter__()
+                )
+
                 self._session_active = True
+
                 self._calibrated = False
+
                 self.error_message = ""
+
                 self._device_error_count = 0
+
                 return True
 
             except Exception as error:
 
                 self._session_active = False
-                self._session_source = None
-                self._last_device_error = str(error)
-                self.error_message = str(error)
 
-                if attempt == 0 and self._is_device_error(error):
+                self._session_source = None
+
+                self._last_device_error = str(
+                    error
+                )
+
+                self.error_message = str(
+                    error
+                )
+
+                if (
+                    attempt == 0
+                    and
+                    self._is_device_error(error)
+                ):
+
                     self._safe_print(
                         "Vyom : Microphone device is being reconnected...",
                         flush=True
                     )
+
                     self._close_microphone()
-                    time.sleep(0.25)
+
+                    time.sleep(
+                        0.25
+                    )
+
                     continue
 
                 break
@@ -173,11 +256,16 @@ class SpeechToText:
     # ========================================================
 
     def stop_session(self):
-        """Release the persistent microphone session safely."""
+        """
+        Release persistent microphone safely.
+        """
 
         self._close_microphone()
+
         self._session_active = False
+
         self._session_source = None
+
         self._calibrated = False
 
     # ========================================================
@@ -187,13 +275,29 @@ class SpeechToText:
     def _close_microphone(self):
 
         try:
-            if self._session_active and self.microphone is not None:
+
+            if (
+                self._session_active
+                and
+                self.microphone is not None
+            ):
+
                 try:
-                    self.microphone.__exit__(None, None, None)
+
+                    self.microphone.__exit__(
+                        None,
+                        None,
+                        None
+                    )
+
                 except Exception:
+
                     pass
+
         finally:
+
             self._session_active = False
+
             self._session_source = None
 
     # ========================================================
@@ -201,17 +305,37 @@ class SpeechToText:
     # ========================================================
 
     @staticmethod
-    def _is_device_error(error):
+    def _is_device_error(
+        error
+    ):
 
-        error_name = type(error).__name__
-        error_text = str(error)
-        combined = (error_name + " " + error_text).lower()
+        error_name = type(
+            error
+        ).__name__
+
+        error_text = str(
+            error
+        )
+
+        combined = (
+            error_name
+            + " "
+            + error_text
+        ).lower()
 
         return (
             "winerror 31" in combined
-            or "device attached to the system is not functioning" in combined
-            or "invalid device" in combined
-            or error_name in ("PermissionError", "OSError", "IOError")
+            or
+            "device attached to the system is not functioning"
+            in combined
+            or
+            "invalid device" in combined
+            or
+            error_name in (
+                "PermissionError",
+                "OSError",
+                "IOError"
+            )
         )
 
     # ========================================================
@@ -219,27 +343,44 @@ class SpeechToText:
     # ========================================================
 
     def _reset_audio_device(self):
-        """Completely recreate the microphone and its PyAudio stream."""
+        """
+        Completely recreate microphone and PyAudio stream.
+        """
 
         self._close_microphone()
 
         try:
+
             import speech_recognition as sr
 
             self.microphone = None
-            self.microphone = sr.Microphone()
+
+            self.microphone = (
+                sr.Microphone()
+            )
+
             self._calibrated = False
+
             self.error_message = ""
+
             return True
 
         except Exception as error:
+
             self.microphone = None
-            self._last_device_error = str(error)
-            self.error_message = str(error)
+
+            self._last_device_error = str(
+                error
+            )
+
+            self.error_message = str(
+                error
+            )
+
             return False
 
     # ========================================================
-    # LISTEN
+    # GOOGLE RECOGNITION
     # ========================================================
 
     def _recognize_google(
@@ -247,13 +388,6 @@ class SpeechToText:
         audio,
         language
     ):
-        """
-        Perform one bounded Google recognition request.
-
-        SpeechRecognition honors Recognizer.operation_timeout for the
-        HTTP request, so a slow/offline service cannot block the agent
-        indefinitely.
-        """
 
         return self.recognizer.recognize_google(
             audio,
@@ -268,20 +402,13 @@ class SpeechToText:
         self,
         text
     ):
-        """
-        Learn the user's current language from the returned transcript.
-
-        This is intentionally lightweight:
-            Devanagari -> Hindi
-            Latin-only  -> Indian English
-            Mixed       -> keep current preference
-        """
 
         value = str(
             text or ""
         ).strip()
 
         if not value:
+
             return
 
         has_devanagari = any(
@@ -296,11 +423,184 @@ class SpeechToText:
             )
         )
 
-        if has_devanagari and not has_latin:
-            self.preferred_language = "hi-IN"
+        if (
+            has_devanagari
+            and
+            not has_latin
+        ):
 
-        elif has_latin and not has_devanagari:
-            self.preferred_language = "en-IN"
+            self.preferred_language = (
+                "hi-IN"
+            )
+
+        elif (
+            has_latin
+            and
+            not has_devanagari
+        ):
+
+            self.preferred_language = (
+                "en-IN"
+            )
+
+    # ========================================================
+    # RECOGNIZE WITH FALLBACK
+    # ========================================================
+
+    def _recognize_with_fallback(
+        self,
+        audio,
+        wake_mode=False
+    ):
+        """
+        Recognize speech using the preferred language.
+
+        Normal command:
+            One recognition request first.
+
+        Wake mode:
+            If the preferred language does not produce a
+            useful result, also try the fallback language.
+
+        This is important because "Vyom" is an English
+        wake word while the user's normal conversation may
+        be Hindi.
+        """
+
+        languages = [
+            self.preferred_language
+        ]
+
+        # ----------------------------------------------------
+        # Wake mode gets an additional language attempt.
+        # ----------------------------------------------------
+
+        if wake_mode:
+
+            if (
+                self.fallback_language
+                not in languages
+            ):
+
+                languages.append(
+                    self.fallback_language
+                )
+
+        last_error = None
+
+        for language in languages:
+
+            try:
+
+                text = self._recognize_google(
+                    audio,
+                    language
+                )
+
+                text = str(
+                    text or ""
+                ).strip()
+
+                if text:
+
+                    return {
+                        "success": True,
+                        "text": text,
+                        "language": language
+                    }
+
+            except Exception as error:
+
+                last_error = error
+
+                error_name = type(
+                    error
+                ).__name__
+
+                # ------------------------------------------------
+                # Unknown speech:
+                # Try next language if available.
+                # ------------------------------------------------
+
+                if error_name == "UnknownValueError":
+
+                    continue
+
+                # ------------------------------------------------
+                # Google/network failure.
+                # No point trying another language because the
+                # service itself may be unavailable.
+                # ------------------------------------------------
+
+                if error_name == "RequestError":
+
+                    return {
+                        "success": False,
+                        "status": "service_error",
+                        "text": "",
+                        "language": language,
+                        "message": (
+                            "Speech recognition service "
+                            "is unavailable or timed out."
+                        )
+                    }
+
+                if (
+                    "timeout"
+                    in str(
+                        error
+                    ).lower()
+                ):
+
+                    return {
+                        "success": False,
+                        "status": "service_timeout",
+                        "text": "",
+                        "language": language,
+                        "message": (
+                            "Speech recognition took "
+                            "too long to respond."
+                        )
+                    }
+
+                # ------------------------------------------------
+                # Other recognition error.
+                # Continue to fallback in wake mode.
+                # ------------------------------------------------
+
+                if wake_mode:
+
+                    continue
+
+                break
+
+        # ----------------------------------------------------
+        # No usable recognition.
+        # ----------------------------------------------------
+
+        if last_error is not None:
+
+            error_name = type(
+                last_error
+            ).__name__
+
+            if error_name == "UnknownValueError":
+
+                return {
+                    "success": False,
+                    "status": "unrecognized",
+                    "text": "",
+                    "language": "",
+                    "message": ""
+                }
+
+        return {
+            "success": False,
+            "status": "unrecognized",
+            "text": "",
+            "language": "",
+            "message": ""
+        }
 
     # ========================================================
     # LISTEN
@@ -310,7 +610,8 @@ class SpeechToText:
         self,
         timeout=4,
         phrase_time_limit=7,
-        announce=True
+        announce=True,
+        wake_mode=False
     ):
 
         if not self.available:
@@ -322,10 +623,16 @@ class SpeechToText:
                 "message": self.error_message
             }
 
-        persistent = self._session_active
+        persistent = (
+            self._session_active
+        )
 
-        # Do not let malformed values create long waits.
+        # ----------------------------------------------------
+        # Safe timeout values.
+        # ----------------------------------------------------
+
         try:
+
             timeout = max(
                 1.5,
                 min(
@@ -333,13 +640,16 @@ class SpeechToText:
                     8.0
                 )
             )
+
         except (
             TypeError,
             ValueError
         ):
+
             timeout = 4.0
 
         try:
+
             phrase_time_limit = max(
                 2.0,
                 min(
@@ -347,11 +657,17 @@ class SpeechToText:
                     10.0
                 )
             )
+
         except (
             TypeError,
             ValueError
         ):
+
             phrase_time_limit = 7.0
+
+        # ----------------------------------------------------
+        # Two attempts maximum for microphone/device recovery.
+        # ----------------------------------------------------
 
         for attempt in range(2):
 
@@ -359,13 +675,16 @@ class SpeechToText:
 
             try:
 
-                # ------------------------------------------------
+                # =================================================
                 # MICROPHONE SOURCE
-                # ------------------------------------------------
+                # =================================================
 
                 if persistent:
 
-                    if self._session_source is None:
+                    if (
+                        self._session_source
+                        is None
+                    ):
 
                         if not self.start_session():
 
@@ -379,7 +698,9 @@ class SpeechToText:
                                 )
                             }
 
-                    source = self._session_source
+                    source = (
+                        self._session_source
+                    )
 
                 else:
 
@@ -387,17 +708,21 @@ class SpeechToText:
 
                         import speech_recognition as sr
 
-                        self.microphone = sr.Microphone()
+                        self.microphone = (
+                            sr.Microphone()
+                        )
 
                     temporary_source = (
                         self.microphone.__enter__()
                     )
 
-                    source = temporary_source
+                    source = (
+                        temporary_source
+                    )
 
-                # ------------------------------------------------
+                # =================================================
                 # LISTENING
-                # ------------------------------------------------
+                # =================================================
 
                 if announce:
 
@@ -411,8 +736,18 @@ class SpeechToText:
                         flush=True
                     )
 
-                # Calibrate only once per voice session.
+                # ------------------------------------------------
+                # Ambient calibration.
+                #
+                # Only once per complete voice session.
+                # ------------------------------------------------
+
                 if not self._calibrated:
+
+                    self._safe_print(
+                        "Vyom : Calibrating microphone...",
+                        flush=True
+                    )
 
                     self.recognizer.adjust_for_ambient_noise(
                         source,
@@ -421,13 +756,28 @@ class SpeechToText:
 
                     self._calibrated = True
 
+                    if announce:
+
+                        self._safe_print(
+                            "Vyom : Microphone ready.",
+                            flush=True
+                        )
+
+                # =================================================
+                # CAPTURE AUDIO
+                # =================================================
+
                 audio = self.recognizer.listen(
                     source,
                     timeout=timeout,
                     phrase_time_limit=phrase_time_limit
                 )
 
-                # Release one-shot microphone before network recognition.
+                # ------------------------------------------------
+                # Release one-shot microphone before recognition.
+                # Persistent session stays open.
+                # ------------------------------------------------
+
                 if temporary_source is not None:
 
                     try:
@@ -453,123 +803,49 @@ class SpeechToText:
                         flush=True
                     )
 
-                # ------------------------------------------------
-                # FAST RECOGNITION
-                #
-                # ONE network request in the normal path.
-                # If the user's last transcript was Hindi, use
-                # Hindi. If it was English, use Indian English.
-                #
-                # A fallback is only attempted when the first
-                # recognition returns no usable speech.
-                # ------------------------------------------------
+                # =================================================
+                # RECOGNITION
+                # =================================================
 
-                language = (
-                    self.preferred_language
+                recognition = (
+                    self._recognize_with_fallback(
+                        audio,
+                        wake_mode=wake_mode
+                    )
                 )
 
-                try:
+                if not recognition.get(
+                    "success",
+                    False
+                ):
 
-                    text = self._recognize_google(
-                        audio,
-                        language
+                    return {
+                        "success": False,
+                        "status": recognition.get(
+                            "status",
+                            "unrecognized"
+                        ),
+                        "text": "",
+                        "language": "",
+                        "message": recognition.get(
+                            "message",
+                            ""
+                        )
+                    }
+
+                text = str(
+                    recognition.get(
+                        "text",
+                        ""
                     )
+                ).strip()
 
-                    text = str(
-                        text or ""
-                    ).strip()
-
-                except Exception as first_error:
-
-                    error_name = type(
-                        first_error
-                    ).__name__
-
-                    # UnknownValueError means recognition completed
-                    # but the language model did not get a usable phrase.
-                    # This is the only case where a second language
-                    # attempt is worthwhile.
-                    if error_name == "UnknownValueError":
-
-                        try:
-
-                            text = self._recognize_google(
-                                audio,
-                                self.fallback_language
-                            )
-
-                            text = str(
-                                text or ""
-                            ).strip()
-
-                        except Exception as fallback_error:
-
-                            fallback_name = type(
-                                fallback_error
-                            ).__name__
-
-                            if (
-                                fallback_name
-                                == "RequestError"
-                            ):
-
-                                return {
-                                    "success": False,
-                                    "status": "service_error",
-                                    "text": "",
-                                    "message": (
-                                        "Speech recognition "
-                                        "service is unavailable."
-                                    )
-                                }
-
-                            return {
-                                "success": False,
-                                "status": "unrecognized",
-                                "text": "",
-                                "message": ""
-                            }
-
-                    elif error_name == "RequestError":
-
-                        return {
-                            "success": False,
-                            "status": "service_error",
-                            "text": "",
-                            "message": (
-                                "Speech recognition service "
-                                "is unavailable or timed out."
-                            )
-                        }
-
-                    elif (
-                        "timeout" in str(
-                            first_error
-                        ).lower()
-                    ):
-
-                        return {
-                            "success": False,
-                            "status": "service_timeout",
-                            "text": "",
-                            "message": (
-                                "Speech recognition took "
-                                "too long to respond."
-                            )
-                        }
-
-                    else:
-
-                        return {
-                            "success": False,
-                            "status": "unrecognized",
-                            "text": "",
-                            "message": ""
-                        }
-
-                # ------------------------------------------------
-                # EMPTY RESULT
-                # ------------------------------------------------
+                language = (
+                    recognition.get(
+                        "language",
+                        ""
+                    )
+                )
 
                 if not text:
 
@@ -577,8 +853,17 @@ class SpeechToText:
                         "success": False,
                         "status": "unrecognized",
                         "text": "",
+                        "language": "",
                         "message": ""
                     }
+
+                # ------------------------------------------------
+                # Save diagnostics.
+                # ------------------------------------------------
+
+                self.last_text = text
+
+                self.last_language = language
 
                 self._update_language_preference(
                     text
@@ -596,12 +881,16 @@ class SpeechToText:
                         )
                         else "english"
                     ),
+                    "recognition_language": language,
                     "message": text
                 }
 
             except Exception as error:
 
-                # Always release one-shot microphone after an exception.
+                # ------------------------------------------------
+                # Release temporary microphone.
+                # ------------------------------------------------
+
                 if temporary_source is not None:
 
                     try:
@@ -626,6 +915,10 @@ class SpeechToText:
                     error
                 )
 
+                # =================================================
+                # SILENCE
+                # =================================================
+
                 if error_name == "WaitTimeoutError":
 
                     return {
@@ -635,6 +928,10 @@ class SpeechToText:
                         "message": ""
                     }
 
+                # =================================================
+                # UNRECOGNIZED SPEECH
+                # =================================================
+
                 if error_name == "UnknownValueError":
 
                     return {
@@ -643,6 +940,10 @@ class SpeechToText:
                         "text": "",
                         "message": ""
                     }
+
+                # =================================================
+                # GOOGLE SERVICE ERROR
+                # =================================================
 
                 if error_name == "RequestError":
 
@@ -655,6 +956,10 @@ class SpeechToText:
                             "is unavailable or timed out."
                         )
                     }
+
+                # =================================================
+                # DEVICE ERROR
+                # =================================================
 
                 is_device_error = (
                     self._is_device_error(
@@ -697,6 +1002,10 @@ class SpeechToText:
 
                             continue
 
+                # =================================================
+                # OTHER ERROR
+                # =================================================
+
                 return {
                     "success": False,
                     "status": (
@@ -714,6 +1023,10 @@ class SpeechToText:
                         )
                     )
                 }
+
+        # ========================================================
+        # FINAL FAILURE
+        # ========================================================
 
         return {
             "success": False,
@@ -736,11 +1049,20 @@ class SpeechToText:
 
         result = self.listen(
             timeout=timeout,
-            phrase_time_limit=phrase_time_limit
+            phrase_time_limit=phrase_time_limit,
+            announce=True,
+            wake_mode=False
         )
 
-        if result.get("success"):
-            return result.get("text", "")
+        if result.get(
+            "success",
+            False
+        ):
+
+            return result.get(
+                "text",
+                ""
+            )
 
         return ""
 
@@ -757,7 +1079,8 @@ class SpeechToText:
             )
 
             self._safe_print(
-                "Reason : " + self.error_message
+                "Reason : "
+                + self.error_message
             )
 
             return False
@@ -766,18 +1089,31 @@ class SpeechToText:
             "Vyom : Microphone is ready."
         )
 
-        result = self.listen()
+        result = self.listen(
+            timeout=5,
+            phrase_time_limit=8,
+            announce=True,
+            wake_mode=False
+        )
 
-        if result.get("success"):
+        if result.get(
+            "success",
+            False
+        ):
 
             self._safe_print(
-                "You : " + result.get("text", "")
+                "You : "
+                + result.get(
+                    "text",
+                    ""
+                )
             )
 
             return True
 
         self._safe_print(
-            "Vyom : " + result.get(
+            "Vyom : "
+            + result.get(
                 "message",
                 "Speech recognition failed."
             )
@@ -792,26 +1128,48 @@ class SpeechToText:
 
 def main():
 
-    print("=" * 60)
-    print("Vyom AI - Speech To Text Test")
-    print("=" * 60)
+    print(
+        "=" * 60
+    )
+
+    print(
+        "Vyom AI - Speech To Text Test"
+    )
+
+    print(
+        "=" * 60
+    )
+
     print("")
 
     stt = SpeechToText()
 
     if not stt.is_available():
 
-        print("STT Status : NOT AVAILABLE")
-        print("Reason : " + stt.error_message)
+        print(
+            "STT Status : NOT AVAILABLE"
+        )
+
+        print(
+            "Reason : "
+            + stt.error_message
+        )
+
         return
 
-    print("STT Status : READY")
+    print(
+        "STT Status : READY"
+    )
 
     try:
+
         stt.test()
+
     finally:
+
         stt.stop_session()
 
 
 if __name__ == "__main__":
+
     main()
