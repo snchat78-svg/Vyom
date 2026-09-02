@@ -1,7 +1,7 @@
 # ============================================================
 # Project : Vyom AI
 # Module  : voice_controller.py
-# Version : 0.5
+# Version : 0.6
 #
 # Purpose:
 #     Controlled continuous voice interface for Vyom AI.
@@ -38,10 +38,31 @@
 #
 #     Existing SessionMemory is preserved through the
 #     persistent Executor / AutonomousAgent.
+#
+#     Compatible with:
+#
+#         voice.speech_to_text.SpeechToText v0.3
+#
+#     The STT layer remains responsible for:
+#
+#         Microphone
+#         Audio capture
+#         Google recognition
+#         Language detection
+#         Device recovery
+#
+#     This controller remains responsible for:
+#
+#         Wake word
+#         Conversation state
+#         Command routing
+#         Continuous conversation
+#         Voice exit
 # ============================================================
 
 import time
 import difflib
+import re
 
 from voice.speech_to_text import SpeechToText
 from voice.text_to_speech import TextToSpeech
@@ -126,10 +147,12 @@ class VoiceController:
         # Common speech-recognition variations.
         #
         # These are NOT commands.
+        #
         # They are only used for wake-word recognition.
         # ----------------------------------------------------
 
         self.wake_aliases = [
+
             # Main forms
             "vyom",
             "व्योम",
@@ -146,6 +169,8 @@ class VoiceController:
             "vyom ji",
             "hey viyom",
             "hey veyom",
+            "hey vyam",
+            "hey viom",
 
             # Hindi STT variations
             "वियॉम",
@@ -155,7 +180,9 @@ class VoiceController:
             "व्योमजी",
             "हेव्योम",
             "हे वियोम",
-            "हे वियॉम"
+            "हे वियॉम",
+            "हे वियोम जी",
+            "हे वियॉम जी"
         ]
 
         # ----------------------------------------------------
@@ -233,7 +260,8 @@ class VoiceController:
             "_",
             "'",
             '"',
-            "`"
+            "`",
+            "।"
         ):
 
             value = value.replace(
@@ -252,6 +280,78 @@ class VoiceController:
         return value
 
     # ========================================================
+    # COMPACT WAKE TEXT
+    #
+    # Helps with STT outputs such as:
+    #
+    #     "व्योमजी"
+    #     "heyvyom"
+    #     "v y o m"
+    #
+    # without changing the actual command text.
+    # ========================================================
+
+    @staticmethod
+    def _compact_wake_text(
+        text
+    ):
+
+        value = VoiceController._normalize_wake_text(
+            text
+        )
+
+        if not value:
+            return ""
+
+        return re.sub(
+            r"\s+",
+            "",
+            value
+        )
+
+    # ========================================================
+    # BUILD WAKE CANDIDATES
+    # ========================================================
+
+    def _wake_candidates(self):
+
+        candidates = []
+
+        for candidate in (
+            list(self.wake_words)
+            + list(self.wake_aliases)
+        ):
+
+            normalized = (
+                self._normalize_wake_text(
+                    candidate
+                )
+            )
+
+            if (
+                normalized
+                and
+                normalized not in candidates
+            ):
+
+                candidates.append(
+                    normalized
+                )
+
+        # ----------------------------------------------------
+        # Longest first.
+        #
+        # "vyom ji" must be checked before "vyom".
+        # ----------------------------------------------------
+
+        candidates.sort(
+            key=len,
+            reverse=True
+        )
+
+        return candidates
+
+    # ========================================================
     # WAKE WORD CHECK
     # ========================================================
 
@@ -268,73 +368,73 @@ class VoiceController:
             return False
 
         # ----------------------------------------------------
-        # Exact wake words.
+        # Exact wake words / aliases.
         # ----------------------------------------------------
 
-        for wake_word in self.wake_words:
+        candidates = self._wake_candidates()
 
-            normalized = (
-                self._normalize_wake_text(
-                    wake_word
-                )
-            )
+        for candidate in candidates:
 
-            if value == normalized:
+            if value == candidate:
 
                 return True
 
         # ----------------------------------------------------
-        # Exact aliases.
+        # Compact comparison.
+        #
+        # Example:
+        #
+        #     "व्योमजी"
+        #
+        # can match:
+        #
+        #     "व्योम जी"
         # ----------------------------------------------------
 
-        for alias in self.wake_aliases:
-
-            normalized = (
-                self._normalize_wake_text(
-                    alias
-                )
+        compact_value = (
+            self._compact_wake_text(
+                value
             )
+        )
 
-            if value == normalized:
+        if compact_value:
 
-                return True
+            for candidate in candidates:
+
+                compact_candidate = (
+                    self._compact_wake_text(
+                        candidate
+                    )
+                )
+
+                if (
+                    compact_candidate
+                    and
+                    compact_value == compact_candidate
+                ):
+
+                    return True
 
         # ----------------------------------------------------
         # Short fuzzy matching.
         #
         # Only short phrases are eligible.
-        # This prevents a normal long command from
-        # accidentally becoming a wake word.
+        #
+        # This prevents normal long commands from
+        # accidentally becoming wake words.
         # ----------------------------------------------------
 
         if len(value) <= 15:
 
-            candidates = []
-
-            candidates.extend(
-                self.wake_words
-            )
-
-            candidates.extend(
-                self.wake_aliases
-            )
-
             for candidate in candidates:
 
-                candidate_value = (
-                    self._normalize_wake_text(
+                ratio = (
+                    difflib.SequenceMatcher(
+                        None,
+                        value,
                         candidate
-                    )
+                    ).ratio()
                 )
-
-                if not candidate_value:
-                    continue
-
-                ratio = difflib.SequenceMatcher(
-                    None,
-                    value,
-                    candidate_value
-                ).ratio()
 
                 if ratio >= 0.78:
 
@@ -368,44 +468,7 @@ class VoiceController:
 
             return value
 
-        # ----------------------------------------------------
-        # Build unique candidates.
-        # ----------------------------------------------------
-
-        candidates = []
-
-        for candidate in (
-            list(self.wake_words)
-            + list(self.wake_aliases)
-        ):
-
-            normalized = (
-                self._normalize_wake_text(
-                    candidate
-                )
-            )
-
-            if (
-                normalized
-                and
-                normalized not in candidates
-            ):
-
-                candidates.append(
-                    normalized
-                )
-
-        # ----------------------------------------------------
-        # Longest candidates first.
-        #
-        # Prevents "vyom" from matching before
-        # "vyom ji".
-        # ----------------------------------------------------
-
-        candidates.sort(
-            key=len,
-            reverse=True
-        )
+        candidates = self._wake_candidates()
 
         # ----------------------------------------------------
         # Wake word at beginning of sentence.
@@ -414,6 +477,7 @@ class VoiceController:
         #
         #     "vyom open notepad"
         #     "hey vyom open chrome"
+        #     "व्योम नोटपैड खोलो"
         # ----------------------------------------------------
 
         for candidate in candidates:
@@ -423,6 +487,62 @@ class VoiceController:
             ):
 
                 return candidate
+
+        # ----------------------------------------------------
+        # Compact beginning matching.
+        #
+        # Helps when STT joins words:
+        #
+        #     "heyvyom open notepad"
+        # ----------------------------------------------------
+
+        compact_value = (
+            self._compact_wake_text(
+                value
+            )
+        )
+
+        if compact_value:
+
+            for candidate in candidates:
+
+                compact_candidate = (
+                    self._compact_wake_text(
+                        candidate
+                    )
+                )
+
+                if not compact_candidate:
+                    continue
+
+                # ------------------------------------------------
+                # Only use compact matching when the compact
+                # candidate is actually at the beginning.
+                # ------------------------------------------------
+
+                if compact_value.startswith(
+                    compact_candidate
+                ):
+
+                    # ------------------------------------------------
+                    # If the complete sentence is only the wake word.
+                    # ------------------------------------------------
+
+                    if compact_value == compact_candidate:
+
+                        return candidate
+
+                    # ------------------------------------------------
+                    # Avoid treating an unrelated word as wake word.
+                    # The compact candidate must occupy a meaningful
+                    # beginning segment.
+                    # ------------------------------------------------
+
+                    if len(
+                        compact_value
+                    ) <= 40:
+
+                        return candidate
 
         # ----------------------------------------------------
         # Wake word somewhere inside a short sentence.
@@ -437,15 +557,19 @@ class VoiceController:
 
             for index, word in enumerate(words):
 
+                # ------------------------------------------------
+                # Single-word wake word.
+                # ------------------------------------------------
+
                 if self._is_wake_word(
                     word
                 ):
 
                     return word
 
-                # --------------------------------------------
-                # Check two-word wake phrases.
-                # --------------------------------------------
+                # ------------------------------------------------
+                # Two-word wake phrase.
+                # ------------------------------------------------
 
                 if index + 1 < len(words):
 
@@ -500,41 +624,7 @@ class VoiceController:
 
             return ""
 
-        # ----------------------------------------------------
-        # Build unique candidates.
-        # ----------------------------------------------------
-
-        candidates = []
-
-        for candidate in (
-            list(self.wake_words)
-            + list(self.wake_aliases)
-        ):
-
-            candidate_value = (
-                self._normalize_wake_text(
-                    candidate
-                )
-            )
-
-            if (
-                candidate_value
-                and
-                candidate_value not in candidates
-            ):
-
-                candidates.append(
-                    candidate_value
-                )
-
-        # ----------------------------------------------------
-        # Longest first.
-        # ----------------------------------------------------
-
-        candidates.sort(
-            key=len,
-            reverse=True
-        )
+        candidates = self._wake_candidates()
 
         # ----------------------------------------------------
         # Remove wake word from beginning.
@@ -553,6 +643,40 @@ class VoiceController:
                 return normalized[
                     len(candidate_value):
                 ].strip()
+
+        # ----------------------------------------------------
+        # Compact wake-word removal.
+        #
+        # Used only for known joined wake forms.
+        # ----------------------------------------------------
+
+        compact_normalized = (
+            self._compact_wake_text(
+                normalized
+            )
+        )
+
+        if compact_normalized:
+
+            for candidate_value in candidates:
+
+                compact_candidate = (
+                    self._compact_wake_text(
+                        candidate_value
+                    )
+                )
+
+                if not compact_candidate:
+                    continue
+
+                if compact_normalized == compact_candidate:
+
+                    return ""
+
+        # ----------------------------------------------------
+        # No wake word at beginning.
+        # Return original command unchanged.
+        # ----------------------------------------------------
 
         return original.strip()
 
@@ -654,6 +778,13 @@ class VoiceController:
 
     # ========================================================
     # LISTEN ONCE
+    #
+    # Compatible with SpeechToText v0.3:
+    #
+    #     success
+    #     status
+    #     text
+    #     message
     # ========================================================
 
     def listen_once(
@@ -696,6 +827,25 @@ class VoiceController:
                 "result": None
             }
 
+        if not isinstance(
+            speech_result,
+            dict
+        ):
+
+            return {
+                "success": False,
+                "status": "error",
+                "text": "",
+                "message": (
+                    "Invalid speech recognition result."
+                ),
+                "result": None
+            }
+
+        # ----------------------------------------------------
+        # Silence.
+        # ----------------------------------------------------
+
         if speech_result.get(
             "status"
         ) == "silence":
@@ -707,6 +857,10 @@ class VoiceController:
                 "message": "",
                 "result": None
             }
+
+        # ----------------------------------------------------
+        # Any unsuccessful STT state.
+        # ----------------------------------------------------
 
         if not speech_result.get(
             "success",
@@ -727,9 +881,16 @@ class VoiceController:
                 "result": None
             }
 
-        text = speech_result.get(
-            "text",
-            ""
+        # ----------------------------------------------------
+        # Extract recognized text.
+        # ----------------------------------------------------
+
+        text = str(
+            speech_result.get(
+                "text",
+                ""
+            )
+            or ""
         ).strip()
 
         if not text:
@@ -742,8 +903,23 @@ class VoiceController:
                 "result": None
             }
 
+        # ----------------------------------------------------
+        # IMPORTANT DIAGNOSTIC OUTPUT
+        #
+        # Whatever STT actually recognized will be visible.
+        #
+        # Example:
+        #
+        #     You : Vyom
+        #
+        # If this line never appears, the problem is before
+        # wake-word logic and must be investigated in STT /
+        # microphone / Google recognition.
+        # ----------------------------------------------------
+
         _safe_print(
-            "You : " + text
+            "You : " + text,
+            flush=True
         )
 
         return {
@@ -779,15 +955,16 @@ class VoiceController:
             )
 
             # ------------------------------------------------
-            # Keep voice mode alive for temporary
-            # recognition/service failures.
+            # Temporary STT/device/service problems must not
+            # destroy the voice session.
             # ------------------------------------------------
 
             if status in (
                 "service_error",
                 "service_timeout",
                 "device_error",
-                "error"
+                "error",
+                "unavailable"
             ):
 
                 message = result.get(
@@ -798,14 +975,18 @@ class VoiceController:
                 if message:
 
                     _safe_print(
-                        "Vyom : " + message
+                        "Vyom : " + message,
+                        flush=True
                     )
 
             return False
 
-        text = result.get(
-            "text",
-            ""
+        text = str(
+            result.get(
+                "text",
+                ""
+            )
+            or ""
         ).strip()
 
         if not text:
@@ -813,14 +994,14 @@ class VoiceController:
             return False
 
         # ----------------------------------------------------
-        # Show exactly what STT returned.
+        # CRITICAL DIAGNOSTIC
         #
-        # This is important for diagnosing wake-word
-        # recognition problems.
+        # This tells us exactly what Google STT returned.
         # ----------------------------------------------------
 
         _safe_print(
-            "Vyom : Wake check -> " + text
+            "Vyom : Wake check -> " + text,
+            flush=True
         )
 
         # ----------------------------------------------------
@@ -836,14 +1017,15 @@ class VoiceController:
             return False
 
         # ----------------------------------------------------
-        # ACTIVATE
+        # Activate.
         # ----------------------------------------------------
 
         self._activate()
 
         _safe_print(
             "Vyom : Wake word detected -> "
-            + wake_word
+            + str(wake_word),
+            flush=True
         )
 
         # ----------------------------------------------------
@@ -891,11 +1073,43 @@ class VoiceController:
             False
         ):
 
+            status = result.get(
+                "status",
+                ""
+            )
+
+            # ------------------------------------------------
+            # Recognition failure should not deactivate
+            # continuous conversation.
+            # ------------------------------------------------
+
+            if status in (
+                "service_error",
+                "service_timeout",
+                "device_error",
+                "error"
+            ):
+
+                message = result.get(
+                    "message",
+                    ""
+                )
+
+                if message:
+
+                    _safe_print(
+                        "Vyom : " + message,
+                        flush=True
+                    )
+
             return None
 
-        text = result.get(
-            "text",
-            ""
+        text = str(
+            result.get(
+                "text",
+                ""
+            )
+            or ""
         ).strip()
 
         if not text:
@@ -921,7 +1135,27 @@ class VoiceController:
             .strip()
         )
 
+        # ----------------------------------------------------
+        # Normalize punctuation for exit detection.
+        # ----------------------------------------------------
+
+        command_lower = command_lower.replace(
+            "।",
+            ""
+        )
+
+        command_lower = command_lower.replace(
+            ".",
+            ""
+        )
+
+        command_lower = " ".join(
+            command_lower.split()
+        )
+
         return command_lower in (
+
+            # English
             "exit",
             "quit",
             "stop voice",
@@ -930,6 +1164,8 @@ class VoiceController:
             "close voice mode",
             "exit voice",
             "exit voice mode",
+
+            # Hindi
             "वॉइस बंद",
             "वॉयस बंद",
             "बंद करो",
@@ -938,7 +1174,11 @@ class VoiceController:
             "वॉइस मोड बंद करो",
             "वॉयस मोड बंद करो",
             "वॉइस मोड बंद",
-            "वॉयस मोड बंद"
+            "वॉयस मोड बंद",
+            "वॉइस बंद कर दो",
+            "वॉयस बंद कर दो",
+            "वॉइस मोड बंद कर दो",
+            "वॉयस मोड बंद कर दो"
         )
 
     # ========================================================
@@ -959,7 +1199,8 @@ class VoiceController:
         _safe_print(
             "Vyom : " + str(
                 response
-            )
+            ),
+            flush=True
         )
 
         try:
@@ -972,18 +1213,21 @@ class VoiceController:
 
             _safe_print(
                 "Vyom : Voice output error: "
-                + str(error)
+                + str(error),
+                flush=True
             )
 
         # ----------------------------------------------------
-        # Small audio handoff delay.
+        # Audio handoff delay.
         #
-        # This helps prevent the microphone from immediately
-        # capturing the tail end of Vyom's own speech.
+        # STT and TTS use the same physical audio environment.
+        #
+        # A short delay reduces the chance that the microphone
+        # immediately captures the last part of Vyom's response.
         # ----------------------------------------------------
 
         time.sleep(
-            0.25
+            0.35
         )
 
     # ========================================================
@@ -1024,7 +1268,8 @@ class VoiceController:
             )
 
             _safe_print(
-                "Vyom : " + response
+                "Vyom : " + response,
+                flush=True
             )
 
             try:
@@ -1041,12 +1286,33 @@ class VoiceController:
 
         # ----------------------------------------------------
         # PROCESS COMMAND
+        #
+        # IMPORTANT:
+        #
+        # The existing execute() pipeline remains untouched.
+        #
+        # This means:
+        #
+        # Voice
+        #   ↓
+        # execute()
+        #   ↓
+        # Executor
+        #   ↓
+        # Intent / AutonomousAgent
+        #   ↓
+        # ToolManager
+        #   ↓
+        # SessionMemory
+        #
+        # is preserved.
         # ----------------------------------------------------
 
         self.state = "processing"
 
         _safe_print(
-            "Vyom : Processing command..."
+            "Vyom : Processing command...",
+            flush=True
         )
 
         result = self.process_text(
@@ -1079,12 +1345,14 @@ class VoiceController:
         if not self.is_available():
 
             _safe_print(
-                "Vyom : Voice input is not available."
+                "Vyom : Voice input is not available.",
+                flush=True
             )
 
             _safe_print(
                 "Reason : "
-                + self.speech_to_text.error_message
+                + self.speech_to_text.error_message,
+                flush=True
             )
 
             return
@@ -1127,17 +1395,26 @@ class VoiceController:
 
         # ----------------------------------------------------
         # Persistent microphone session
+        #
+        # SpeechToText v0.3 handles:
+        #
+        #     Microphone opening
+        #     WinError 31 recovery
+        #     PyAudio session
+        #     Ambient calibration
         # ----------------------------------------------------
 
         if not self.speech_to_text.start_session():
 
             _safe_print(
-                "Vyom : I could not start the microphone."
+                "Vyom : I could not start the microphone.",
+                flush=True
             )
 
             _safe_print(
                 "Reason : "
-                + self.speech_to_text.error_message
+                + self.speech_to_text.error_message,
+                flush=True
             )
 
             self.running = False
@@ -1160,6 +1437,8 @@ class VoiceController:
 
                     # ---------------------------------------------
                     # No wake word yet.
+                    #
+                    # Keep waiting.
                     # ---------------------------------------------
 
                     if not wake_result:
@@ -1199,7 +1478,8 @@ class VoiceController:
 
                         _safe_print(
                             "Vyom : "
-                            + response
+                            + response,
+                            flush=True
                         )
 
                         try:
@@ -1208,16 +1488,20 @@ class VoiceController:
                                 response
                             )
 
-                        except Exception:
+                        except Exception as error:
 
-                            pass
+                            _safe_print(
+                                "Vyom : Voice output error: "
+                                + str(error),
+                                flush=True
+                            )
 
                         # -----------------------------------------
-                        # Audio handoff delay.
+                        # Audio handoff.
                         # -----------------------------------------
 
                         time.sleep(
-                            0.25
+                            0.35
                         )
 
                         # -----------------------------------------
@@ -1231,8 +1515,8 @@ class VoiceController:
                     # ---------------------------------------------
                     # No command after activation.
                     #
-                    # Keep voice mode alive, but return to
-                    # wake-word state.
+                    # Keep complete voice mode alive.
+                    # Return to wake-word state.
                     # ---------------------------------------------
 
                     if not command:
@@ -1268,7 +1552,8 @@ class VoiceController:
                         self.state = "listening"
 
                         _safe_print(
-                            "Vyom : Listening..."
+                            "Vyom : Listening...",
+                            flush=True
                         )
 
                         continue
@@ -1288,8 +1573,23 @@ class VoiceController:
                 # =================================================
                 # ACTIVE CONVERSATION
                 #
-                # Wake word is no longer required for every
-                # command.
+                # Wake word is NOT required for every command.
+                #
+                # Example:
+                #
+                #     User : Vyom
+                #     Vyom : Haan, bataiye.
+                #
+                #     User : Notepad kholo
+                #     Vyom : ...
+                #
+                #     User : Chrome kholo
+                #     Vyom : ...
+                #
+                #     User : Excel kholo
+                #     Vyom : ...
+                #
+                # No second "Vyom" is required.
                 # =================================================
 
                 command = (
@@ -1324,7 +1624,8 @@ class VoiceController:
 
                     _safe_print(
                         "Vyom : "
-                        + response
+                        + response,
+                        flush=True
                     )
 
                     try:
@@ -1358,7 +1659,8 @@ class VoiceController:
                     self.state = "listening"
 
                     _safe_print(
-                        "Vyom : Listening..."
+                        "Vyom : Listening...",
+                        flush=True
                     )
 
                     time.sleep(
@@ -1385,7 +1687,8 @@ class VoiceController:
 
             _safe_print(
                 "Vyom : Voice controller error: "
-                + str(error)
+                + str(error),
+                flush=True
             )
 
         finally:
