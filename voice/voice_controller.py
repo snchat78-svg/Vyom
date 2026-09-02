@@ -1,7 +1,7 @@
 # ============================================================
 # Project : Vyom AI
 # Module  : voice_controller.py
-# Version : 0.4
+# Version : 0.5
 #
 # Purpose:
 #     Controlled continuous voice interface for Vyom AI.
@@ -127,37 +127,39 @@ class VoiceController:
         #
         # These are NOT commands.
         # They are only used for wake-word recognition.
-        #
-        # This helps when STT does not return the exact
-        # spelling "Vyom".
         # ----------------------------------------------------
 
         self.wake_aliases = [
+            # Main forms
             "vyom",
             "व्योम",
             "व्योम जी",
             "hey vyom",
             "हे व्योम",
 
-            # Common recognition variations
+            # English STT variations
             "viyom",
             "veyom",
             "veyam",
             "vyam",
             "viom",
+            "vyom ji",
+            "hey viyom",
+            "hey veyom",
+
+            # Hindi STT variations
             "वियॉम",
             "वियोम",
-            "व्योम जी"
+            "वियॉम जी",
+            "वियोम जी",
+            "व्योमजी",
+            "हेव्योम",
+            "हे वियोम",
+            "हे वियॉम"
         ]
 
         # ----------------------------------------------------
         # Activation mode
-        #
-        # False:
-        #     Vyom waits for wake word.
-        #
-        # True:
-        #     Vyom stays in continuous conversation mode.
         # ----------------------------------------------------
 
         self.activated = False
@@ -165,10 +167,8 @@ class VoiceController:
         # ----------------------------------------------------
         # Continuous conversation
         #
-        # Step 1 requirement:
-        #
-        # Once activated, one completed command must NOT
-        # automatically deactivate the voice session.
+        # Once activated, Vyom remains active until an
+        # explicit voice-mode exit command is received.
         # ----------------------------------------------------
 
         self.continuous_conversation = True
@@ -230,7 +230,10 @@ class VoiceController:
             ":",
             ";",
             "-",
-            "_"
+            "_",
+            "'",
+            '"',
+            "`"
         ):
 
             value = value.replace(
@@ -300,8 +303,8 @@ class VoiceController:
         # Short fuzzy matching.
         #
         # Only short phrases are eligible.
-        # This prevents a normal command from accidentally
-        # becoming a wake word.
+        # This prevents a normal long command from
+        # accidentally becoming a wake word.
         # ----------------------------------------------------
 
         if len(value) <= 15:
@@ -366,39 +369,97 @@ class VoiceController:
             return value
 
         # ----------------------------------------------------
-        # Wake word at the beginning.
-        #
-        # Example:
-        #
-        #     "Vyom open notepad"
+        # Build unique candidates.
         # ----------------------------------------------------
 
         candidates = []
 
-        candidates.extend(
-            self.wake_words
-        )
+        for candidate in (
+            list(self.wake_words)
+            + list(self.wake_aliases)
+        ):
 
-        candidates.extend(
-            self.wake_aliases
-        )
-
-        for candidate in candidates:
-
-            candidate_value = (
+            normalized = (
                 self._normalize_wake_text(
                     candidate
                 )
             )
 
-            if not candidate_value:
-                continue
-
-            if value.startswith(
-                candidate_value + " "
+            if (
+                normalized
+                and
+                normalized not in candidates
             ):
 
-                return candidate_value
+                candidates.append(
+                    normalized
+                )
+
+        # ----------------------------------------------------
+        # Longest candidates first.
+        #
+        # Prevents "vyom" from matching before
+        # "vyom ji".
+        # ----------------------------------------------------
+
+        candidates.sort(
+            key=len,
+            reverse=True
+        )
+
+        # ----------------------------------------------------
+        # Wake word at beginning of sentence.
+        #
+        # Examples:
+        #
+        #     "vyom open notepad"
+        #     "hey vyom open chrome"
+        # ----------------------------------------------------
+
+        for candidate in candidates:
+
+            if value.startswith(
+                candidate + " "
+            ):
+
+                return candidate
+
+        # ----------------------------------------------------
+        # Wake word somewhere inside a short sentence.
+        #
+        # Restricted to short input to avoid normal commands
+        # accidentally activating Vyom.
+        # ----------------------------------------------------
+
+        if len(value) <= 40:
+
+            words = value.split()
+
+            for index, word in enumerate(words):
+
+                if self._is_wake_word(
+                    word
+                ):
+
+                    return word
+
+                # --------------------------------------------
+                # Check two-word wake phrases.
+                # --------------------------------------------
+
+                if index + 1 < len(words):
+
+                    two_words = (
+                        words[index]
+                        + " "
+                        + words[index + 1]
+                    )
+
+                    if self._is_wake_word(
+                        two_words
+                    ):
+
+                        return two_words
 
         return None
 
@@ -440,20 +501,15 @@ class VoiceController:
             return ""
 
         # ----------------------------------------------------
-        # Wake word + command.
+        # Build unique candidates.
         # ----------------------------------------------------
 
         candidates = []
 
-        candidates.extend(
-            self.wake_words
-        )
-
-        candidates.extend(
-            self.wake_aliases
-        )
-
-        for candidate in candidates:
+        for candidate in (
+            list(self.wake_words)
+            + list(self.wake_aliases)
+        ):
 
             candidate_value = (
                 self._normalize_wake_text(
@@ -461,8 +517,34 @@ class VoiceController:
                 )
             )
 
-            if not candidate_value:
-                continue
+            if (
+                candidate_value
+                and
+                candidate_value not in candidates
+            ):
+
+                candidates.append(
+                    candidate_value
+                )
+
+        # ----------------------------------------------------
+        # Longest first.
+        # ----------------------------------------------------
+
+        candidates.sort(
+            key=len,
+            reverse=True
+        )
+
+        # ----------------------------------------------------
+        # Remove wake word from beginning.
+        # ----------------------------------------------------
+
+        for candidate_value in candidates:
+
+            if normalized == candidate_value:
+
+                return ""
 
             if normalized.startswith(
                 candidate_value + " "
@@ -486,6 +568,10 @@ class VoiceController:
 
         _safe_print(
             "Vyom : Listening for your command..."
+        )
+
+        _safe_print(
+            "Vyom : Wake word detected. Voice conversation activated."
         )
 
     # ========================================================
@@ -687,6 +773,34 @@ class VoiceController:
             False
         ):
 
+            status = result.get(
+                "status",
+                ""
+            )
+
+            # ------------------------------------------------
+            # Keep voice mode alive for temporary
+            # recognition/service failures.
+            # ------------------------------------------------
+
+            if status in (
+                "service_error",
+                "service_timeout",
+                "device_error",
+                "error"
+            ):
+
+                message = result.get(
+                    "message",
+                    ""
+                )
+
+                if message:
+
+                    _safe_print(
+                        "Vyom : " + message
+                    )
+
             return False
 
         text = result.get(
@@ -697,6 +811,17 @@ class VoiceController:
         if not text:
 
             return False
+
+        # ----------------------------------------------------
+        # Show exactly what STT returned.
+        #
+        # This is important for diagnosing wake-word
+        # recognition problems.
+        # ----------------------------------------------------
+
+        _safe_print(
+            "Vyom : Wake check -> " + text
+        )
 
         # ----------------------------------------------------
         # Detect wake word.
@@ -711,26 +836,31 @@ class VoiceController:
             return False
 
         # ----------------------------------------------------
-        # Activate continuous conversation.
+        # ACTIVATE
         # ----------------------------------------------------
 
         self._activate()
 
+        _safe_print(
+            "Vyom : Wake word detected -> "
+            + wake_word
+        )
+
         # ----------------------------------------------------
         # Remove wake word.
-        #
-        # Example:
-        #
-        #     "Vyom"
-        #         -> ""
-        #
-        #     "Vyom open notepad"
-        #         -> "open notepad"
         # ----------------------------------------------------
 
         command = self._remove_wake_word(
             text
         )
+
+        # ----------------------------------------------------
+        # Wake + command in same sentence.
+        #
+        # Example:
+        #
+        #     "Vyom open notepad"
+        # ----------------------------------------------------
 
         if command:
 
@@ -798,12 +928,147 @@ class VoiceController:
             "stop voice mode",
             "close voice",
             "close voice mode",
+            "exit voice",
+            "exit voice mode",
+            "वॉइस बंद",
+            "वॉयस बंद",
             "बंद करो",
             "वॉइस बंद करो",
             "वॉयस बंद करो",
             "वॉइस मोड बंद करो",
-            "वॉयस मोड बंद करो"
+            "वॉयस मोड बंद करो",
+            "वॉइस मोड बंद",
+            "वॉयस मोड बंद"
         )
+
+    # ========================================================
+    # SPEAK RESPONSE
+    # ========================================================
+
+    def _speak_response(
+        self,
+        response
+    ):
+
+        if not response:
+
+            return
+
+        self.state = "speaking"
+
+        _safe_print(
+            "Vyom : " + str(
+                response
+            )
+        )
+
+        try:
+
+            self.speak(
+                response
+            )
+
+        except Exception as error:
+
+            _safe_print(
+                "Vyom : Voice output error: "
+                + str(error)
+            )
+
+        # ----------------------------------------------------
+        # Small audio handoff delay.
+        #
+        # This helps prevent the microphone from immediately
+        # capturing the tail end of Vyom's own speech.
+        # ----------------------------------------------------
+
+        time.sleep(
+            0.25
+        )
+
+    # ========================================================
+    # EXECUTE ACTIVE COMMAND
+    # ========================================================
+
+    def _execute_voice_command(
+        self,
+        command
+    ):
+
+        if not command:
+
+            return False
+
+        command = str(
+            command
+        ).strip()
+
+        if not command:
+
+            return False
+
+        # ----------------------------------------------------
+        # EXIT
+        # ----------------------------------------------------
+
+        if self._is_exit_command(
+            command
+        ):
+
+            self.running = False
+
+            self.state = "speaking"
+
+            response = (
+                "ठीक है, voice mode बंद कर रहा हूँ।"
+            )
+
+            _safe_print(
+                "Vyom : " + response
+            )
+
+            try:
+
+                self.speak(
+                    response
+                )
+
+            except Exception:
+
+                pass
+
+            return True
+
+        # ----------------------------------------------------
+        # PROCESS COMMAND
+        # ----------------------------------------------------
+
+        self.state = "processing"
+
+        _safe_print(
+            "Vyom : Processing command..."
+        )
+
+        result = self.process_text(
+            command
+        )
+
+        # ----------------------------------------------------
+        # SPEAK RESULT
+        # ----------------------------------------------------
+
+        response = result.get(
+            "message",
+            ""
+        )
+
+        if response:
+
+            self._speak_response(
+                response
+            )
+
+        return True
 
     # ========================================================
     # RUN VOICE MODE
@@ -884,10 +1149,7 @@ class VoiceController:
             while self.running:
 
                 # =================================================
-                # IDLE
-                #
-                # Only wake-word detection happens here.
-                # No normal command execution.
+                # IDLE / WAKE DETECTION
                 # =================================================
 
                 if not self.activated:
@@ -897,274 +1159,199 @@ class VoiceController:
                     )
 
                     # ---------------------------------------------
-                    # Wake word detected
+                    # No wake word yet.
                     # ---------------------------------------------
 
-                    if wake_result:
-
-                        # -----------------------------------------
-                        # Wake word + command
-                        #
-                        # Example:
-                        #
-                        #     "Vyom open notepad"
-                        # -----------------------------------------
-
-                        if isinstance(
-                            wake_result,
-                            str
-                        ):
-
-                            command = (
-                                wake_result
-                            )
-
-                            self.activated = True
-
-                        else:
-
-                            command = None
-
-                        # -----------------------------------------
-                        # Only "Vyom" was spoken.
-                        # -----------------------------------------
-
-                        if not command:
-
-                            response = (
-                                "हाँ, बताइए।"
-                            )
-
-                            _safe_print(
-                                "Vyom : "
-                                + response
-                            )
-
-                            self.speak(
-                                response
-                            )
-
-                            # -------------------------------------
-                            # Listen for the first command.
-                            # -------------------------------------
-
-                            command = (
-                                self._listen_active_command()
-                            )
-
-                        # -----------------------------------------
-                        # No command after activation.
-                        #
-                        # IMPORTANT:
-                        #
-                        # Do NOT terminate the whole voice mode.
-                        # Return to wake listening.
-                        # -----------------------------------------
-
-                        if not command:
-
-                            self._deactivate()
-
-                            continue
-
-                        # -----------------------------------------
-                        # STOP COMMAND
-                        # -----------------------------------------
-
-                        if self._is_exit_command(
-                            command
-                        ):
-
-                            self.running = False
-
-                            response = (
-                                "ठीक है, voice mode बंद कर रहा हूँ।"
-                            )
-
-                            _safe_print(
-                                "Vyom : "
-                                + response
-                            )
-
-                            self.speak(
-                                response
-                            )
-
-                            break
-
-                        # =================================================
-                        # PROCESS COMMAND
-                        # =================================================
-
-                        self.state = "processing"
-
-                        _safe_print(
-                            "Vyom : Processing command..."
-                        )
-
-                        result = self.process_text(
-                            command
-                        )
-
-                        # =================================================
-                        # SPEAK RESULT
-                        # =================================================
-
-                        response = result.get(
-                            "message",
-                            ""
-                        )
-
-                        if response:
-
-                            self.state = "speaking"
-
-                            _safe_print(
-                                "Vyom : "
-                                + response
-                            )
-
-                            self.speak(
-                                response
-                            )
-
-                        # =================================================
-                        # IMPORTANT STEP 1 CHANGE
-                        #
-                        # OLD:
-                        #
-                        #     self._deactivate()
-                        #
-                        # This caused:
-                        #
-                        #     one command -> deactivate
-                        #
-                        # NEW:
-                        #
-                        #     command -> response -> listen again
-                        #
-                        # The same persistent Executor /
-                        # AutonomousAgent / SessionMemory remains alive.
-                        # =================================================
-
-                        if self.continuous_conversation:
-
-                            self.activated = True
-
-                            self.state = "listening"
-
-                            _safe_print(
-                                "Vyom : Listening..."
-                            )
-
-                            continue
-
-                        # -------------------------------------------------
-                        # Backward-safe fallback if continuous mode is
-                        # explicitly disabled.
-                        # -------------------------------------------------
-
-                        self._deactivate()
-
-                        time.sleep(
-                            0.15
-                        )
+                    if not wake_result:
 
                         continue
 
-                else:
-
-                    # =================================================
-                    # ACTIVE CONVERSATION
+                    # ---------------------------------------------
+                    # Wake word + command.
                     #
-                    # This is the core Step-1 loop.
+                    # Example:
                     #
-                    # After every completed command, Vyom remains
-                    # active and waits for the next command.
-                    # =================================================
+                    #     "Vyom open notepad"
+                    # ---------------------------------------------
 
-                    command = (
-                        self._listen_active_command()
-                    )
+                    if isinstance(
+                        wake_result,
+                        str
+                    ):
 
-                    # -------------------------------------------------
-                    # Silence / recognition failure
-                    #
-                    # Do NOT end voice mode.
-                    # Do NOT destroy SessionMemory.
-                    # Keep listening.
-                    # -------------------------------------------------
+                        command = (
+                            wake_result
+                        )
+
+                    else:
+
+                        command = None
+
+                    # ---------------------------------------------
+                    # Only "Vyom" was spoken.
+                    # ---------------------------------------------
 
                     if not command:
 
-                        self.state = "listening"
+                        response = (
+                            "हाँ, बताइए।"
+                        )
+
+                        _safe_print(
+                            "Vyom : "
+                            + response
+                        )
+
+                        try:
+
+                            self.speak(
+                                response
+                            )
+
+                        except Exception:
+
+                            pass
+
+                        # -----------------------------------------
+                        # Audio handoff delay.
+                        # -----------------------------------------
+
+                        time.sleep(
+                            0.25
+                        )
+
+                        # -----------------------------------------
+                        # Listen for first command.
+                        # -----------------------------------------
+
+                        command = (
+                            self._listen_active_command()
+                        )
+
+                    # ---------------------------------------------
+                    # No command after activation.
+                    #
+                    # Keep voice mode alive, but return to
+                    # wake-word state.
+                    # ---------------------------------------------
+
+                    if not command:
+
+                        self._deactivate()
 
                         continue
 
-                    # -------------------------------------------------
-                    # EXIT
-                    # -------------------------------------------------
+                    # ---------------------------------------------
+                    # Execute command.
+                    # ---------------------------------------------
 
-                    if self._is_exit_command(
+                    self._execute_voice_command(
                         command
-                    ):
+                    )
 
-                        self.running = False
+                    # ---------------------------------------------
+                    # If exit was requested, leave loop.
+                    # ---------------------------------------------
 
-                        response = (
-                            "ठीक है, voice mode बंद कर रहा हूँ।"
-                        )
-
-                        _safe_print(
-                            "Vyom : "
-                            + response
-                        )
-
-                        self.speak(
-                            response
-                        )
+                    if not self.running:
 
                         break
 
-                    # =================================================
-                    # PROCESS COMMAND
-                    # =================================================
+                    # ---------------------------------------------
+                    # Continuous conversation.
+                    # ---------------------------------------------
 
-                    self.state = "processing"
+                    if self.continuous_conversation:
 
-                    _safe_print(
-                        "Vyom : Processing command..."
-                    )
+                        self.activated = True
 
-                    result = self.process_text(
-                        command
-                    )
-
-                    # =================================================
-                    # SPEAK RESULT
-                    # =================================================
-
-                    response = result.get(
-                        "message",
-                        ""
-                    )
-
-                    if response:
-
-                        self.state = "speaking"
+                        self.state = "listening"
 
                         _safe_print(
-                            "Vyom : "
-                            + response
+                            "Vyom : Listening..."
                         )
+
+                        continue
+
+                    # ---------------------------------------------
+                    # Backward-safe fallback.
+                    # ---------------------------------------------
+
+                    self._deactivate()
+
+                    time.sleep(
+                        0.15
+                    )
+
+                    continue
+
+                # =================================================
+                # ACTIVE CONVERSATION
+                #
+                # Wake word is no longer required for every
+                # command.
+                # =================================================
+
+                command = (
+                    self._listen_active_command()
+                )
+
+                # -------------------------------------------------
+                # Silence / recognition failure.
+                #
+                # Keep the same active conversation.
+                # -------------------------------------------------
+
+                if not command:
+
+                    self.state = "listening"
+
+                    continue
+
+                # -------------------------------------------------
+                # EXIT
+                # -------------------------------------------------
+
+                if self._is_exit_command(
+                    command
+                ):
+
+                    self.running = False
+
+                    response = (
+                        "ठीक है, voice mode बंद कर रहा हूँ।"
+                    )
+
+                    _safe_print(
+                        "Vyom : "
+                        + response
+                    )
+
+                    try:
 
                         self.speak(
                             response
                         )
 
-                    # =================================================
-                    # CONTINUE CONVERSATION
-                    # =================================================
+                    except Exception:
+
+                        pass
+
+                    break
+
+                # -------------------------------------------------
+                # EXECUTE COMMAND
+                # -------------------------------------------------
+
+                self._execute_voice_command(
+                    command
+                )
+
+                # -------------------------------------------------
+                # Continue listening.
+                # -------------------------------------------------
+
+                if self.running:
 
                     self.activated = True
 
@@ -1178,7 +1365,7 @@ class VoiceController:
                         0.10
                     )
 
-                    continue
+                continue
 
         except KeyboardInterrupt:
 
@@ -1188,6 +1375,17 @@ class VoiceController:
 
             _safe_print(
                 "Vyom : Voice mode stopped."
+            )
+
+        except Exception as error:
+
+            self.running = False
+
+            _safe_print("")
+
+            _safe_print(
+                "Vyom : Voice controller error: "
+                + str(error)
             )
 
         finally:
