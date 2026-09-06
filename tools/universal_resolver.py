@@ -35,12 +35,21 @@ Supports:
 """
 
 import os
+import sys
 import shutil
 import subprocess
 import difflib
 import ctypes
-import winreg
 import time
+
+# Guard Windows-only imports
+if sys.platform == "win32":
+    try:
+        import winreg
+    except ImportError:
+        winreg = None
+else:
+    winreg = None
 
 
 class UniversalResolver:
@@ -1578,12 +1587,16 @@ catch {
     # REGISTRY APP PATHS
     #
     # Very important for installed desktop apps.
+    # Windows-only functionality.
     # =====================================================
 
     def search_registry_app_paths(
         self,
         target
     ):
+
+        if winreg is None:
+            return []
 
         target_name = self.normalize(
             target
