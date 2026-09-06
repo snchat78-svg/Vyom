@@ -1,6 +1,6 @@
 """
 Project : Vyom AI
-Version : 1.0
+Version : 0.2
 Module  : Main
 
 Purpose:
@@ -224,55 +224,13 @@ def main():
                 "Vyom : Voice mode starting..."
             )
 
-            # ----------------------------------------------------
-            # STEP 1 - WAKE WORD
-            #
-            # VoiceController now waits for:
-            #
-            #     "Vyom"
-            #
-            # before entering active conversation.
-            # ----------------------------------------------------
-
             _safe_print(
                 "Vyom : Say 'Vyom' to activate me."
             )
 
-            # ----------------------------------------------------
-            # STEP 1 - CONTINUOUS CONVERSATION
-            #
-            # After activation, VoiceController keeps listening
-            # after each completed command.
-            #
-            # Example:
-            #
-            #     Vyom
-            #     Excel खोलो
-            #     नई sheet बनाओ
-            #     इसमें मेरा नाम लिखो
-            #     इसे save करो
-            #
-            # The same persistent Executor /
-            # AutonomousAgent / SessionMemory remains active.
-            # ----------------------------------------------------
-
             _safe_print(
                 "Vyom : After activation, keep speaking naturally."
             )
-
-            # ----------------------------------------------------
-            # EXIT
-            #
-            # VoiceController handles voice-session exit commands:
-            #
-            #     exit
-            #     quit
-            #     stop voice
-            #     वॉइस बंद करो
-            #
-            # Main.py remains responsible for returning to text
-            # mode after VoiceController stops.
-            # ----------------------------------------------------
 
             _safe_print(
                 "Vyom : Say 'exit' to close voice mode."
@@ -290,12 +248,6 @@ def main():
                     "Vyom : Voice mode error: "
                     + str(error)
                 )
-
-            # ----------------------------------------------------
-            # VoiceController has stopped.
-            #
-            # Return to the existing text-mode loop.
-            # ----------------------------------------------------
 
             _safe_print("")
             _safe_print(

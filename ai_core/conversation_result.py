@@ -67,7 +67,6 @@ class ConversationResult:
             error_msg = result.get("error", None)
             success = result.get("success", False)
             
-            # Determine status
             if status_hint:
                 try:
                     status = ConversationStatus[status_hint.upper()]
@@ -83,7 +82,6 @@ class ConversationResult:
                 error_message=error_msg
             )
         
-        # Fallback for non-dict results
         return cls(
             status=ConversationStatus.SUCCESS,
             response_text=str(result),
