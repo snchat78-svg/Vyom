@@ -18,7 +18,10 @@
 #     It only tests the Voice/STT layer.
 # ============================================================
 
-from speech_to_text import SpeechToText
+# This is a manual microphone utility, retained for ``python
+# voice/test_speech_to_text.py``.  The package-qualified import also makes
+# normal pytest collection side-effect free.
+from voice.speech_to_text import SpeechToText
 
 
 def main():

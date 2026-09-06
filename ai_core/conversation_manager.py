@@ -1,93 +1,64 @@
-"""
-Project : Vyom AI
-Version : 1.0
-Module  : Conversation Manager
+"""Lightweight voice/text façade over Vyom's existing executor.
 
-Purpose:
-    Persistent conversational layer above the existing Executor.
-
-Architecture:
-
-    Text / Voice
-          |
-          v
-    ConversationManager
-          |
-          v
-    command_engine.executor.execute()
-          |
-          v
-    Existing Vyom pipeline
-          |
-          +--> IntentEngine
-          +--> AutonomousAgent
-          +--> SessionMemory
-          +--> ReasoningEngine
-          +--> ToolManager
-          +--> Observation / Verification
-          +--> ResponseEngine
-
-Important:
-    - Existing Executor remains the actual integration point.
-    - Existing ToolManager behaviour is not duplicated.
-    - Existing AutonomousAgent is not replaced.
-    - Conversation history is lightweight and in-memory.
-    - This module does not execute arbitrary code.
+Conversation history is bounded presentation history only.  The persistent
+execution context continues to live in executor -> AutonomousAgent ->
+SessionMemory.
 """
 
-from typing import Any, Dict, List, Optional
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+import time
+from typing import Any, Callable, Dict, List, Optional
 
+from ai_core.conversation_result import ConversationResult, ConversationStatus
 from command_engine.executor import execute
 
 
-class ConversationManager:
+@dataclass
+class ConversationTurn:
+    timestamp: str
+    source: str
+    input_text: str
+    language: str
+    response_text: str
+    status: str
+    error_category: Optional[str] = None
+    duration_ms: Optional[int] = None
 
-    def __init__(self, max_history: int = 20):
+
+class ConversationManager:
+    """Routes one text or voice turn through the existing executor."""
+
+    def __init__(
+        self,
+        max_history: int = 20,
+        executor: Optional[Callable[[str], Any]] = None,
+    ):
         self.max_history = max(1, int(max_history))
-        self.history: List[Dict[str, Any]] = []
+        self.history: List[ConversationTurn] = []
+        self._executor = executor or execute
         self.active = True
         self.last_user_message = ""
         self.last_response = ""
         self.turn_count = 0
 
-    # =========================================================
-    # LANGUAGE
-    # =========================================================
-
     @staticmethod
     def detect_language(text: Any) -> str:
         value = str(text or "").strip()
-
         if not value:
             return "unknown"
-
-        has_hindi = any(
-            "\u0900" <= char <= "\u097F"
-            for char in value
-        )
-
-        has_latin = any(
-            ("a" <= char.lower() <= "z")
-            for char in value
-        )
-
+        has_hindi = any("\u0900" <= char <= "\u097F" for char in value)
+        has_latin = any("a" <= char.lower() <= "z" for char in value)
         if has_hindi and has_latin:
             return "hinglish"
-
         if has_hindi:
             return "hindi"
-
         if has_latin:
             return "english"
-
         return "unknown"
 
-    # =========================================================
-    # SESSION
-    # =========================================================
-
     def reset(self) -> None:
-        self.history = []
+        self.history.clear()
         self.active = True
         self.last_user_message = ""
         self.last_response = ""
@@ -99,188 +70,88 @@ class ConversationManager:
     def start(self) -> None:
         self.active = True
 
-    # =========================================================
-    # HISTORY
-    # =========================================================
+    def _append_turn(self, turn: ConversationTurn) -> None:
+        self.history.append(turn)
+        del self.history[:-self.max_history]
 
-    def _record(
-        self,
-        role: str,
-        text: Any,
-        result: Any = None
-    ) -> None:
-
-        item = {
-            "turn": self.turn_count,
-            "role": role,
-            "text": str(text or ""),
-            "language": self.detect_language(text),
-        }
-
-        if result is not None:
-            item["result"] = result
-
-        self.history.append(item)
-
-        if len(self.history) > self.max_history:
-            self.history = self.history[
-                -self.max_history:
-            ]
-
-    # =========================================================
-    # PROCESS ONE TURN
-    # =========================================================
-
-    def process(
-        self,
-        message: Any,
-        source: str = "text"
-    ) -> Dict[str, Any]:
-
+    def process(self, message: Any, source: str = "text") -> Dict[str, Any]:
+        """Execute exactly one turn and return a stable, serializable result."""
         text = str(message or "").strip()
+        language = self.detect_language(text)
+        started = time.monotonic()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         if not text:
-            return {
-                "success": False,
-                "stage": "empty_message",
-                "message": "",
-                "response": "",
-                "source": source,
-            }
+            result = ConversationResult(
+                status=ConversationStatus.NEEDS_CLARIFICATION,
+                response_text="",
+                error_category="empty_message",
+            )
+            return self._complete(result, timestamp, source, text, language, started)
 
         if not self.active:
             self.start()
-
         self.turn_count += 1
         self.last_user_message = text
 
-        self._record(
-            "user",
-            text
-        )
-
-        # -----------------------------------------------------
-        # Do NOT implement another command/intent engine here.
-        #
-        # Executor already owns:
-        #   IntentEngine
-        #   persistent AutonomousAgent
-        #   SessionMemory
-        #   ToolManager
-        #   ResponseEngine
-        #
-        # Keeping one execution path prevents context divergence.
-        # -----------------------------------------------------
-
         try:
-            result = execute(text)
-
+            raw_result = self._executor(text)
+            # Exit is an explicit command-level outcome, not a response-text
+            # heuristic.  All other legacy string responses are kept intact.
+            status_hint = (
+                ConversationStatus.EXIT_SESSION.name
+                if text.lower() in {"exit", "quit", "shutdown vyom", "close vyom"}
+                else None
+            )
+            result = ConversationResult.from_executor_result(raw_result, status_hint)
         except Exception as error:
-
-            response = (
-                "I could not process that request: "
-                + str(error)
+            result = ConversationResult(
+                status=ConversationStatus.FAILED,
+                response_text="I could not process that request: " + str(error),
+                error_message=str(error),
+                error_category="executor_error",
             )
 
-            self.last_response = response
+        return self._complete(result, timestamp, source, text, language, started)
 
-            self._record(
-                "assistant",
-                response,
-                {
-                    "success": False,
-                    "error": str(error),
-                }
-            )
-
-            return {
-                "success": False,
-                "stage": "conversation_error",
-                "message": response,
-                "response": response,
-                "source": source,
-                "language": self.detect_language(text),
-                "turn": self.turn_count,
-            }
-
-        response = str(
-            result
-            if result is not None
-            else ""
-        ).strip()
-
-        self.last_response = response
-
-        self._record(
-            "assistant",
-            response,
-            result
-        )
-
+    def _complete(self, result, timestamp, source, text, language, started):
+        duration_ms = int((time.monotonic() - started) * 1000)
+        self.last_response = result.response_text
+        self._append_turn(ConversationTurn(
+            timestamp=timestamp, source=str(source), input_text=text,
+            language=language, response_text=result.response_text,
+            status=result.status.value, error_category=result.error_category,
+            duration_ms=duration_ms,
+        ))
         return {
-            "success": True,
-            "stage": "completed",
-            "message": response,
-            "response": response,
-            "result": result,
+            "success": result.status == ConversationStatus.SUCCESS,
+            "status": result.status.value,
+            "message": result.response_text,
+            "response": result.response_text,
+            "result": result.executor_result,
             "source": source,
-            "language": self.detect_language(text),
+            "language": language,
             "turn": self.turn_count,
+            "error_category": result.error_category,
+            "duration_ms": duration_ms,
             "history_size": len(self.history),
         }
 
-    # =========================================================
-    # TEXT ALIAS
-    # =========================================================
+    def process_text(self, text: Any) -> Dict[str, Any]:
+        return self.process(text, source="text")
 
-    def process_text(
-        self,
-        text: Any
-    ) -> Dict[str, Any]:
-
-        return self.process(
-            text,
-            source="text"
-        )
-
-    # =========================================================
-    # VOICE ALIAS
-    # =========================================================
-
-    def process_voice(
-        self,
-        text: Any
-    ) -> Dict[str, Any]:
-
-        return self.process(
-            text,
-            source="voice"
-        )
-
-    # =========================================================
-    # HISTORY ACCESS
-    # =========================================================
+    def process_voice(self, text: Any) -> Dict[str, Any]:
+        return self.process(text, source="voice")
 
     def get_history(self) -> List[Dict[str, Any]]:
-        return list(self.history)
+        return [asdict(turn) for turn in self.history]
 
-    def get_recent_history(
-        self,
-        limit: int = 5
-    ) -> List[Dict[str, Any]]:
-
-        limit = max(1, int(limit))
-
-        return list(
-            self.history[-limit:]
-        )
+    def get_recent_history(self, limit: int = 5) -> List[Dict[str, Any]]:
+        return self.get_history()[-max(1, int(limit)):]
 
     def snapshot(self) -> Dict[str, Any]:
-
         return {
-            "active": self.active,
-            "turn_count": self.turn_count,
+            "active": self.active, "turn_count": self.turn_count,
             "last_user_message": self.last_user_message,
-            "last_response": self.last_response,
-            "history": self.get_history(),
+            "last_response": self.last_response, "history": self.get_history(),
         }
