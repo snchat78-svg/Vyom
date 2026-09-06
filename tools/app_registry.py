@@ -9,12 +9,28 @@ Purpose:
 """
 
 import os
-import winreg
+import sys
+
+
+# The registry is a Windows capability, not an import-time requirement for
+# the rest of the application.  Keeping this optional lets the resolver and
+# command pipeline be imported on non-Windows platforms without pretending a
+# registry exists there.
+if sys.platform == "win32":
+    try:
+        import winreg
+    except ImportError:
+        winreg = None
+else:
+    winreg = None
 
 
 def _read_app_paths():
 
     results = []
+
+    if winreg is None:
+        return results
 
     registry_locations = [
         (winreg.HKEY_CURRENT_USER,
@@ -90,6 +106,9 @@ def find_application(app_name):
     else:
 
         exe_name = app_name
+
+    if os.name != "nt":
+        return None
 
     path_result = os.popen(
         'where "{}" 2>nul'.format(exe_name)

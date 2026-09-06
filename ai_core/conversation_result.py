@@ -9,7 +9,7 @@ Purpose:
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from enum import Enum
 
 
@@ -34,6 +34,7 @@ class ConversationResult:
     error_message: Optional[str] = None
     needs_selection: bool = False
     selection_options: Optional[list] = None
+    error_category: Optional[str] = None
     
     @classmethod
     def from_executor_result(
@@ -66,10 +67,11 @@ class ConversationResult:
             response_text = str(result.get("message", result.get("text", "")))
             error_msg = result.get("error", None)
             success = result.get("success", False)
+            explicit_status = status_hint or result.get("status")
             
-            if status_hint:
+            if explicit_status:
                 try:
-                    status = ConversationStatus[status_hint.upper()]
+                    status = ConversationStatus[str(explicit_status).upper()]
                 except (KeyError, AttributeError):
                     status = ConversationStatus.SUCCESS if success else ConversationStatus.FAILED
             else:
@@ -79,9 +81,15 @@ class ConversationResult:
                 status=status,
                 response_text=response_text,
                 executor_result=result,
-                error_message=error_msg
+                error_message=error_msg,
+                error_category=result.get("error_category"),
+                needs_selection=status == ConversationStatus.NEEDS_SELECTION,
+                selection_options=result.get("selection_options"),
             )
         
+        # Legacy executor paths return human-readable strings.  A normal
+        # return means the call completed; this deliberately does not parse
+        # response wording to decide an outcome.
         return cls(
             status=ConversationStatus.SUCCESS,
             response_text=str(result),

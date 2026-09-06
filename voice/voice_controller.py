@@ -74,7 +74,7 @@ import re
 from .speech_to_text import SpeechToText
 from .text_to_speech import TextToSpeech
 
-from command_engine.executor import execute
+from ai_core.conversation_manager import ConversationManager
 
 
 class VoiceController:
@@ -83,9 +83,9 @@ class VoiceController:
     # INITIALIZATION
     # =========================================================
 
-    def __init__(self):
+    def __init__(self, stt=None, tts=None, conversation_manager=None):
 
-        self.speech_to_text = (
+        self.speech_to_text = stt or (
             SpeechToText(
                 preferred_language="hi-IN",
                 fallback_language="en-IN",
@@ -93,13 +93,17 @@ class VoiceController:
             )
         )
 
-        self.text_to_speech = (
+        self.text_to_speech = tts or (
             TextToSpeech(
                 rate=165,
                 volume=1.0,
                 debug=True
             )
         )
+
+        # The manager is intentionally shared with the existing executor,
+        # preserving AutonomousAgent and SessionMemory process context.
+        self.conversation_manager = conversation_manager or ConversationManager()
 
         self.running = False
 
@@ -534,35 +538,9 @@ class VoiceController:
 
         try:
 
-            result = execute(
-                text
-            )
-
-            if isinstance(
-                result,
-                dict
-            ):
-
-                success = result.get(
-                    "success",
-                    True
-                )
-
-                message = result.get(
-                    "message",
-                    result.get(
-                        "text",
-                        str(result)
-                    )
-                )
-
-            else:
-
-                success = True
-
-                message = str(
-                    result
-                )
+            result = self.conversation_manager.process_voice(text)
+            success = result.get("success", False)
+            message = result.get("response", result.get("message", ""))
 
             self._log(
                 "Execution completed."
