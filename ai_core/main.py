@@ -1,6 +1,6 @@
 """
 Project : Vyom AI
-Version : 0.2
+Version : 1.0
 Module  : Main
 
 Purpose:
@@ -107,242 +107,236 @@ def _configure_console():
             pass
 
 
-_configure_console()
+def main():
+    """Main entry point for Vyom AI."""
 
+    _configure_console()
 
-from command_engine.parser import CommandParser
-from command_engine.executor import execute
+    from command_engine.parser import CommandParser
+    from command_engine.executor import execute
 
-from voice.voice_controller import VoiceController
+    from voice.voice_controller import VoiceController
 
+    # ============================================================
+    # CORE COMPONENTS
+    # ============================================================
 
-# ============================================================
-# CORE COMPONENTS
-# ============================================================
+    parser = CommandParser()
 
-parser = CommandParser()
+    voice_controller = VoiceController()
 
-voice_controller = VoiceController()
+    # ============================================================
+    # STARTUP
+    # ============================================================
 
+    _safe_print("===================================")
+    _safe_print(" Vyom AI Started ")
+    _safe_print("===================================")
 
-# ============================================================
-# STARTUP
-# ============================================================
+    _safe_print("")
+    _safe_print("Available modes:")
+    _safe_print("1. Text mode")
+    _safe_print("2. Voice mode")
+    _safe_print("")
+    _safe_print("Type a normal command to use text mode.")
+    _safe_print("Type 'voice' to start voice mode.")
+    _safe_print("Type 'exit' to close Vyom.")
+    _safe_print("")
 
-_safe_print("===================================")
-_safe_print(" Vyom AI Started ")
-_safe_print("===================================")
+    # ============================================================
+    # MAIN LOOP
+    # ============================================================
 
-_safe_print("")
-_safe_print("Available modes:")
-_safe_print("1. Text mode")
-_safe_print("2. Voice mode")
-_safe_print("")
-_safe_print("Type a normal command to use text mode.")
-_safe_print("Type 'voice' to start voice mode.")
-_safe_print("Type 'exit' to close Vyom.")
-_safe_print("")
+    while True:
 
+        try:
 
-# ============================================================
-# MAIN LOOP
-# ============================================================
+            command = input("You : ").strip()
 
-while True:
+        except (
+            KeyboardInterrupt,
+            EOFError
+        ):
 
-    try:
+            _safe_print("")
+            _safe_print("Vyom : Goodbye")
+            break
 
-        command = input("You : ").strip()
+        # ========================================================
+        # EMPTY COMMAND
+        # ========================================================
 
-    except (
-        KeyboardInterrupt,
-        EOFError
-    ):
+        if not command:
 
-        _safe_print("")
-        _safe_print("Vyom : Goodbye")
-        break
+            continue
 
+        command_lower = command.lower().strip()
 
-    # ========================================================
-    # EMPTY COMMAND
-    # ========================================================
+        # ========================================================
+        # EXIT
+        # ========================================================
 
-    if not command:
+        if command_lower in (
+            "exit",
+            "quit",
+            "close vyom"
+        ):
 
-        continue
+            _safe_print("Vyom : Goodbye")
+            break
 
+        # ========================================================
+        # VOICE MODE
+        # ========================================================
 
-    command_lower = command.lower().strip()
+        if command_lower in (
+            "voice",
+            "voice mode",
+            "start voice",
+            "start voice mode",
+            "listen"
+        ):
 
+            _safe_print("")
+            _safe_print("===================================")
+            _safe_print(" Vyom AI - Voice Mode ")
+            _safe_print("===================================")
+            _safe_print("")
 
-    # ========================================================
-    # EXIT
-    # ========================================================
+            if not voice_controller.is_available():
 
-    if command_lower in (
-        "exit",
-        "quit",
-        "close vyom"
-    ):
+                _safe_print(
+                    "Vyom : Voice input is not available."
+                )
 
-        _safe_print("Vyom : Goodbye")
-        break
+                _safe_print(
+                    "Reason : "
+                    + str(
+                        voice_controller.speech_to_text.error_message
+                    )
+                )
 
+                _safe_print("")
 
-    # ========================================================
-    # VOICE MODE
-    # ========================================================
-
-    if command_lower in (
-        "voice",
-        "voice mode",
-        "start voice",
-        "start voice mode",
-        "listen"
-    ):
-
-        _safe_print("")
-        _safe_print("===================================")
-        _safe_print(" Vyom AI - Voice Mode ")
-        _safe_print("===================================")
-        _safe_print("")
-
-        if not voice_controller.is_available():
+                continue
 
             _safe_print(
-                "Vyom : Voice input is not available."
+                "Vyom : Voice mode starting..."
             )
 
+            # ----------------------------------------------------
+            # STEP 1 - WAKE WORD
+            #
+            # VoiceController now waits for:
+            #
+            #     "Vyom"
+            #
+            # before entering active conversation.
+            # ----------------------------------------------------
+
             _safe_print(
-                "Reason : "
-                + str(
-                    voice_controller.speech_to_text.error_message
-                )
+                "Vyom : Say 'Vyom' to activate me."
+            )
+
+            # ----------------------------------------------------
+            # STEP 1 - CONTINUOUS CONVERSATION
+            #
+            # After activation, VoiceController keeps listening
+            # after each completed command.
+            #
+            # Example:
+            #
+            #     Vyom
+            #     Excel खोलो
+            #     नई sheet बनाओ
+            #     इसमें मेरा नाम लिखो
+            #     इसे save करो
+            #
+            # The same persistent Executor /
+            # AutonomousAgent / SessionMemory remains active.
+            # ----------------------------------------------------
+
+            _safe_print(
+                "Vyom : After activation, keep speaking naturally."
+            )
+
+            # ----------------------------------------------------
+            # EXIT
+            #
+            # VoiceController handles voice-session exit commands:
+            #
+            #     exit
+            #     quit
+            #     stop voice
+            #     वॉइस बंद करो
+            #
+            # Main.py remains responsible for returning to text
+            # mode after VoiceController stops.
+            # ----------------------------------------------------
+
+            _safe_print(
+                "Vyom : Say 'exit' to close voice mode."
             )
 
             _safe_print("")
 
+            try:
+
+                voice_controller.run()
+
+            except Exception as error:
+
+                _safe_print(
+                    "Vyom : Voice mode error: "
+                    + str(error)
+                )
+
+            # ----------------------------------------------------
+            # VoiceController has stopped.
+            #
+            # Return to the existing text-mode loop.
+            # ----------------------------------------------------
+
+            _safe_print("")
+            _safe_print(
+                "Vyom : Returned to text mode."
+            )
+            _safe_print("")
+
             continue
 
-
-        _safe_print(
-            "Vyom : Voice mode starting..."
-        )
-
-        # ----------------------------------------------------
-        # STEP 1 - WAKE WORD
-        #
-        # VoiceController now waits for:
-        #
-        #     "Vyom"
-        #
-        # before entering active conversation.
-        # ----------------------------------------------------
-
-        _safe_print(
-            "Vyom : Say 'Vyom' to activate me."
-        )
-
-        # ----------------------------------------------------
-        # STEP 1 - CONTINUOUS CONVERSATION
-        #
-        # After activation, VoiceController keeps listening
-        # after each completed command.
-        #
-        # Example:
-        #
-        #     Vyom
-        #     Excel खोलो
-        #     नई sheet बनाओ
-        #     इसमें मेरा नाम लिखो
-        #     इसे save करो
-        #
-        # The same persistent Executor /
-        # AutonomousAgent / SessionMemory remains active.
-        # ----------------------------------------------------
-
-        _safe_print(
-            "Vyom : After activation, keep speaking naturally."
-        )
-
-        # ----------------------------------------------------
-        # EXIT
-        #
-        # VoiceController handles voice-session exit commands:
-        #
-        #     exit
-        #     quit
-        #     stop voice
-        #     वॉइस बंद करो
-        #
-        # Main.py remains responsible for returning to text
-        # mode after VoiceController stops.
-        # ----------------------------------------------------
-
-        _safe_print(
-            "Vyom : Say 'exit' to close voice mode."
-        )
-
-        _safe_print("")
-
+        # ========================================================
+        # NORMAL TEXT COMMAND
+        # ========================================================
 
         try:
 
-            voice_controller.run()
+            parsed = parser.parse(
+                command
+            )
+
+            response = execute(
+                parsed
+            )
 
         except Exception as error:
 
-            _safe_print(
-                "Vyom : Voice mode error: "
+            response = (
+                "Vyom execution error: "
                 + str(error)
             )
 
+        # ========================================================
+        # RESPONSE
+        # ========================================================
 
-        # ----------------------------------------------------
-        # VoiceController has stopped.
-        #
-        # Return to the existing text-mode loop.
-        # ----------------------------------------------------
-
-        _safe_print("")
         _safe_print(
-            "Vyom : Returned to text mode."
+            "Vyom : "
+            + str(response)
         )
+
         _safe_print("")
 
-        continue
 
-
-    # ========================================================
-    # NORMAL TEXT COMMAND
-    # ========================================================
-
-    try:
-
-        parsed = parser.parse(
-            command
-        )
-
-        response = execute(
-            parsed
-        )
-
-    except Exception as error:
-
-        response = (
-            "Vyom execution error: "
-            + str(error)
-        )
-
-
-    # ========================================================
-    # RESPONSE
-    # ========================================================
-
-    _safe_print(
-        "Vyom : "
-        + str(response)
-    )
-
-    _safe_print("")
+if __name__ == "__main__":
+    main()
