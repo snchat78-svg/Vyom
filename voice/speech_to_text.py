@@ -250,6 +250,28 @@ class SpeechToText:
             0.25
         )
 
+    def recover_session(self):
+        """Reopen the persistent microphone after a recoverable device error.
+
+        This deliberately keeps recognition and language configuration intact;
+        only the microphone context is recreated for older Windows drivers.
+        """
+        self._log("Recovery start.")
+        self._reset_audio_device()
+
+        # A device may have appeared after the original initialization.  Keep
+        # the existing recognizer whenever possible, but recreate Microphone
+        # if opening the saved instance fails.
+        if self.start_session():
+            self._log("Microphone session restored.")
+            return True
+
+        self._initialize()
+        restored = self.start_session()
+        if restored:
+            self._log("Microphone session restored after reinitialization.")
+        return restored
+
     # =========================================================
     # CLOSE MICROPHONE
     # =========================================================
