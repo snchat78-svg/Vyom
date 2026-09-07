@@ -113,6 +113,8 @@ class VoiceController:
 
         self.continuous_conversation = True
 
+        self.last_listen_status = ""
+
         self.wake_words = (
             "vyom",
             "व्योम",
@@ -497,18 +499,8 @@ class VoiceController:
 
         self.state = "active"
 
-        self._log(
-            "WAKE WORD DETECTED."
-        )
-
-        self._log(
-            "Voice session ACTIVE."
-        )
-
-        self._log(
-            "STATE TRANSITION: "
-            "WAITING_FOR_WAKE -> ACTIVE"
-        )
+        self._log("WAKE WORD DETECTED")
+        self._log("STATE -> ACTIVE")
 
     # =========================================================
     # PROCESS TEXT
@@ -531,10 +523,10 @@ class VoiceController:
 
         self.state = "processing"
 
-        self._log(
-            "Processing command: "
-            + text
-        )
+        self._log("STATE -> PROCESSING")
+        self._log("SENDING TO EXECUTOR")
+        self.state = "executing"
+        self._log("STATE -> EXECUTING")
 
         try:
 
@@ -542,9 +534,7 @@ class VoiceController:
             success = result.get("success", False)
             message = result.get("response", result.get("message", ""))
 
-            self._log(
-                "Execution completed."
-            )
+            self._log("EXECUTION COMPLETE")
 
             return {
                 "success": bool(
@@ -637,6 +627,26 @@ class VoiceController:
         )
 
         return result
+
+    def _recover_microphone(self):
+        """Restore audio without ending the active conversation session."""
+        self._log("AUDIO ERROR")
+        self._log("RECOVERY START")
+        recover = getattr(self.speech_to_text, "recover_session", None)
+        if callable(recover):
+            restored = bool(recover())
+        else:
+            # Dependency-injected STT fakes and older implementations can
+            # still recover through their existing session methods.
+            stop = getattr(self.speech_to_text, "stop_session", None)
+            start = getattr(self.speech_to_text, "start_session", None)
+            if callable(stop):
+                stop()
+            restored = bool(start()) if callable(start) else False
+        if restored:
+            self._log("MICROPHONE SESSION RESTORED")
+            self._log("RESUMING LISTENING")
+        return restored
 
     # =========================================================
     # WAIT FOR ACTIVATION
@@ -769,9 +779,7 @@ class VoiceController:
             "=================================================="
         )
 
-        self._log(
-            "ACTIVE COMMAND LISTENING"
-        )
+        self._log("STATE -> LISTENING")
 
         self._log(
             "STATE = ACTIVE"
@@ -806,10 +814,11 @@ class VoiceController:
                 ""
             )
 
-            self._log(
-                "Active listen failed: "
-                + str(status)
-            )
+            self.last_listen_status = str(status)
+            self._log("Active listen failed: " + self.last_listen_status)
+
+            if self.last_listen_status == "device_error":
+                self._recover_microphone()
 
             return ""
 
@@ -821,6 +830,11 @@ class VoiceController:
         ).strip()
 
         if command:
+
+            self.last_listen_status = "recognized"
+
+            self._log("AUDIO CAPTURED")
+            self._log("COMMAND RECEIVED")
 
             self._safe_print(
                 "Command detected -> "
@@ -896,6 +910,7 @@ class VoiceController:
             + response
         )
 
+        self._log("STATE -> SPEAKING")
         self.speak(
             response
         )
@@ -910,6 +925,7 @@ class VoiceController:
         if self.running:
 
             self.state = "listening"
+            self._log("RESPONSE COMPLETE")
 
     # =========================================================
     # STARTUP RESPONSE
@@ -952,9 +968,7 @@ class VoiceController:
 
     def _speak_activation_response(self):
 
-        self._log(
-            "ACTIVATION RESPONSE BEGIN"
-        )
+        self._log("ACTIVATION RESPONSE")
 
         self._speak_response(
             "हाँ, बताइए।"
@@ -1005,6 +1019,8 @@ class VoiceController:
 
             self.state = "idle"
 
+            self._stop_audio_sessions()
+
             return {
                 "success": True,
                 "text": command,
@@ -1046,6 +1062,21 @@ class VoiceController:
             )
 
         return result
+
+    def _stop_audio_sessions(self):
+        """Stop resources once an explicit exit has completed speaking."""
+        stop_stt = getattr(self.speech_to_text, "stop_session", None)
+        if callable(stop_stt):
+            try:
+                stop_stt()
+            except Exception as error:
+                self._log("STT cleanup error: " + str(error))
+        stop_tts = getattr(self.text_to_speech, "stop", None)
+        if callable(stop_tts):
+            try:
+                stop_tts()
+            except Exception as error:
+                self._log("TTS cleanup error: " + str(error))
 
     # =========================================================
     # RUN
@@ -1269,20 +1300,10 @@ class VoiceController:
 
                     self.state = "active"
 
-                    self._safe_print(
-                        "Vyom : हाँ, बताइए।"
-                    )
-
-                    # -------------------------------------------------
-                    # Small delay after wake detection.
-                    #
-                    # This prevents the next microphone capture from
-                    # accidentally capturing the wake detection audio.
-                    # -------------------------------------------------
-
-                    time.sleep(
-                        0.30
-                    )
+                    # Use the normal TTS path (including its Windows-safe
+                    # speaker-to-microphone handoff) rather than printing an
+                    # acknowledgement only.
+                    self._speak_activation_response()
 
                     # =================================================
                     # IMPORTANT FIX
@@ -1329,6 +1350,8 @@ class VoiceController:
                         self._log(
                             "Conversation remains ACTIVE."
                         )
+
+                        self._log("READY FOR NEXT COMMAND")
 
                     continue
 
@@ -1397,6 +1420,8 @@ class VoiceController:
                         "Conversation remains ACTIVE."
                     )
 
+                    self._log("READY FOR NEXT COMMAND")
+
                     self._log(
                         "Ready for next command."
                     )
@@ -1451,23 +1476,12 @@ class VoiceController:
 
             try:
 
-                self.speech_to_text.stop_session()
+                self._stop_audio_sessions()
 
             except Exception as error:
 
                 self._log(
                     "STT cleanup error: "
-                    + str(error)
-                )
-
-            try:
-
-                self.text_to_speech.stop()
-
-            except Exception as error:
-
-                self._log(
-                    "TTS cleanup error: "
                     + str(error)
                 )
 
