@@ -1,32 +1,8 @@
 """Vyom AI - persistent voice conversation controller.
 
-Final voice lifecycle:
-
-    SLEEP / WAITING_FOR_WAKE
-              |
-            "Vyom"
-              v
-        WAKE_DETECTED
-              v
-        ACTIVE SESSION
-              v
-           LISTEN
-              v
-             STT
-              v
-          EXECUTOR
-              v
-       RESPONSE / TTS
-              v
-        LISTEN AGAIN  <---------+
-              |                 |
-            "exit" -------------+
-              v
-            SLEEP
-
-The user never needs to press a microphone button or repeat "Vyom" after
-activation.  VoiceController reuses the existing ConversationManager and
-therefore the existing Executor / AutonomousAgent / SessionMemory pipeline.
+The session is persistent, but the physical microphone is opened only during
+an individual capture. This avoids Windows audio contention with SAPI/pyttsx3
+while preserving fully automatic, push-to-talk-free conversation.
 """
 
 import difflib
@@ -39,19 +15,11 @@ from ai_core.conversation_manager import ConversationManager
 
 
 class VoiceController:
-    """Owns wake/session state while reusing the existing command pipeline."""
-
     def __init__(self, stt=None, tts=None, conversation_manager=None):
         self.speech_to_text = stt or SpeechToText(
-            preferred_language="hi-IN",
-            fallback_language="en-IN",
-            debug=True,
+            preferred_language="hi-IN", fallback_language="en-IN", debug=True
         )
-        self.text_to_speech = tts or TextToSpeech(
-            rate=165,
-            volume=1.0,
-            debug=True,
-        )
+        self.text_to_speech = tts or TextToSpeech(rate=165, volume=1.0, debug=True)
         self.conversation_manager = conversation_manager or ConversationManager()
 
         self.running = False
@@ -60,27 +28,10 @@ class VoiceController:
         self.continuous_conversation = True
         self.last_listen_status = ""
 
-        # These are controller-side aliases used only to strip the wake word
-        # from a combined utterance.  The STT layer performs the recognition
-        # match and returns status="wake_detected".
         self.wake_words = (
-            "hey vyom",
-            "हे व्योम",
-            "vyom ji",
-            "व्योम जी",
-            "vyom",
-            "व्योम",
-            "viyom",
-            "वियोम",
-            "वियम",
-            "वियॉम",
-            "vyam",
-            "biom",
+            "hey vyom", "हे व्योम", "vyom ji", "व्योम जी", "vyom", "व्योम",
+            "viyom", "वियोम", "वियम", "वियॉम", "vyam", "biom",
         )
-
-    # ------------------------------------------------------------------
-    # Logging / printing
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _safe_print(message):
@@ -94,10 +45,6 @@ class VoiceController:
             print("[VOICE] " + str(message), flush=True)
         except Exception:
             pass
-
-    # ------------------------------------------------------------------
-    # Availability / TTS
-    # ------------------------------------------------------------------
 
     def is_available(self):
         try:
@@ -113,23 +60,17 @@ class VoiceController:
 
     def speak(self, text):
         self.state = "speaking"
+        self._log("STATE -> SPEAKING")
         self._log("TTS response started.")
         try:
             result = self.text_to_speech.speak(text)
             if not isinstance(result, dict):
                 result = {"success": bool(result)}
-            self._log(
-                "TTS response completed: %s"
-                % bool(result.get("success", False))
-            )
+            self._log("TTS response completed: %s" % bool(result.get("success", False)))
             return result
         except Exception as error:
             self._log("TTS ERROR: " + str(error))
             return {"success": False, "message": str(error)}
-
-    # ------------------------------------------------------------------
-    # Wake text utilities
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _normalize(text):
@@ -142,14 +83,11 @@ class VoiceController:
         if not normalized:
             return None
 
-        # Direct match first.
         for wake_word in sorted(self.wake_words, key=len, reverse=True):
             candidate = self._normalize(wake_word)
             if candidate and candidate in normalized:
                 return candidate
 
-        # Fuzzy match for short transcripts.  This is only a fallback for
-        # stripping text; STT is authoritative about whether wake was found.
         compact = normalized.replace(" ", "")
         if len(normalized) <= 24:
             best = None
@@ -171,26 +109,18 @@ class VoiceController:
         if not original:
             return ""
 
-        value = original
         for wake_word in sorted(self.wake_words, key=len, reverse=True):
-            candidate = self._normalize(wake_word)
-            if not candidate:
-                continue
             pattern = re.compile(re.escape(wake_word), re.IGNORECASE)
-            new_value = pattern.sub(" ", value, count=1)
-            if new_value != value:
+            new_value = pattern.sub(" ", original, count=1)
+            if new_value != original:
                 return re.sub(r"\s+", " ", new_value).strip()
 
-        normalized = self._normalize(value)
+        normalized = self._normalize(original)
         for wake_word in sorted(self.wake_words, key=len, reverse=True):
             candidate = self._normalize(wake_word)
             if candidate and candidate in normalized:
                 return re.sub(r"\s+", " ", normalized.replace(candidate, " ", 1)).strip()
         return original
-
-    # ------------------------------------------------------------------
-    # Conversation execution
-    # ------------------------------------------------------------------
 
     def _activate(self):
         self.activated = True
@@ -201,16 +131,10 @@ class VoiceController:
     def process_text(self, text):
         command = str(text or "").strip()
         if not command:
-            return {
-                "success": False,
-                "text": "",
-                "message": "No command received.",
-                "result": None,
-            }
+            return {"success": False, "text": "", "message": "No command received.", "result": None}
 
         self.state = "processing"
         self._log("STATE -> PROCESSING")
-
         try:
             self.state = "executing"
             self._log("STATE -> EXECUTING")
@@ -221,22 +145,11 @@ class VoiceController:
             else:
                 success = True
                 message = str(result)
-
             self._log("EXECUTION COMPLETE")
-            return {
-                "success": success,
-                "text": command,
-                "message": str(message or ""),
-                "result": result,
-            }
+            return {"success": success, "text": command, "message": str(message or ""), "result": result}
         except Exception as error:
             self._log("Execution error: " + str(error))
-            return {
-                "success": False,
-                "text": command,
-                "message": "Command execution failed: " + str(error),
-                "result": None,
-            }
+            return {"success": False, "text": command, "message": "Command execution failed: " + str(error), "result": None}
 
     def listen_once(self, announce=False, timeout=5, phrase_time_limit=8, wake_mode=None):
         try:
@@ -248,174 +161,94 @@ class VoiceController:
             )
         except Exception as error:
             self._log("STT listen_once error: " + str(error))
-            return {
-                "success": False,
-                "status": "error",
-                "text": "",
-                "message": str(error),
-            }
-
+            return {"success": False, "status": "error", "text": "", "message": str(error)}
         if not isinstance(result, dict):
-            result = {
-                "success": bool(result),
-                "status": "unknown",
-                "text": "",
-            }
-
+            result = {"success": bool(result), "status": "unknown", "text": ""}
         self.last_listen_status = str(result.get("status", ""))
         return result
-
-    # ------------------------------------------------------------------
-    # Recovery
-    # ------------------------------------------------------------------
 
     def _recover_microphone(self):
         self._log("AUDIO ERROR -> RECOVERY")
         recover = getattr(self.speech_to_text, "recover_session", None)
-        if callable(recover):
-            try:
-                restored = bool(recover())
-            except Exception as error:
-                self._log("Recovery failed: " + str(error))
-                restored = False
-        else:
-            stop = getattr(self.speech_to_text, "stop_session", None)
-            start = getattr(self.speech_to_text, "start_session", None)
-            try:
-                if callable(stop):
-                    stop()
-                restored = bool(start()) if callable(start) else False
-            except Exception as error:
-                self._log("Recovery failed: " + str(error))
-                restored = False
-
+        try:
+            restored = bool(recover()) if callable(recover) else False
+        except Exception as error:
+            self._log("Recovery failed: " + str(error))
+            restored = False
         if restored:
-            self._log("MICROPHONE SESSION RESTORED")
+            self._log("MICROPHONE CAPTURE RESTORED")
             self._log("RESUMING LISTENING")
         return restored
-
-    # ------------------------------------------------------------------
-    # Wake phase
-    # ------------------------------------------------------------------
 
     def _wait_for_activation(self):
         self.state = "waiting_for_wake"
         self._log("WAITING_FOR_WAKE")
-
         result = self.listen_once(
-            announce=False,
-            timeout=2.5,
-            phrase_time_limit=4,
-            wake_mode=True,
+            announce=False, timeout=2.5, phrase_time_limit=4, wake_mode=True
         )
-
         status = str(result.get("status", ""))
         if status == "device_error":
             self._recover_microphone()
             return {"activated": False, "command": "", "wake_word": None, "text": ""}
 
-        # STT is the primary wake detector.  For backward compatibility with
-        # older/test STT implementations, a successful transcript containing
-        # a controller-known wake alias is also accepted.
         text = str(result.get("text", "") or "").strip()
         wake_word = str(result.get("wake_word", "") or "").strip() or self._find_wake_word(text)
         wake_ok = bool(result.get("success")) and (status == "wake_detected" or bool(wake_word))
 
         if not wake_ok:
-            if status in {"silence", "unrecognized", "wake_not_detected"}:
-                self._log("Wake listen status: " + status)
-            else:
-                self._log("Wake listen status: " + str(status))
-            return {
-                "activated": False,
-                "command": "",
-                "wake_word": None,
-                "text": text,
-            }
+            self._log("Wake listen status: " + status)
+            return {"activated": False, "command": "", "wake_word": None, "text": text}
 
         self._safe_print("Wake speech -> " + text)
         self._safe_print("Wake word detected -> " + (wake_word or "Vyom"))
-
         self._activate()
 
         command = self._remove_wake_word(text)
         if command:
             self._safe_print("Command after wake -> " + command)
-
-        return {
-            "activated": True,
-            "command": command,
-            "wake_word": wake_word or "Vyom",
-            "text": text,
-        }
-
-    # ------------------------------------------------------------------
-    # Active continuous conversation
-    # ------------------------------------------------------------------
+        return {"activated": True, "command": command, "wake_word": wake_word or "Vyom", "text": text}
 
     def _listen_active_command(self):
         self.state = "listening"
         self._log("STATE -> LISTENING")
         self._safe_print("Vyom : Listening for your command...")
-
         result = self.listen_once(
-            announce=False,
-            timeout=5,
-            phrase_time_limit=10,
-            wake_mode=False,
+            announce=False, timeout=5, phrase_time_limit=10, wake_mode=False
         )
-
         status = str(result.get("status", ""))
         self.last_listen_status = status
-
         if status == "device_error":
             self._recover_microphone()
             return ""
-
         if not result.get("success"):
             self._log("Active listen status: " + status)
             return ""
-
         command = str(result.get("text", "") or "").strip()
         if command:
             self._safe_print("Command detected -> " + command)
             self._log("ACTIVE COMMAND RECEIVED")
         return command
 
-    # ------------------------------------------------------------------
-    # Exit / speech responses
-    # ------------------------------------------------------------------
-
     def _is_exit_command(self, text):
         value = self._normalize(text)
         return value in {
-            "exit",
-            "quit",
-            "stop listening",
-            "shutdown voice",
-            "bye",
-            "goodbye",
-            "stop",
-            "बंद हो जाओ",
-            "बंद करो",
-            "रुक जाओ",
-            "रुक जाओ व्योम",
-            "सुनना बंद करो",
-            "बाय",
-            "अलविदा",
+            "exit", "quit", "stop listening", "shutdown voice", "bye", "goodbye", "stop",
+            "बंद हो जाओ", "बंद करो", "रुक जाओ", "रुक जाओ व्योम", "सुनना बंद करो", "बाय", "अलविदा",
         }
+
+    def _pause_microphone_for_speech(self):
+        # v4 STT has no persistent physical stream. This method exists for
+        # compatibility and makes the transition explicit in the logs.
+        self._log("MICROPHONE PHYSICAL STREAM = RELEASED FOR TTS")
 
     def _speak_response(self, response):
         message = str(response or "").strip()
         if not message:
             self.state = "listening"
             return
-
+        self._pause_microphone_for_speech()
         self._safe_print("Vyom : " + message)
         self.speak(message)
-
-        # Give older Windows SAPI/audio drivers a brief release window before
-        # reopening another recognition cycle.
         if self.running:
             time.sleep(0.30)
             self.state = "listening"
@@ -425,17 +258,15 @@ class VoiceController:
         return self.speak("नमस्ते, मैं व्योम हूँ। मुझे जगाने के लिए व्योम कहिए।")
 
     def _speak_activation_response(self):
-        self._speak_response("हाँ, बताइए।")
+        self._log("ACTIVATION TTS BEGIN")
+        result = self._speak_response("हाँ, बताइए।")
+        self._log("ACTIVATION TTS END")
+        return result
 
     def _execute_voice_command(self, command):
         command = str(command or "").strip()
         if not command:
-            return {
-                "success": False,
-                "text": "",
-                "message": "",
-                "result": None,
-            }
+            return {"success": False, "text": "", "message": "", "result": None}
 
         if self._is_exit_command(command):
             self._log("Exit command detected.")
@@ -444,12 +275,7 @@ class VoiceController:
             self.running = False
             self.state = "idle"
             self._stop_audio_sessions()
-            return {
-                "success": True,
-                "text": command,
-                "message": "Voice session stopped.",
-                "result": None,
-            }
+            return {"success": True, "text": command, "message": "Voice session stopped.", "result": None}
 
         self._safe_print("Processing -> " + command)
         result = self.process_text(command)
@@ -467,7 +293,6 @@ class VoiceController:
                 stop_stt()
             except Exception as error:
                 self._log("STT cleanup error: " + str(error))
-
         stop_tts = getattr(self.text_to_speech, "stop", None)
         if callable(stop_tts):
             try:
@@ -475,13 +300,9 @@ class VoiceController:
             except Exception as error:
                 self._log("TTS cleanup error: " + str(error))
 
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
-
     def run(self):
         self._safe_print("=" * 60)
-        self._safe_print("Vyom AI - Voice Engine v3.0")
+        self._safe_print("Vyom AI - Voice Engine v4.0")
         self._safe_print("=" * 60)
         self._log("VOICE ENGINE STARTING...")
 
@@ -498,15 +319,14 @@ class VoiceController:
         self.state = "idle"
 
         try:
-            # Always finish startup speech before opening microphone.
             if self.text_to_speech.is_available():
                 self._log("STARTUP TTS BEGIN")
                 self._speak_startup_response()
                 self._log("STARTUP TTS END")
 
-            self._log("Starting microphone AFTER startup TTS...")
+            self._log("Starting logical voice session AFTER startup TTS...")
             if not self.speech_to_text.start_session():
-                self._safe_print("Vyom : Microphone could not be started.")
+                self._safe_print("Vyom : Microphone could not be initialized.")
                 return False
 
             self._safe_print("")
@@ -521,7 +341,6 @@ class VoiceController:
                         continue
 
                     command = str(activation.get("command", "") or "").strip()
-
                     if command:
                         self._execute_voice_command(command)
                         if self.running:
@@ -529,31 +348,27 @@ class VoiceController:
                             self.state = "listening"
                         continue
 
-                    # Wake-only case: acknowledge, then immediately listen for
-                    # the first command.  No button and no second wake word.
                     self.activated = True
                     self.state = "active"
                     self._log("WAKE -> ACTIVE SESSION")
                     self._speak_activation_response()
+                    if not self.running:
+                        break
 
                     command = self._listen_active_command()
                     if command:
                         self._execute_voice_command(command)
-
                     if self.running:
                         self.activated = True
                         self.state = "listening"
                         self._log("READY FOR NEXT COMMAND")
                     continue
 
-                # Already active: every recognized command executes and the
-                # loop immediately returns to listening.
                 command = self._listen_active_command()
                 if not command:
                     continue
 
                 self._execute_voice_command(command)
-
                 if self.running and self.continuous_conversation:
                     self.activated = True
                     self.state = "listening"
@@ -579,4 +394,3 @@ class VoiceController:
         self.activated = False
         self.state = "idle"
         self._stop_audio_sessions()
-
