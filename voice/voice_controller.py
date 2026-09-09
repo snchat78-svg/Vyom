@@ -236,23 +236,23 @@ class VoiceController:
             "बंद हो जाओ", "बंद करो", "रुक जाओ", "रुक जाओ व्योम", "सुनना बंद करो", "बाय", "अलविदा",
         }
 
-    def _pause_microphone_for_speech(self):
-        # v4 STT has no persistent physical stream. This method exists for
-        # compatibility and makes the transition explicit in the logs.
-        self._log("MICROPHONE PHYSICAL STREAM = RELEASED FOR TTS")
-
     def _speak_response(self, response):
         message = str(response or "").strip()
         if not message:
             self.state = "listening"
-            return
-        self._pause_microphone_for_speech()
+            return {"success": True, "text": "", "message": ""}
+
+        # STT v4 opens the physical microphone only while capturing an
+        # utterance and releases it before returning here. No microphone
+        # shutdown/restart is required around TTS.
+        self._log("MICROPHONE READY FOR TTS: physical capture is already released.")
         self._safe_print("Vyom : " + message)
-        self.speak(message)
+        result = self.speak(message)
         if self.running:
             time.sleep(0.30)
             self.state = "listening"
             self._log("READY TO LISTEN AGAIN")
+        return result
 
     def _speak_startup_response(self):
         return self.speak("नमस्ते, मैं व्योम हूँ। मुझे जगाने के लिए व्योम कहिए।")
@@ -394,3 +394,4 @@ class VoiceController:
         self.activated = False
         self.state = "idle"
         self._stop_audio_sessions()
+
