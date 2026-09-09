@@ -7,6 +7,7 @@ while preserving fully automatic, push-to-talk-free conversation.
 
 import difflib
 import re
+import sys
 import time
 
 from .speech_to_text import SpeechToText
@@ -28,15 +29,35 @@ class VoiceController:
         self.continuous_conversation = True
         self.last_listen_status = ""
 
+        # Keep controller-side aliases aligned with SpeechToText.
+        # STT remains the primary detector; these aliases are the final
+        # compatibility/fallback layer for transcripts returned by STT.
         self.wake_words = (
-            "hey vyom", "हे व्योम", "vyom ji", "व्योम जी", "vyom", "व्योम",
-            "viyom", "वियोम", "वियम", "वियॉम", "vyam", "biom",
+            "hey vyom", "हे व्योम", "हे वियोम", "vyom ji", "व्योम जी",
+            "vyom", "व्योम", "viyom", "viom", "वियोम", "वियम", "वियॉम",
+            "vyam", "veom", "vyoam", "viyam", "biom", "beyom", "vyoum",
+            "व्यम", "ब्योम", "बायोम", "व्योमजी", "व्योम जि",
         )
 
     @staticmethod
     def _safe_print(message):
+        """Write console diagnostics without letting legacy Windows console
+        encoding interfere with the voice pipeline.
+
+        Voice output itself is handled by TTS; console text is diagnostic only.
+        """
         try:
-            print(message, flush=True)
+            text = str(message)
+            stream = getattr(sys, "stdout", None)
+            if stream is None:
+                return
+            encoding = getattr(stream, "encoding", None) or "utf-8"
+            try:
+                text.encode(encoding)
+            except (UnicodeEncodeError, LookupError):
+                text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+            stream.write(text + "\n")
+            stream.flush()
         except Exception:
             pass
 
@@ -236,26 +257,21 @@ class VoiceController:
             "बंद हो जाओ", "बंद करो", "रुक जाओ", "रुक जाओ व्योम", "सुनना बंद करो", "बाय", "अलविदा",
         }
 
-    def _pause_microphone_for_speech(self):
-        # v4 STT has no persistent physical stream. This method exists for
-        # compatibility and makes the transition explicit in the logs.
-        self._log("MICROPHONE PHYSICAL STREAM = RELEASED FOR TTS")
-
     def _speak_response(self, response):
         message = str(response or "").strip()
         if not message:
             self.state = "listening"
             return {"success": True, "text": "", "message": ""}
 
-        # STT releases the physical microphone before returning here.
-        # Do not write the Hindi response to the Windows console before TTS:
-        # on older Windows/PyInstaller console combinations that Unicode write
-        # can block at exactly this handoff point. Voice output is delivered
-        # directly through self.speak().
+        # STT captures one utterance at a time and releases the physical
+        # microphone before returning. Never print the Hindi response here:
+        # on some legacy Windows/PyInstaller console combinations, a Unicode
+        # console write can interfere with the exact handoff from wake->TTS.
         self._log("TTS HANDOFF: physical microphone is already released.")
         self._log("TTS HANDOFF BEGIN")
         result = self.speak(message)
         self._log("TTS HANDOFF END")
+
         if self.running:
             time.sleep(0.30)
             self.state = "listening"
