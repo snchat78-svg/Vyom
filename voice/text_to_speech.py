@@ -55,6 +55,7 @@ class TextToSpeech:
         self._english_voice = None
 
         self._current_voice = None
+        self._pyttsx3 = None
 
         self._initialize()
 
@@ -83,6 +84,7 @@ class TextToSpeech:
         try:
 
             import pyttsx3
+            self._pyttsx3 = pyttsx3
 
             self._log("Importing pyttsx3: OK")
 
@@ -312,6 +314,80 @@ class TextToSpeech:
                 + str(error)
             )
 
+    def _create_fresh_engine(self):
+
+        if self._pyttsx3 is None:
+            import pyttsx3
+            self._pyttsx3 = pyttsx3
+
+        engine = self._pyttsx3.init()
+
+        if engine is None:
+            raise RuntimeError("pyttsx3 returned no engine.")
+
+        try:
+            engine.setProperty("rate", self.rate)
+        except Exception:
+            pass
+
+        try:
+            engine.setProperty("volume", self.volume)
+        except Exception:
+            pass
+
+        self._log("Fresh SAPI engine created for speech turn.")
+        return engine
+
+    @staticmethod
+    def _voice_identity(voice):
+        return " ".join(
+            str(getattr(voice, attr, ""))
+            for attr in ("id", "name", "languages")
+        ).lower()
+
+    def _select_voice_on_engine(self, engine, text):
+
+        try:
+            voices = engine.getProperty("voices") or []
+        except Exception as error:
+            self._log("Voice enumeration failed for speech turn: " + str(error))
+            voices = []
+
+        value = str(text or "")
+        is_hindi = bool(re.search(r"[\u0900-\u097F]", value))
+
+        hindi_keywords = (
+            "hindi", "hi-in", "hi_in", "hindi india",
+            "kalpana", "heera", "hemant"
+        )
+        english_keywords = (
+            "english", "en-in", "en_in", "en-us", "en_gb", "en-gb"
+        )
+
+        preferred = hindi_keywords if is_hindi else english_keywords
+        selected = None
+        for voice in voices:
+            identity = self._voice_identity(voice)
+            if any(keyword in identity for keyword in preferred):
+                selected = voice
+                break
+
+        # Hindi voice may be unavailable on older Windows installations.
+        # In that case use the first installed SAPI voice rather than fail.
+        if selected is None and is_hindi and voices:
+            selected = voices[0]
+            self._log("Hindi SAPI voice unavailable; using installed default voice.")
+
+        if selected is not None:
+            try:
+                engine.setProperty("voice", selected.id)
+                self._log(
+                    "Speech voice selected: "
+                    + str(getattr(selected, "name", selected.id))
+                )
+            except Exception as error:
+                self._log("Speech voice selection failed: " + str(error))
+
     # =========================================================
     # SPEAK
     # =========================================================
@@ -324,7 +400,6 @@ class TextToSpeech:
         self._log("speak() called.")
 
         if not self.available:
-
             return {
                 "success": False,
                 "text": str(text or ""),
@@ -335,52 +410,44 @@ class TextToSpeech:
             }
 
         if text is None:
-
             return {
                 "success": False,
                 "text": "",
                 "message": "Nothing to speak."
             }
 
-        text = str(
-            text
-        ).strip()
-
+        text = str(text).strip()
         if not text:
-
             return {
                 "success": False,
                 "text": "",
                 "message": "Nothing to speak."
             }
 
+        engine = None
+        previous = self.engine
         try:
+            # IMPORTANT WINDOWS FIX:
+            # Never reuse the same SAPI/pyttsx3 engine for multiple turns.
+            # Some older Windows/SAPI combinations can hang on a second
+            # runAndWait() call even though the first call completed.
+            if previous is not None:
+                try:
+                    previous.stop()
+                except Exception:
+                    pass
 
-            self._select_voice_for_text(
-                text
-            )
+            engine = self._create_fresh_engine()
+            self.engine = engine
+            self._select_voice_on_engine(engine, text)
 
-            self._log(
-                "engine.say() START"
-            )
+            self._log("engine.say() START")
+            engine.say(text)
+            self._log("engine.say() COMPLETE")
 
-            self.engine.say(
-                text
-            )
-
-            self._log(
-                "engine.say() COMPLETE"
-            )
-
-            self._log(
-                "engine.runAndWait() START"
-            )
-
-            self.engine.runAndWait()
-
-            self._log(
-                "engine.runAndWait() COMPLETE"
-            )
+            self._log("engine.runAndWait() START")
+            engine.runAndWait()
+            self._log("engine.runAndWait() COMPLETE")
 
             return {
                 "success": True,
@@ -389,20 +456,27 @@ class TextToSpeech:
             }
 
         except Exception as error:
-
-            self._log(
-                "Speech failed: "
-                + str(error)
-            )
-
+            self._log("Speech failed: " + str(error))
             return {
                 "success": False,
                 "text": text,
-                "message": (
-                    "Text-to-Speech failed: "
-                    + str(error)
-                )
+                "message": "Text-to-Speech failed: " + str(error)
             }
+
+        finally:
+            if engine is not None:
+                try:
+                    engine.stop()
+                except Exception:
+                    pass
+            # Drop the per-turn engine so the next turn starts clean.
+            self.engine = None
+            self._current_voice = None
+            self._log("Speech turn engine released.")
+
+            # Keep availability true: the next speak() will create a fresh
+            # engine again. This is deliberate and does not disable TTS.
+            self.available = True
 
     # =========================================================
     # STOP
@@ -560,3 +634,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
