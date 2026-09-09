@@ -236,18 +236,26 @@ class VoiceController:
             "बंद हो जाओ", "बंद करो", "रुक जाओ", "रुक जाओ व्योम", "सुनना बंद करो", "बाय", "अलविदा",
         }
 
+    def _pause_microphone_for_speech(self):
+        # v4 STT has no persistent physical stream. This method exists for
+        # compatibility and makes the transition explicit in the logs.
+        self._log("MICROPHONE PHYSICAL STREAM = RELEASED FOR TTS")
+
     def _speak_response(self, response):
         message = str(response or "").strip()
         if not message:
             self.state = "listening"
             return {"success": True, "text": "", "message": ""}
 
-        # STT v4 opens the physical microphone only while capturing an
-        # utterance and releases it before returning here. No microphone
-        # shutdown/restart is required around TTS.
-        self._log("MICROPHONE READY FOR TTS: physical capture is already released.")
-        self._safe_print("Vyom : " + message)
+        # STT releases the physical microphone before returning here.
+        # Do not write the Hindi response to the Windows console before TTS:
+        # on older Windows/PyInstaller console combinations that Unicode write
+        # can block at exactly this handoff point. Voice output is delivered
+        # directly through self.speak().
+        self._log("TTS HANDOFF: physical microphone is already released.")
+        self._log("TTS HANDOFF BEGIN")
         result = self.speak(message)
+        self._log("TTS HANDOFF END")
         if self.running:
             time.sleep(0.30)
             self.state = "listening"
@@ -302,7 +310,7 @@ class VoiceController:
 
     def run(self):
         self._safe_print("=" * 60)
-        self._safe_print("Vyom AI - Voice Engine v4.0")
+        self._safe_print("Vyom AI - Voice Engine v5.0")
         self._safe_print("=" * 60)
         self._log("VOICE ENGINE STARTING...")
 
@@ -394,4 +402,3 @@ class VoiceController:
         self.activated = False
         self.state = "idle"
         self._stop_audio_sessions()
-
