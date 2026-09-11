@@ -29,9 +29,6 @@ class VoiceController:
         self.continuous_conversation = True
         self.last_listen_status = ""
 
-        # Keep controller-side aliases aligned with SpeechToText.
-        # STT remains the primary detector; these aliases are the final
-        # compatibility/fallback layer for transcripts returned by STT.
         self.wake_words = (
             "hey vyom", "हे व्योम", "हे वियोम", "vyom ji", "व्योम जी",
             "vyom", "व्योम", "viyom", "viom", "वियोम", "वियम", "वियॉम",
@@ -41,11 +38,6 @@ class VoiceController:
 
     @staticmethod
     def _safe_print(message):
-        """Write console diagnostics without letting legacy Windows console
-        encoding interfere with the voice pipeline.
-
-        Voice output itself is handled by TTS; console text is diagnostic only.
-        """
         try:
             text = str(message)
             stream = getattr(sys, "stdout", None)
@@ -236,16 +228,15 @@ class VoiceController:
         result = self.listen_once(
             announce=False, timeout=5, phrase_time_limit=10, wake_mode=False
         )
-        self._log("COMMAND LISTEN RETURNED")
         status = str(result.get("status", ""))
         self.last_listen_status = status
         if status == "device_error":
             self._recover_microphone()
             return ""
-        command = str(result.get("text", "") or "").strip()
-        if not result.get("success") and not command:
+        if not result.get("success"):
             self._log("Active listen status: " + status)
             return ""
+        command = str(result.get("text", "") or "").strip()
         if command:
             self._safe_print("Command detected -> " + command)
             self._log("ACTIVE COMMAND RECEIVED")
@@ -264,10 +255,6 @@ class VoiceController:
             self.state = "listening"
             return {"success": True, "text": "", "message": ""}
 
-        # STT captures one utterance at a time and releases the physical
-        # microphone before returning. Never print the Hindi response here:
-        # on some legacy Windows/PyInstaller console combinations, a Unicode
-        # console write can interfere with the exact handoff from wake->TTS.
         self._log("TTS HANDOFF: physical microphone is already released.")
         self._log("TTS HANDOFF BEGIN")
         result = self.speak(message)
@@ -327,7 +314,7 @@ class VoiceController:
 
     def run(self):
         self._safe_print("=" * 60)
-        self._safe_print("Vyom AI - Voice Engine v5.0")
+        self._safe_print("Vyom AI - Voice Engine v6.0")
         self._safe_print("=" * 60)
         self._log("VOICE ENGINE STARTING...")
 
@@ -419,4 +406,3 @@ class VoiceController:
         self.activated = False
         self.state = "idle"
         self._stop_audio_sessions()
-
