@@ -19,14 +19,14 @@ import time
 
 class SpeechToText:
     recognition_timeout = 4
-    google_request_timeout = 5
+    google_request_timeout = 4
 
     initial_energy_threshold = 250
     dynamic_energy_adjustment_damping = 0.15
     dynamic_energy_ratio = 1.5
 
-    pause_threshold = 0.65
-    non_speaking_duration = 0.35
+    pause_threshold = 0.80
+    non_speaking_duration = 0.45
     phrase_threshold = 0.20
 
     recovery_delay = 0.35
@@ -61,27 +61,6 @@ class SpeechToText:
             return
         try:
             print("[STT] " + str(message), flush=True)
-        except Exception:
-            pass
-
-    @staticmethod
-    def _safe_print(message):
-        """Print diagnostics without letting legacy Windows console encoding
-        interrupt the STT state machine. Voice audio is never dependent on
-        console output.
-        """
-        try:
-            text = str(message)
-            stream = getattr(sys, "stdout", None)
-            if stream is None:
-                return
-            encoding = getattr(stream, "encoding", None) or "utf-8"
-            try:
-                text.encode(encoding)
-            except (UnicodeEncodeError, LookupError):
-                text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
-            stream.write(text + "\n")
-            stream.flush()
         except Exception:
             pass
 
@@ -158,7 +137,7 @@ class SpeechToText:
             return False
         self._session_active = True
         self._device_error_count = 0
-        self._safe_print("Vyom : Microphone ready (adaptive mode)")
+        print("Vyom : Microphone ready (adaptive mode)", flush=True)
         self._log("Logical microphone session ACTIVE (capture-per-utterance mode).")
         return True
 
@@ -186,23 +165,53 @@ class SpeechToText:
     # Recognition
     # ------------------------------------------------------------------
 
-    def _recognize_google(self, audio, language):
+    def _recognize_google(self, audio, language, show_all=True):
         if self.recognizer is None:
             raise RuntimeError("Speech recognizer is not initialized.")
         self.recognizer.operation_timeout = self.google_request_timeout
-        return self.recognizer.recognize_google(audio, language=language)
+        return self.recognizer.recognize_google(
+            audio, language=language, show_all=show_all
+        )
+
+    @staticmethod
+    def _extract_transcripts(payload):
+        """Return Google alternatives in best-first order.
+
+        SpeechRecognition returns a dict when show_all=True. Keeping this
+        parser tolerant also makes the voice layer compatible with older
+        SpeechRecognition builds and mocked tests.
+        """
+        if isinstance(payload, str):
+            text = payload.strip()
+            return [text] if text else []
+        if not isinstance(payload, dict):
+            return []
+
+        alternatives = payload.get("alternative") or []
+        texts = []
+        for item in alternatives:
+            if isinstance(item, dict):
+                text = str(item.get("transcript") or "").strip()
+                if text and text not in texts:
+                    texts.append(text)
+        return texts
 
     def _recognize_one(self, audio, language, label="STT"):
         started = time.time()
         self._log("%s request started: %s" % (label, language))
         try:
-            text = str(self._recognize_google(audio, language) or "").strip()
+            payload = self._recognize_google(audio, language, show_all=True)
+            transcripts = self._extract_transcripts(payload)
+            text = transcripts[0] if transcripts else ""
             elapsed = time.time() - started
             self._log("%s request finished: %s in %.2fs" % (label, language, elapsed))
             self._log("%s transcript: %s" % (label, text if text else "<empty>"))
+            if len(transcripts) > 1:
+                self._log("%s alternatives: %d" % (label, len(transcripts)))
             return {
                 "success": bool(text),
                 "text": text,
+                "alternatives": transcripts,
                 "language": language,
                 "status": "recognized" if text else "unrecognized",
             }
@@ -282,84 +291,112 @@ class SpeechToText:
         return False, ""
 
     def _recognize_wake(self, audio):
-        languages = []
-        for language in self.wake_languages + (self.preferred_language, self.fallback_language):
-            if language and language not in languages:
-                languages.append(language)
-
-        any_transcript = ""
-        any_language = ""
-        last_error = ""
+        # One Google request is the normal path. Google alternatives are
+        # checked locally, so a single utterance does not require the user to
+        # repeat "Vyom". Hindi is used only as an automatic fallback when the
+        # first request fails at the network/recognition boundary.
         self._log("WAKE recognition cycle START")
 
-        for language in languages:
-            result = self._recognize_one(audio, language, label="WAKE STT")
-            if result.get("status") == "device_error":
-                self._last_status = "device_error"
-                return result
+        first = self._recognize_one(audio, "en-IN", label="WAKE STT")
+        if first.get("status") == "device_error":
+            self._last_status = "device_error"
+            return first
 
-            text = str(result.get("text") or "").strip()
-            if text:
-                any_transcript = text
-                any_language = language
+        candidates = list(first.get("alternatives") or [])
+        if first.get("text") and first.get("text") not in candidates:
+            candidates.insert(0, first.get("text"))
+
+        for text in candidates:
+            matched, alias = self._wake_detected(text)
+            if matched:
+                self._last_text = text
+                self._last_language = "en-IN"
+                self._last_status = "wake_detected"
+                self._log("WAKE WORD MATCHED: " + alias)
+                self._log("WAKE recognition cycle END: wake_detected")
+                return {
+                    "success": True, "text": text, "language": "en-IN",
+                    "status": "wake_detected", "wake_word": alias,
+                }
+
+        # If English recognition failed, try Hindi automatically. A clear
+        # non-wake transcript does not trigger a second network request.
+        if first.get("status") in {"network_error", "recognition_error", "unrecognized"}:
+            second = self._recognize_one(audio, "hi-IN", label="WAKE STT")
+            if second.get("status") == "device_error":
+                return second
+            candidates = list(second.get("alternatives") or [])
+            if second.get("text") and second.get("text") not in candidates:
+                candidates.insert(0, second.get("text"))
+            for text in candidates:
                 matched, alias = self._wake_detected(text)
                 if matched:
                     self._last_text = text
-                    self._last_language = language
+                    self._last_language = "hi-IN"
                     self._last_status = "wake_detected"
                     self._log("WAKE WORD MATCHED: " + alias)
                     self._log("WAKE recognition cycle END: wake_detected")
                     return {
-                        "success": True, "text": text, "language": language,
+                        "success": True, "text": text, "language": "hi-IN",
                         "status": "wake_detected", "wake_word": alias,
                     }
-                self._log("Wake not present in %s transcript." % language)
 
-            if result.get("message"):
-                last_error = str(result.get("message"))
-
-        status = "wake_not_detected" if any_transcript else "unrecognized"
-        self._last_text = any_transcript
-        self._last_language = any_language
-        self._last_status = status
+        text = str(first.get("text") or "").strip()
+        self._last_text = text
+        self._last_language = "en-IN" if text else ""
+        self._last_status = "wake_not_detected" if text else "unrecognized"
+        status = self._last_status
         self._log("WAKE recognition cycle END: " + status)
         return {
-            "success": False, "text": any_transcript, "language": any_language,
-            "status": status, "message": last_error,
+            "success": False, "text": text, "language": self._last_language,
+            "status": status, "message": str(first.get("message", "") or ""),
         }
 
     def _recognize_command(self, audio):
-        languages = []
-        for language in (self.preferred_language, self.fallback_language):
-            if language and language not in languages:
-                languages.append(language)
-
-        last_error = ""
         self._log("COMMAND recognition cycle START")
-        for language in languages:
-            result = self._recognize_one(audio, language, label="STT")
-            if result.get("status") == "device_error":
-                return result
-            text = str(result.get("text", "") or "").strip()
-            if result.get("success") or text:
-                self._last_text = text
-                self._last_language = language
-                self._last_status = "recognized"
-                self._log("COMMAND recognition cycle END: recognized")
-                return {
-                    "success": True,
-                    "text": text,
-                    "language": language,
-                    "status": "recognized",
-                    "message": str(result.get("message", "") or ""),
-                }
-            last_error = str(result.get("message", "") or "")
+
+        # Hindi is the primary command language. Google alternatives let us
+        # accept natural Hindi/English-mixed commands in the same request.
+        first = self._recognize_one(audio, self.preferred_language, label="STT")
+        if first.get("status") == "device_error":
+            return first
+        if first.get("success") or first.get("text"):
+            text = str(first.get("text") or "").strip()
+            self._last_text = text
+            self._last_language = self.preferred_language
+            self._last_status = "recognized"
+            self._log("COMMAND recognition cycle END: recognized")
+            return {
+                "success": True, "text": text,
+                "alternatives": list(first.get("alternatives") or []),
+                "language": self.preferred_language,
+                "status": "recognized",
+            }
+
+        # Fallback to English only when the primary recognition did not
+        # produce a usable transcript. This preserves English-only commands
+        # without making successful Hindi commands pay a second request.
+        second = self._recognize_one(audio, self.fallback_language, label="STT")
+        if second.get("status") == "device_error":
+            return second
+        if second.get("success") or second.get("text"):
+            text = str(second.get("text") or "").strip()
+            self._last_text = text
+            self._last_language = self.fallback_language
+            self._last_status = "recognized"
+            self._log("COMMAND recognition cycle END: recognized")
+            return {
+                "success": True, "text": text,
+                "alternatives": list(second.get("alternatives") or []),
+                "language": self.fallback_language,
+                "status": "recognized",
+            }
 
         self._last_status = "unrecognized"
         self._log("COMMAND recognition cycle END: unrecognized")
         return {
             "success": False, "text": "", "language": "", "status": "unrecognized",
-            "message": last_error,
+            "message": str(second.get("message") or first.get("message") or ""),
         }
 
     # ------------------------------------------------------------------
@@ -383,7 +420,7 @@ class SpeechToText:
         self._log("Audio capture COMPLETE; microphone released.")
         return audio
 
-    def listen(self, timeout=5, phrase_time_limit=8, announce=True, wake_mode=None):
+    def listen(self, timeout=5, phrase_time_limit=None, announce=True, wake_mode=None):
         if not self.available:
             return {
                 "success": False, "text": "", "language": "",
@@ -399,17 +436,10 @@ class SpeechToText:
                 % ("WAKE" if wake_mode else "COMMAND", timeout, phrase_time_limit, self._session_active)
             )
             audio = self._capture(self._safe_timeout(timeout), self._safe_phrase_limit(phrase_time_limit))
-            self._safe_print("Vyom : Audio captured. Processing speech...")
+            print("Vyom : Audio captured. Processing speech...", flush=True)
             result = self._recognize_wake(audio) if wake_mode else self._recognize_command(audio)
-            text = str(result.get("text", "") or "").strip()
-            self._log("RECOGNITION RESULT: mode=%s success=%s status=%s text=%s" % (
-                "WAKE" if wake_mode else "COMMAND",
-                bool(result.get("success")),
-                str(result.get("status", "")),
-                text if text else "<empty>",
-            ))
-            if text:
-                self._safe_print("You : " + text)
+            if result.get("success"):
+                print("You : " + str(result.get("text", "")), flush=True)
             else:
                 self._log("Recognition status: " + str(result.get("status", "")))
             return result
@@ -455,7 +485,7 @@ class SpeechToText:
         except (TypeError, ValueError):
             return None
 
-    def listen_once(self, timeout=5, phrase_time_limit=8, announce=True):
+    def listen_once(self, timeout=5, phrase_time_limit=None, announce=True):
         return self.listen(
             timeout=timeout,
             phrase_time_limit=phrase_time_limit,
@@ -476,7 +506,7 @@ class SpeechToText:
         self.start_session()
         try:
             while True:
-                result = self.listen(timeout=5, phrase_time_limit=8, announce=True, wake_mode=False)
+                result = self.listen(timeout=5, phrase_time_limit=None, announce=True, wake_mode=False)
                 print(result)
                 if result.get("text", "").strip().lower() in {"exit", "quit", "stop"}:
                     break
