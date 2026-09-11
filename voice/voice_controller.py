@@ -236,15 +236,16 @@ class VoiceController:
         result = self.listen_once(
             announce=False, timeout=5, phrase_time_limit=10, wake_mode=False
         )
+        self._log("COMMAND LISTEN RETURNED")
         status = str(result.get("status", ""))
         self.last_listen_status = status
         if status == "device_error":
             self._recover_microphone()
             return ""
-        if not result.get("success"):
+        command = str(result.get("text", "") or "").strip()
+        if not result.get("success") and not command:
             self._log("Active listen status: " + status)
             return ""
-        command = str(result.get("text", "") or "").strip()
         if command:
             self._safe_print("Command detected -> " + command)
             self._log("ACTIVE COMMAND RECEIVED")
@@ -418,3 +419,4 @@ class VoiceController:
         self.activated = False
         self.state = "idle"
         self._stop_audio_sessions()
+
