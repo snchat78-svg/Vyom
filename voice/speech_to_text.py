@@ -13,6 +13,7 @@ there is no push-to-talk interaction.
 
 import difflib
 import re
+import sys
 import time
 
 
@@ -60,6 +61,27 @@ class SpeechToText:
             return
         try:
             print("[STT] " + str(message), flush=True)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _safe_print(message):
+        """Print diagnostics without letting legacy Windows console encoding
+        interrupt the STT state machine. Voice audio is never dependent on
+        console output.
+        """
+        try:
+            text = str(message)
+            stream = getattr(sys, "stdout", None)
+            if stream is None:
+                return
+            encoding = getattr(stream, "encoding", None) or "utf-8"
+            try:
+                text.encode(encoding)
+            except (UnicodeEncodeError, LookupError):
+                text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+            stream.write(text + "\n")
+            stream.flush()
         except Exception:
             pass
 
@@ -136,7 +158,7 @@ class SpeechToText:
             return False
         self._session_active = True
         self._device_error_count = 0
-        print("Vyom : Microphone ready (adaptive mode)", flush=True)
+        self._safe_print("Vyom : Microphone ready (adaptive mode)")
         self._log("Logical microphone session ACTIVE (capture-per-utterance mode).")
         return True
 
@@ -313,18 +335,28 @@ class SpeechToText:
                 languages.append(language)
 
         last_error = ""
+        self._log("COMMAND recognition cycle START")
         for language in languages:
             result = self._recognize_one(audio, language, label="STT")
             if result.get("status") == "device_error":
                 return result
-            if result.get("success"):
-                self._last_text = result.get("text", "")
+            text = str(result.get("text", "") or "").strip()
+            if result.get("success") or text:
+                self._last_text = text
                 self._last_language = language
                 self._last_status = "recognized"
-                return result
+                self._log("COMMAND recognition cycle END: recognized")
+                return {
+                    "success": True,
+                    "text": text,
+                    "language": language,
+                    "status": "recognized",
+                    "message": str(result.get("message", "") or ""),
+                }
             last_error = str(result.get("message", "") or "")
 
         self._last_status = "unrecognized"
+        self._log("COMMAND recognition cycle END: unrecognized")
         return {
             "success": False, "text": "", "language": "", "status": "unrecognized",
             "message": last_error,
@@ -367,10 +399,17 @@ class SpeechToText:
                 % ("WAKE" if wake_mode else "COMMAND", timeout, phrase_time_limit, self._session_active)
             )
             audio = self._capture(self._safe_timeout(timeout), self._safe_phrase_limit(phrase_time_limit))
-            print("Vyom : Audio captured. Processing speech...", flush=True)
+            self._safe_print("Vyom : Audio captured. Processing speech...")
             result = self._recognize_wake(audio) if wake_mode else self._recognize_command(audio)
-            if result.get("success"):
-                print("You : " + str(result.get("text", "")), flush=True)
+            text = str(result.get("text", "") or "").strip()
+            self._log("RECOGNITION RESULT: mode=%s success=%s status=%s text=%s" % (
+                "WAKE" if wake_mode else "COMMAND",
+                bool(result.get("success")),
+                str(result.get("status", "")),
+                text if text else "<empty>",
+            ))
+            if text:
+                self._safe_print("You : " + text)
             else:
                 self._log("Recognition status: " + str(result.get("status", "")))
             return result
@@ -447,5 +486,4 @@ class SpeechToText:
 
 if __name__ == "__main__":
     SpeechToText().test()
-
 
