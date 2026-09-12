@@ -226,7 +226,7 @@ class VoiceController:
         self._log("STATE -> LISTENING")
         self._safe_print("Vyom : Listening for your command...")
         result = self.listen_once(
-            announce=False, timeout=5, phrase_time_limit=10, wake_mode=False
+            announce=False, timeout=8, phrase_time_limit=None, wake_mode=False
         )
         status = str(result.get("status", ""))
         self.last_listen_status = status
@@ -314,7 +314,7 @@ class VoiceController:
 
     def run(self):
         self._safe_print("=" * 60)
-        self._safe_print("Vyom AI - Voice Engine v6.0")
+        self._safe_print("Vyom AI - Voice Engine v7.0")
         self._safe_print("=" * 60)
         self._log("VOICE ENGINE STARTING...")
 
