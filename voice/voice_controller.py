@@ -314,7 +314,7 @@ class VoiceController:
 
     def run(self):
         self._safe_print("=" * 60)
-        self._safe_print("Vyom AI - Voice Engine v7.0")
+        self._safe_print("Vyom AI - Voice Engine v8.0")
         self._safe_print("=" * 60)
         self._log("VOICE ENGINE STARTING...")
 
@@ -406,3 +406,4 @@ class VoiceController:
         self.activated = False
         self.state = "idle"
         self._stop_audio_sessions()
+
