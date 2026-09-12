@@ -196,12 +196,16 @@ class SpeechToText:
                     texts.append(text)
         return texts
 
-    def _recognize_one(self, audio, language, label="STT"):
+    def _recognize_one(self, audio, language, label="STT", show_all=False):
         started = time.time()
         self._log("%s request started: %s" % (label, language))
         try:
-            payload = self._recognize_google(audio, language, show_all=True)
-            transcripts = self._extract_transcripts(payload)
+            payload = self._recognize_google(audio, language, show_all=show_all)
+            if show_all:
+                transcripts = self._extract_transcripts(payload)
+            else:
+                text_value = str(payload or "").strip() if isinstance(payload, str) else ""
+                transcripts = [text_value] if text_value else []
             text = transcripts[0] if transcripts else ""
             elapsed = time.time() - started
             self._log("%s request finished: %s in %.2fs" % (label, language, elapsed))
@@ -357,7 +361,7 @@ class SpeechToText:
 
         # Hindi is the primary command language. Google alternatives let us
         # accept natural Hindi/English-mixed commands in the same request.
-        first = self._recognize_one(audio, self.preferred_language, label="STT")
+        first = self._recognize_one(audio, self.preferred_language, label="STT", show_all=False)
         if first.get("status") == "device_error":
             return first
         if first.get("success") or first.get("text"):
@@ -376,7 +380,7 @@ class SpeechToText:
         # Fallback to English only when the primary recognition did not
         # produce a usable transcript. This preserves English-only commands
         # without making successful Hindi commands pay a second request.
-        second = self._recognize_one(audio, self.fallback_language, label="STT")
+        second = self._recognize_one(audio, self.fallback_language, label="STT", show_all=False)
         if second.get("status") == "device_error":
             return second
         if second.get("success") or second.get("text"):
@@ -436,7 +440,7 @@ class SpeechToText:
                 % ("WAKE" if wake_mode else "COMMAND", timeout, phrase_time_limit, self._session_active)
             )
             audio = self._capture(self._safe_timeout(timeout), self._safe_phrase_limit(phrase_time_limit))
-            print("Vyom : Audio captured. Processing speech...", flush=True)
+            self._safe_print("Vyom : Audio captured. Processing speech...")
             result = self._recognize_wake(audio) if wake_mode else self._recognize_command(audio)
             if result.get("success"):
                 print("You : " + str(result.get("text", "")), flush=True)
