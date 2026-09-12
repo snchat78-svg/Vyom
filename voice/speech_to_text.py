@@ -64,6 +64,27 @@ class SpeechToText:
         except Exception:
             pass
 
+    @staticmethod
+    def _safe_print(message):
+        """Print console text safely on legacy Windows consoles.
+
+        Console output must never break the audio/recognition state machine.
+        """
+        try:
+            text = str(message)
+            stream = getattr(sys, "stdout", None)
+            if stream is None:
+                return
+            encoding = getattr(stream, "encoding", None) or "utf-8"
+            try:
+                text.encode(encoding)
+            except (UnicodeEncodeError, LookupError):
+                text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+            stream.write(text + "\n")
+            stream.flush()
+        except Exception:
+            pass
+
     def _initialize(self):
         self._log("Initializing Speech-To-Text...")
         try:
@@ -520,4 +541,5 @@ class SpeechToText:
 
 if __name__ == "__main__":
     SpeechToText().test()
+
 
