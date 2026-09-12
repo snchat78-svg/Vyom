@@ -19,7 +19,7 @@ import time
 
 class SpeechToText:
     recognition_timeout = 4
-    google_request_timeout = 5
+    google_request_timeout = 4
 
     initial_energy_threshold = 250
     dynamic_energy_adjustment_damping = 0.15
@@ -139,7 +139,6 @@ class SpeechToText:
             "temporary failure",
         ))
 
-    @staticmethod
     def _is_unknown_speech(self, error):
         # SpeechRecognition's UnknownValueError often has an empty string
         # representation.  Therefore string matching alone is not reliable.
@@ -336,7 +335,7 @@ class SpeechToText:
         # first request fails at the network/recognition boundary.
         self._log("WAKE recognition cycle START")
 
-        first = self._recognize_one(audio, "en-IN", label="WAKE STT")
+        first = self._recognize_one(audio, "en-IN", label="WAKE STT", show_all=True)
         if first.get("status") == "device_error":
             self._last_status = "device_error"
             return first
@@ -361,7 +360,7 @@ class SpeechToText:
         # If English recognition failed, try Hindi automatically. A clear
         # non-wake transcript does not trigger a second network request.
         if first.get("status") in {"network_error", "recognition_error", "unrecognized"}:
-            second = self._recognize_one(audio, "hi-IN", label="WAKE STT")
+            second = self._recognize_one(audio, "hi-IN", label="WAKE STT", show_all=True)
             if second.get("status") == "device_error":
                 return second
             candidates = list(second.get("alternatives") or [])
@@ -555,4 +554,5 @@ class SpeechToText:
 
 if __name__ == "__main__":
     SpeechToText().test()
+
 
