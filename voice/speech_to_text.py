@@ -19,7 +19,7 @@ import time
 
 class SpeechToText:
     recognition_timeout = 4
-    google_request_timeout = 4
+    google_request_timeout = 5
 
     initial_energy_threshold = 250
     dynamic_energy_adjustment_damping = 0.15
@@ -140,13 +140,23 @@ class SpeechToText:
         ))
 
     @staticmethod
-    def _is_unknown_speech(error):
+    def _is_unknown_speech(self, error):
+        # SpeechRecognition's UnknownValueError often has an empty string
+        # representation.  Therefore string matching alone is not reliable.
+        sr = self._sr_module
+        unknown_type = getattr(sr, "UnknownValueError", None) if sr else None
+        if unknown_type is not None:
+            try:
+                if isinstance(error, unknown_type):
+                    return True
+            except Exception:
+                pass
         text = str(error or "").lower()
         return (
             "unknownvalue" in text
             or "unknown value" in text
             or "could not understand" in text
-            or "couldn't understand" in text
+            or "couldn\'t understand" in text
         )
 
     # ------------------------------------------------------------------
@@ -244,6 +254,9 @@ class SpeechToText:
             elapsed = time.time() - started
             self._recognition_error_count += 1
             message = str(error)
+            error_name = type(error).__name__
+            if not message:
+                message = error_name
             self._log("%s request error: %s after %.2fs" % (label, message, elapsed))
             if self._is_device_error(error):
                 self._device_error_count += 1
@@ -252,6 +265,7 @@ class SpeechToText:
                     "status": "device_error", "message": message,
                 }
             if self._is_unknown_speech(error):
+                self._log("%s: speech was captured but Google could not understand it." % label)
                 return {
                     "success": False, "text": "", "language": language,
                     "status": "unrecognized", "message": message,
@@ -382,7 +396,7 @@ class SpeechToText:
 
         # Hindi is the primary command language. Google alternatives let us
         # accept natural Hindi/English-mixed commands in the same request.
-        first = self._recognize_one(audio, self.preferred_language, label="STT", show_all=False)
+        first = self._recognize_one(audio, self.preferred_language, label="STT", show_all=True)
         if first.get("status") == "device_error":
             return first
         if first.get("success") or first.get("text"):
@@ -401,7 +415,7 @@ class SpeechToText:
         # Fallback to English only when the primary recognition did not
         # produce a usable transcript. This preserves English-only commands
         # without making successful Hindi commands pay a second request.
-        second = self._recognize_one(audio, self.fallback_language, label="STT", show_all=False)
+        second = self._recognize_one(audio, self.fallback_language, label="STT", show_all=True)
         if second.get("status") == "device_error":
             return second
         if second.get("success") or second.get("text"):
@@ -541,5 +555,4 @@ class SpeechToText:
 
 if __name__ == "__main__":
     SpeechToText().test()
-
 
