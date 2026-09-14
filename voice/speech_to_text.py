@@ -494,10 +494,16 @@ class SpeechToText:
             audio = self._capture(self._safe_timeout(timeout), self._safe_phrase_limit(phrase_time_limit))
             self._safe_print("Vyom : Audio captured. Processing speech...")
             result = self._recognize_wake(audio) if wake_mode else self._recognize_command(audio)
-            if result.get("success"):
-                self._safe_print("You : " + str(result.get("text", "")))
-            else:
+            if not result.get("success"):
                 self._log("Recognition status: " + str(result.get("status", "")))
+            self._log(
+                "LISTEN RESULT RETURN: status=%s success=%s text_length=%d"
+                % (
+                    str(result.get("status", "")),
+                    bool(result.get("success", False)),
+                    len(str(result.get("text", "") or "")),
+                )
+            )
             return result
 
         except Exception as error:
@@ -572,5 +578,4 @@ class SpeechToText:
 
 if __name__ == "__main__":
     SpeechToText().test()
-
 
