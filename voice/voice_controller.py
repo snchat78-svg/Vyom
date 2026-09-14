@@ -217,8 +217,27 @@ class VoiceController:
         self._activate()
 
         command = self._remove_wake_word(text)
+
+        # A fuzzy wake match can produce an alias such as "vyam" for a
+        # transcript such as "vyayam".  That is still the wake utterance,
+        # not a user command; do not send it into the Executor.
+        if command == text and wake_word and len(self._normalize(text)) <= 24:
+            try:
+                score = difflib.SequenceMatcher(
+                    None,
+                    self._normalize(text).replace(" ", ""),
+                    self._normalize(wake_word).replace(" ", "")
+                ).ratio()
+                if score >= 0.72:
+                    command = ""
+                    self._log("Wake-only utterance consumed after fuzzy match (%.2f)." % score)
+            except Exception:
+                pass
+
         if command:
             self._safe_print("Command after wake -> " + command)
+        else:
+            self._log("WAKE ACTIVATION ONLY -> waiting for command")
         return {"activated": True, "command": command, "wake_word": wake_word or "Vyom", "text": text}
 
     def _listen_active_command(self):
