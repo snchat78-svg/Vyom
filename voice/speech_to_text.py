@@ -60,7 +60,12 @@ class SpeechToText:
         if not self.debug:
             return
         try:
-            print("[STT] " + str(message), flush=True)
+            # Keep diagnostics ASCII-safe. On older Windows/PyInstaller
+            # consoles, writing a Devanagari transcript can raise or block;
+            # that must never interrupt the recognition state machine.
+            value = str(message)
+            safe_value = value.encode("unicode_escape", errors="backslashreplace").decode("ascii")
+            print("[STT] " + safe_value, flush=True)
         except Exception:
             pass
 
@@ -231,24 +236,37 @@ class SpeechToText:
         self._log("%s request started: %s" % (label, language))
         try:
             payload = self._recognize_google(audio, language, show_all=show_all)
-            if show_all:
+
+            # Command mode normally receives a plain string (show_all=False).
+            # Wake mode may receive a dict of alternatives. Accept both forms
+            # explicitly and never force arbitrary objects through str().
+            if isinstance(payload, dict):
                 transcripts = self._extract_transcripts(payload)
-            else:
-                text_value = str(payload or "").strip() if isinstance(payload, str) else ""
+            elif isinstance(payload, str):
+                text_value = payload.strip()
                 transcripts = [text_value] if text_value else []
+            else:
+                transcripts = []
+                self._log("%s returned unsupported payload type: %s" %
+                          (label, type(payload).__name__))
+
             text = transcripts[0] if transcripts else ""
             elapsed = time.time() - started
             self._log("%s request finished: %s in %.2fs" % (label, language, elapsed))
-            self._log("%s transcript: %s" % (label, text if text else "<empty>"))
+            self._log("%s transcript received: %s" % (label, text if text else "<empty>"))
             if len(transcripts) > 1:
                 self._log("%s alternatives: %d" % (label, len(transcripts)))
-            return {
+
+            result = {
                 "success": bool(text),
                 "text": text,
                 "alternatives": transcripts,
                 "language": language,
                 "status": "recognized" if text else "unrecognized",
             }
+            self._log("%s result packaged: status=%s text_length=%d" %
+                      (label, result["status"], len(text)))
+            return result
         except Exception as error:
             elapsed = time.time() - started
             self._recognition_error_count += 1
@@ -395,7 +413,7 @@ class SpeechToText:
 
         # Hindi is the primary command language. Google alternatives let us
         # accept natural Hindi/English-mixed commands in the same request.
-        first = self._recognize_one(audio, self.preferred_language, label="STT", show_all=True)
+        first = self._recognize_one(audio, self.preferred_language, label="STT", show_all=False)
         if first.get("status") == "device_error":
             return first
         if first.get("success") or first.get("text"):
@@ -414,7 +432,7 @@ class SpeechToText:
         # Fallback to English only when the primary recognition did not
         # produce a usable transcript. This preserves English-only commands
         # without making successful Hindi commands pay a second request.
-        second = self._recognize_one(audio, self.fallback_language, label="STT", show_all=True)
+        second = self._recognize_one(audio, self.fallback_language, label="STT", show_all=False)
         if second.get("status") == "device_error":
             return second
         if second.get("success") or second.get("text"):
@@ -477,7 +495,7 @@ class SpeechToText:
             self._safe_print("Vyom : Audio captured. Processing speech...")
             result = self._recognize_wake(audio) if wake_mode else self._recognize_command(audio)
             if result.get("success"):
-                print("You : " + str(result.get("text", "")), flush=True)
+                self._safe_print("You : " + str(result.get("text", "")))
             else:
                 self._log("Recognition status: " + str(result.get("status", "")))
             return result
@@ -554,5 +572,4 @@ class SpeechToText:
 
 if __name__ == "__main__":
     SpeechToText().test()
-
 
