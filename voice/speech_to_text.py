@@ -395,7 +395,7 @@ class SpeechToText:
 
         # Hindi is the primary command language. Google alternatives let us
         # accept natural Hindi/English-mixed commands in the same request.
-        first = self._recognize_one(audio, self.preferred_language, label="STT", show_all=True)
+        first = self._recognize_one(audio, self.preferred_language, label="STT", show_all=False)
         if first.get("status") == "device_error":
             return first
         if first.get("success") or first.get("text"):
@@ -414,7 +414,7 @@ class SpeechToText:
         # Fallback to English only when the primary recognition did not
         # produce a usable transcript. This preserves English-only commands
         # without making successful Hindi commands pay a second request.
-        second = self._recognize_one(audio, self.fallback_language, label="STT", show_all=True)
+        second = self._recognize_one(audio, self.fallback_language, label="STT", show_all=False)
         if second.get("status") == "device_error":
             return second
         if second.get("success") or second.get("text"):
@@ -554,5 +554,4 @@ class SpeechToText:
 
 if __name__ == "__main__":
     SpeechToText().test()
-
 
