@@ -178,6 +178,9 @@ class VoiceController:
         if not isinstance(result, dict):
             result = {"success": bool(result), "status": "unknown", "text": ""}
         self.last_listen_status = str(result.get("status", ""))
+        self._log("STT listen_once returned: status=%s success=%s text_length=%d" % (
+            self.last_listen_status, bool(result.get("success")), len(str(result.get("text", "") or ""))
+        ))
         return result
 
     def _recover_microphone(self):
