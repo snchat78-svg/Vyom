@@ -47,7 +47,7 @@ class VoiceController:
             try:
                 text.encode(encoding)
             except (UnicodeEncodeError, LookupError):
-                text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+                text = text.encode("unicode_escape", errors="backslashreplace").decode("ascii")
             stream.write(text + "\n")
             stream.flush()
         except Exception:
