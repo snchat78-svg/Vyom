@@ -573,3 +573,4 @@ class SpeechToText:
 if __name__ == "__main__":
     SpeechToText().test()
 
+
