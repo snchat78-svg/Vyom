@@ -14,6 +14,7 @@ import re
 from typing import Any, Dict
 
 from command_engine.multilingual_command import MultilingualCommand
+from ai_core.goal_router import GoalRouter
 
 
 class IntentEngine:
@@ -51,6 +52,7 @@ class IntentEngine:
 
     def __init__(self):
         self.multilingual = MultilingualCommand()
+        self.goal_router = GoalRouter()
 
     def _normalize(self, text: Any) -> str:
         value = str(text or "").strip().lower()
@@ -146,7 +148,7 @@ class IntentEngine:
     def _strip_polite_suffix(self, target: str) -> str:
         value = str(target or "").strip()
         value = re.sub(
-            r"\s+(?:खोलो|खोलें|खोलिये|खोलिए|खोलना|कर दो|करदो|करो|कर|करें|करिये|करिए|दो|दे दो|देना|please|pls)$",
+            r"\s+(?:कर दो|करदो|करो|कर|करें|करिये|करिए|दो|दे दो|देना|please|pls)$",
             "",
             value,
             flags=re.IGNORECASE,
@@ -158,7 +160,7 @@ class IntentEngine:
 
         # Open: action may appear before OR after the target.
         open_after = re.match(
-            r"^(?:please\s+|मेरे\s+लिए\s+|मुझे\s+|जरा\s+|ज़रा\s+)?(.+?)\s+(?:open|launch|start|run|खोल|खोलो|खोलना|खोलिए|खोलिये|खोलें|चालू करो|चालू|चलाओ|चला दो|चला|khol|kholo|kholna|chalu|chalu karo|chalao|open karo|launch karo|start karo|ओपन|खोल दो|ओपन करो)(?:\s+.*)?$",
+            r"^(?:please\s+|मेरे\s+लिए\s+|मुझे\s+|जरा\s+|ज़रा\s+)?(.+?)\s+(?:open|launch|start|run|खोल|खोलो|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|चला|khol|kholo|kholna|chalu|chalu karo|chalao|open karo|launch karo|start karo|ओपन|खोल दो|ओपन करो)(?:\s+.*)?$",
             text,
             flags=re.IGNORECASE,
         )
@@ -169,7 +171,7 @@ class IntentEngine:
                 return "open", target
 
         open_before = re.match(
-            r"^(?:please\s+)?(?:open|launch|start|run|ओपन|ओपन करो|खोलो?|खोलना|खोलिए|खोलिये|खोलें|चालू करो|चालू|चलाओ|चला दो|khol|kholo|chalu|chalao|open karo|launch karo|start karo)\s+(.+?)$",
+            r"^(?:please\s+)?(?:open|launch|start|run|खोलो?|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|khol|kholo|chalu|chalao|open karo|launch karo|start karo)\s+(.+?)$",
             text,
             flags=re.IGNORECASE,
         )
@@ -229,6 +231,22 @@ class IntentEngine:
         if text in ("exit", "quit", "stop"):
             return {"intent": "close_app", "target": ""}
 
+        # ---------------------------------------------------------
+        # COMMAND / GOAL BOUNDARY
+        # ---------------------------------------------------------
+        # Run this before the natural open/close regexes. Those regexes are
+        # intentionally permissive for single actions; without this boundary
+        # a compound request could be reduced to its first action.
+        route = self.goal_router.classify(text)
+        if route.get("route") == "goal":
+            return {
+                "intent": "goal",
+                "target": original,
+                "goal": original,
+                "route_reason": route.get("reason", "goal"),
+                "compound": bool(route.get("compound", False)),
+            }
+
         natural = self._natural_family(original)
         if natural:
             family, target = natural
@@ -273,3 +291,4 @@ class IntentEngine:
             return {"intent": "open_file", "target": text}
 
         return {"intent": "unknown", "target": original}
+
