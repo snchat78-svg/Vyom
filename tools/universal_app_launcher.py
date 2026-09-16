@@ -162,6 +162,50 @@ class UniversalAppLauncher:
         self.cache_seconds = 60
 
     # ========================================================
+    # HINDI / DEVANAGARI APPLICATION ALIASES
+    #
+    # These are language aliases for common Windows applications, not a
+    # command allowlist. They let natural Hindi speech such as:
+    #
+    #     "नोटपैड खोलो"
+    #     "ओपन एक्सेल"
+    #
+    # resolve to the installed English application name found by Windows.
+    # ========================================================
+
+    DEVANAGARI_APP_ALIASES = {
+        "नोटपैड": "notepad",
+        "एक्सेल": "excel",
+        "एमएस एक्सेल": "excel",
+        "माइक्रोसॉफ्ट एक्सेल": "excel",
+        "क्रोम": "chrome",
+        "गूगल क्रोम": "chrome",
+        "कैलकुलेटर": "calculator",
+        "कैलकुलेटर": "calculator",
+        "वर्ड": "word",
+        "एमएस वर्ड": "word",
+        "माइक्रोसॉफ्ट वर्ड": "word",
+        "पावरपॉइंट": "powerpoint",
+        "पावर प्वाइंट": "powerpoint",
+        "पावर पॉइंट": "powerpoint",
+        "पेंट": "paint",
+        "फोटोशॉप": "photoshop",
+        "फाइल एक्सप्लोरर": "file explorer",
+        "फाइल एक्सप्लोरर": "file explorer",
+    }
+
+    def _target_variants(self, target):
+        value = self.clean_target(target)
+        variants = []
+        if value:
+            variants.append(value)
+        normalized = self.normalize(value)
+        alias = self.DEVANAGARI_APP_ALIASES.get(normalized)
+        if alias and alias not in variants:
+            variants.append(alias)
+        return variants
+
+    # ========================================================
     # NORMALIZE
     # ========================================================
 
@@ -1154,7 +1198,9 @@ catch {
         if not target:
             return []
 
-        target_normalized = self.normalize(target)
+        target_variants = self._target_variants(target)
+        target_normalized = self.normalize(target_variants[0]) if target_variants else ""
+        match_normalized = [self.normalize(v) for v in target_variants if self.normalize(v)]
 
         # ----------------------------------------------------
         # FAST PATH
@@ -1225,9 +1271,9 @@ catch {
                 if not app_name:
                     continue
 
-                if app_name == target_normalized:
+                if app_name in match_normalized:
                     self._add_result(exact, app)
-                elif target_normalized in app_name:
+                elif any(value and value in app_name for value in match_normalized):
                     self._add_result(partial, app)
 
         # Exact match is enough to continue immediately. This is the
@@ -1261,9 +1307,9 @@ catch {
             if not app_name:
                 continue
 
-            if app_name == target_normalized:
+            if app_name in match_normalized:
                 self._add_result(exact, app)
-            elif target_normalized in app_name:
+            elif any(value and value in app_name for value in match_normalized):
                 self._add_result(partial, app)
 
         # Program Files is intentionally last because recursive disk
@@ -1276,9 +1322,9 @@ catch {
 
             for item in program_results:
                 item_name = self.normalize(item.get("name", ""))
-                if item_name == target_normalized:
+                if item_name in match_normalized:
                     self._add_result(exact, item)
-                elif target_normalized in item_name:
+                elif any(value and value in item_name for value in match_normalized):
                     self._add_result(partial, item)
 
         results = []
