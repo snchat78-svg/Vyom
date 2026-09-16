@@ -146,7 +146,7 @@ class IntentEngine:
     def _strip_polite_suffix(self, target: str) -> str:
         value = str(target or "").strip()
         value = re.sub(
-            r"\s+(?:कर दो|करदो|करो|कर|करें|करिये|करिए|दो|दे दो|देना|please|pls)$",
+            r"\s+(?:खोलो|खोलें|खोलिये|खोलिए|खोलना|कर दो|करदो|करो|कर|करें|करिये|करिए|दो|दे दो|देना|please|pls)$",
             "",
             value,
             flags=re.IGNORECASE,
@@ -158,7 +158,7 @@ class IntentEngine:
 
         # Open: action may appear before OR after the target.
         open_after = re.match(
-            r"^(?:please\s+|मेरे\s+लिए\s+|मुझे\s+|जरा\s+|ज़रा\s+)?(.+?)\s+(?:open|launch|start|run|खोल|खोलो|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|चला|khol|kholo|kholna|chalu|chalu karo|chalao|open karo|launch karo|start karo|ओपन|खोल दो|ओपन करो)(?:\s+.*)?$",
+            r"^(?:please\s+|मेरे\s+लिए\s+|मुझे\s+|जरा\s+|ज़रा\s+)?(.+?)\s+(?:open|launch|start|run|खोल|खोलो|खोलना|खोलिए|खोलिये|खोलें|चालू करो|चालू|चलाओ|चला दो|चला|khol|kholo|kholna|chalu|chalu karo|chalao|open karo|launch karo|start karo|ओपन|खोल दो|ओपन करो)(?:\s+.*)?$",
             text,
             flags=re.IGNORECASE,
         )
@@ -169,7 +169,7 @@ class IntentEngine:
                 return "open", target
 
         open_before = re.match(
-            r"^(?:please\s+)?(?:open|launch|start|run|खोलो?|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|khol|kholo|chalu|chalao|open karo|launch karo|start karo)\s+(.+?)$",
+            r"^(?:please\s+)?(?:open|launch|start|run|ओपन|ओपन करो|खोलो?|खोलना|खोलिए|खोलिये|खोलें|चालू करो|चालू|चलाओ|चला दो|khol|kholo|chalu|chalao|open karo|launch karo|start karo)\s+(.+?)$",
             text,
             flags=re.IGNORECASE,
         )
