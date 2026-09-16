@@ -44,8 +44,17 @@ class GoalRouter:
         # Treat explicit separators as multi-step only when there is content
         # on both sides. This avoids false positives from ordinary sentences.
         for separator in self.COMPOUND_SEPARATORS:
-            pattern = r"\S(?:.*\S)?\s+" + re.escape(separator) + r"\s+\S"
-            if re.search(pattern, value, flags=re.IGNORECASE):
+            pattern = (
+                r"\S(?:.*\S)?\s+"
+                + re.escape(separator)
+                + r"\s+\S"
+            )
+
+            if re.search(
+                pattern,
+                value,
+                flags=re.IGNORECASE
+            ):
                 return True
 
         # Also recognise punctuation-based multi-step requests.
@@ -56,14 +65,20 @@ class GoalRouter:
 
     def has_task_marker(self, text: Any) -> bool:
         value = self.normalize(text)
-        return any(marker in value for marker in self.TASK_MARKERS)
+
+        return any(
+            marker in value
+            for marker in self.TASK_MARKERS
+        )
 
     def route(
         self,
         command: Any,
         intent: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+
         text = self.normalize(command)
+
         if not text:
             return {
                 "route": "command",
@@ -74,8 +89,9 @@ class GoalRouter:
         compound = self.has_compound_structure(text)
         task_marker = self.has_task_marker(text)
 
-        # Explicit multi-step structure always wins. Do not pass the parsed
-        # one-action intent into AutonomousAgent for such input.
+        # Explicit multi-step structure always wins.
+        # Do not pass the parsed one-action intent into
+        # AutonomousAgent for such input.
         if compound:
             return {
                 "route": "goal",
@@ -85,18 +101,37 @@ class GoalRouter:
                 "task_marker": task_marker,
             }
 
-        # Task language without a clear separator is also a goal when it is
-        # not one of the already-recognised deterministic command intents.
+        # Task language without a clear separator is also a goal
+        # when it is not one of the already-recognised deterministic
+        # command intents.
         intent_name = ""
-        if isinstance(intent, dict):
-            intent_name = str(intent.get("intent") or "").strip().lower()
+
+        if isinstance(
+            intent,
+            dict
+        ):
+            intent_name = str(
+                intent.get(
+                    "intent"
+                ) or ""
+            ).strip().lower()
 
         deterministic = {
-            "open", "open_file", "search_file", "search_and_open_file",
-            "close_app", "close_current", "conversation", "selection",
+            "open",
+            "open_file",
+            "search_file",
+            "search_and_open_file",
+            "close_app",
+            "close_current",
+            "conversation",
+            "selection",
         }
 
-        if task_marker and intent_name not in deterministic:
+        if (
+            task_marker
+            and
+            intent_name not in deterministic
+        ):
             return {
                 "route": "goal",
                 "reason": "task_language",
@@ -112,3 +147,21 @@ class GoalRouter:
             "compound": False,
             "task_marker": task_marker,
         }
+
+    def classify(
+        self,
+        command: Any,
+        intent: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Backward-compatible alias for route().
+
+        IntentEngine in the current main branch still calls
+        classify(). Keeping this alias prevents that caller
+        from raising AttributeError while preserving route()
+        as the canonical API used by Executor.
+        """
+
+        return self.route(
+            command,
+            intent=intent
+        )
