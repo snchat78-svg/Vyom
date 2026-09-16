@@ -1,7 +1,8 @@
-"""Safe command-vs-goal boundary for Vyom.
+"""Goal-vs-command routing for Vyom.
 
-The router only classifies user input. It never executes tools and never
-modifies the existing command/executor pipeline.
+This module decides whether an input should remain on the existing
+single-action command path or enter AutonomousAgent as a user goal.
+It never executes tools and does not change the existing command parser.
 """
 
 import re
@@ -9,16 +10,17 @@ from typing import Any, Dict, Optional
 
 
 class GoalRouter:
-    """Identify explicit multi-step goals before single-action parsing."""
+    """Classify an input before command execution.
+
+    The router is intentionally conservative: ordinary one-action commands
+    remain on the proven fast path. Inputs with explicit multi-step structure
+    are sent to the existing AutonomousAgent without passing a partially
+    parsed intent that could accidentally collapse a goal into one action.
+    """
 
     COMPOUND_SEPARATORS = (
-        "और फिर",
-        "उसके बाद",
-        "और",
-        "फिर",
-        "after that",
-        "then",
-        "and",
+        "और", "फिर", "उसके बाद", "और फिर",
+        "and", "then", "after that",
     )
 
     TASK_MARKERS = (
@@ -30,46 +32,61 @@ class GoalRouter:
         "भरो", "भरना",
     )
 
-    def normalize(self, value: Any) -> str:
-        text = str(value or "").strip().lower()
-        return re.sub(r"\s+", " ", text)
+    def normalize(self, text: Any) -> str:
+        value = str(text or "").strip().lower()
+        return re.sub(r"\s+", " ", value)
 
-    def has_compound_structure(self, value: Any) -> bool:
-        text = self.normalize(value)
-        if not text:
+    def has_compound_structure(self, text: Any) -> bool:
+        value = self.normalize(text)
+        if not value:
             return False
 
+        # Treat explicit separators as multi-step only when there is content
+        # on both sides. This avoids false positives from ordinary sentences.
         for separator in self.COMPOUND_SEPARATORS:
             pattern = r"\S(?:.*\S)?\s+" + re.escape(separator) + r"\s+\S"
-            if re.search(pattern, text, flags=re.IGNORECASE):
+            if re.search(pattern, value, flags=re.IGNORECASE):
                 return True
 
-        return bool(re.search(r";\s*\S", text))
+        # Also recognise punctuation-based multi-step requests.
+        if re.search(r";\s*\S", value):
+            return True
 
-    def has_task_marker(self, value: Any) -> bool:
-        text = self.normalize(value)
-        return any(marker in text for marker in self.TASK_MARKERS)
+        return False
 
-    def classify(
+    def has_task_marker(self, text: Any) -> bool:
+        value = self.normalize(text)
+        return any(marker in value for marker in self.TASK_MARKERS)
+
+    def route(
         self,
-        value: Any,
+        command: Any,
         intent: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        text = self.normalize(value)
+        text = self.normalize(command)
         if not text:
-            return {"route": "command", "reason": "empty_input"}
+            return {
+                "route": "command",
+                "reason": "empty_input",
+                "goal": False,
+            }
 
         compound = self.has_compound_structure(text)
         task_marker = self.has_task_marker(text)
 
+        # Explicit multi-step structure always wins. Do not pass the parsed
+        # one-action intent into AutonomousAgent for such input.
         if compound:
             return {
                 "route": "goal",
                 "reason": "compound_structure",
+                "goal": True,
                 "compound": True,
                 "task_marker": task_marker,
             }
 
+        # Task language without a clear separator is also a goal when it is
+        # not one of the already-recognised deterministic command intents.
         intent_name = ""
         if isinstance(intent, dict):
             intent_name = str(intent.get("intent") or "").strip().lower()
@@ -83,6 +100,7 @@ class GoalRouter:
             return {
                 "route": "goal",
                 "reason": "task_language",
+                "goal": True,
                 "compound": False,
                 "task_marker": True,
             }
@@ -90,6 +108,7 @@ class GoalRouter:
         return {
             "route": "command",
             "reason": "single_action_or_conversation",
+            "goal": False,
             "compound": False,
             "task_marker": task_marker,
         }
