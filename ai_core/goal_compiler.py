@@ -172,8 +172,10 @@ class GoalCompiler:
             ) and target:
                 suggested.append(dict(intent))
 
+        parts = self._split_compound(original)
+
         if not suggested:
-            for part in self._split_compound(original):
+            for part in parts:
                 compiled = self._compile_single_intent(part)
                 if compiled:
                     target = str(compiled.get("target") or "").lower()
@@ -181,6 +183,15 @@ class GoalCompiler:
                         compiled = None
                 if compiled:
                     suggested.append(compiled)
+
+        # Safety boundary for compound goals: if only some parts have a
+        # deterministic intent, do not treat the partial result as a complete
+        # executable goal. This prevents "open X and do Y" from silently
+        # executing only "open X". The next reasoning/capability phase can
+        # decide how to handle the missing part.
+        partial_compilation = bool(len(parts) > 1 and 0 < len(suggested) < len(parts))
+        if partial_compilation:
+            suggested = []
 
         # Context-aware short follow-ups.
         lowered = original.lower()
@@ -228,11 +239,17 @@ class GoalCompiler:
             "context_used": bool(ctx),
             "suggested_intents": suggested,
             "sub_goals": sub_goals,
+            "partial_compilation": partial_compilation,
             "requires_new_capability": not bool(suggested),
             "reason": (
                 "Goal compiled into existing executable intents."
                 if suggested
-                else "Goal understood at a high level; no existing executable intent was safely matched."
+                else (
+                    "Compound goal was only partially recognized; "
+                    "no partial execution is allowed."
+                    if partial_compilation
+                    else "Goal understood at a high level; no existing executable intent was safely matched."
+                )
             ),
         }
         self.last_compilation = result
