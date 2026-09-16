@@ -56,6 +56,7 @@ Security:
 from ai_core.brain import Brain
 from ai_core.autonomous_agent import AutonomousAgent
 from command_engine.intent import IntentEngine
+from ai_core.goal_router import GoalRouter
 import re
 
 from tools.tool_manager import ToolManager
@@ -69,6 +70,7 @@ from ai_core.response_engine import ResponseEngine
 brain = Brain()
 
 intent_engine = IntentEngine()
+goal_router = GoalRouter()
 
 tool_manager = ToolManager()
 
@@ -623,6 +625,51 @@ def execute(
 
         return (
             "Vyom session stopped."
+        )
+
+    # =========================================================
+    # GOAL / COMMAND ROUTING
+    # =========================================================
+    # Compound goals must be routed before IntentEngine can reduce them to
+    # the first matching one-action pattern. For a goal, AutonomousAgent
+    # receives the original natural-language goal with no partial intent.
+    # Single deterministic commands keep the existing fast path unchanged.
+
+    try:
+
+        route_preview = goal_router.route(command)
+
+    except Exception:
+
+        route_preview = {
+            "route": "command",
+            "reason": "router_error",
+            "goal": False,
+        }
+
+    if route_preview.get("route") == "goal":
+
+        try:
+
+            result = autonomous_agent.run(
+                goal=command,
+                intent=None
+            )
+
+        except Exception as error:
+
+            return response_engine.failure_response(
+                command,
+                str(error)
+            )
+
+        message = _result_to_message(result)
+        _sync_pending_selection_context(command)
+
+        return _natural_response(
+            command,
+            message,
+            None
         )
 
     # =========================================================
