@@ -26,7 +26,7 @@ class GoalCompiler:
     _OPEN_WORDS = (
         "open", "launch", "start", "run", "khol", "kholo",
         "kholna", "chalu", "chalao", "open karo", "launch karo",
-        "start karo", "खोल", "खोलो", "खोलना", "खोलिए", "खोलिये",
+        "start karo", "खोल", "खोलो", "खोलना", "खोलें", "खोलिए", "खोलिये",
         "चालू", "चलाओ", "ओपन", "ओपन करो", "खोल दो", "खोलना है"
     )
 
@@ -90,8 +90,8 @@ class GoalCompiler:
 
         # Open target: verb before target.
         patterns = [
-            (r"^(?:please\s+)?(?:open|launch|start|run|khol|kholo|kholna|chalu|chalao|open karo|launch karo|start karo|खोलो?|खोलना|खोलिए|खोलिये|खोल दो|चालू करो|चालू|चलाओ|ओपन(?: करो)?)(?:\s+)(.+)$", "open"),
-            (r"^(?:please\s+)?(.+?)\s+(?:open|launch|start|run|khol|kholo|chalu|chalao|open karo|launch karo|start karo|खोलो?|खोलना|खोलिए|खोलिये|खोल दो|चालू करो|चालू|चलाओ|ओपन(?: करो)?)$", "open"),
+            (r"^(?:please\s+)?(?:open|launch|start|run|khol|kholo|kholna|chalu|chalao|open karo|launch karo|start karo|खोलो?|खोलना|खोलें|खोलिए|खोलिये|खोल दो|चालू करो|चालू|चलाओ|ओपन(?: करो)?)(?:\s+)(.+)$", "open"),
+            (r"^(?:please\s+)?(.+?)\s+(?:open|launch|start|run|khol|kholo|chalu|chalao|open karo|launch karo|start karo|खोलो?|खोलना|खोलें|खोलिए|खोलिये|खोल दो|चालू करो|चालू|चलाओ|ओपन(?: करो)?)$", "open"),
         ]
         for pattern, family in patterns:
             match = re.match(pattern, value, flags=re.IGNORECASE)
@@ -127,7 +127,150 @@ class GoalCompiler:
 
         return None
 
+    def _targets_are_clean(self, targets: List[str]) -> bool:
+        """Reject target fragments that secretly contain another action/clause."""
+
+        action_words = list(self._OPEN_WORDS) + list(self._CLOSE_WORDS)
+        normalized_actions = sorted(
+            {
+                self.normalize(word).lower()
+                for word in action_words
+                if self.normalize(word)
+            },
+            key=len,
+            reverse=True
+        )
+
+        compound_words = (
+            "then",
+            "after that",
+            "फिर",
+            "उसके बाद",
+        )
+
+        for target in targets:
+            value = self.normalize(target).lower()
+
+            if not value:
+                return False
+
+            for action in normalized_actions:
+                if value == action or value.startswith(action + " "):
+                    return False
+
+            if any(separator in value for separator in compound_words):
+                return False
+
+        return True
+
+    def _shared_action_parts(self, goal: str) -> Optional[List[str]]:
+        """Expand a shared action across multiple targets.
+
+        Examples:
+            "नोटपैड और कैलकुलेटर खोलो"
+                -> ["नोटपैड खोलो", "कैलकुलेटर खोलो"]
+
+            "open notepad and calculator"
+                -> ["open notepad", "open calculator"]
+
+        This is still deterministic goal compilation. It does not execute
+        anything and therefore keeps the existing command/tool architecture
+        intact.
+        """
+
+        value = self.normalize(goal)
+        if not value:
+            return None
+
+        action_words = list(self._OPEN_WORDS) + list(self._CLOSE_WORDS)
+        action_words = sorted(
+            {str(word).strip() for word in action_words if str(word).strip()},
+            key=len,
+            reverse=True
+        )
+
+        action_pattern = "|".join(
+            re.escape(word)
+            for word in action_words
+        )
+
+        # -----------------------------------------------------
+        # Action BEFORE multiple targets.
+        # -----------------------------------------------------
+        match = re.match(
+            rf"^({action_pattern})\s+(.+?)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            action = match.group(1).strip()
+            target_text = match.group(2).strip(" ,")
+            targets = [
+                part.strip()
+                for part in re.split(
+                    r"\s*(?:,|and|aur|और)\s*",
+                    target_text,
+                    flags=re.IGNORECASE,
+                )
+                if part.strip()
+            ]
+
+            if (
+                len(targets) >= 2
+                and self._targets_are_clean(targets)
+            ):
+                return [
+                    f"{action} {target}"
+                    for target in targets
+                ]
+
+        # -----------------------------------------------------
+        # Action AFTER multiple targets.
+        # -----------------------------------------------------
+        match = re.match(
+            rf"^(.+?)\s+({action_pattern})$",
+            value,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            target_text = match.group(1).strip(" ,")
+            action = match.group(2).strip()
+            targets = [
+                part.strip()
+                for part in re.split(
+                    r"\s*(?:,|and|aur|और)\s*",
+                    target_text,
+                    flags=re.IGNORECASE,
+                )
+                if part.strip()
+            ]
+
+            if (
+                len(targets) >= 2
+                and self._targets_are_clean(targets)
+            ):
+                return [
+                    f"{target} {action}"
+                    for target in targets
+                ]
+
+        return None
+
     def _split_compound(self, goal: str) -> List[str]:
+        # First expand deterministic shared-action forms such as:
+        #
+        #     "नोटपैड और कैलकुलेटर खोलो"
+        #     "open notepad and calculator"
+        #
+        # This allows the mission planner to receive two complete executable
+        # intents instead of one partial compound sentence.
+        shared_parts = self._shared_action_parts(goal)
+
+        if shared_parts:
+            return shared_parts
+
         # Only split when there is a clear action separator. Do not
         # split ordinary sentences containing "and" accidentally.
         separators = r"\s+(?:and|then|after that|aur|phir|fir|और|फिर|उसके बाद)\s+"
@@ -189,7 +332,11 @@ class GoalCompiler:
         # executable goal. This prevents "open X and do Y" from silently
         # executing only "open X". The next reasoning/capability phase can
         # decide how to handle the missing part.
-        partial_compilation = bool(len(parts) > 1 and 0 < len(suggested) < len(parts))
+        partial_compilation = bool(
+            len(parts) > 1
+            and 0 < len(suggested) < len(parts)
+        )
+
         if partial_compilation:
             suggested = []
 
@@ -222,7 +369,7 @@ class GoalCompiler:
             complexity = "complex"
 
         sub_goals = []
-        for index, part in enumerate(self._split_compound(original), start=1):
+        for index, part in enumerate(parts, start=1):
             sub_goals.append({
                 "step": index,
                 "goal": part,
@@ -254,4 +401,5 @@ class GoalCompiler:
         }
         self.last_compilation = result
         return result
+
 
