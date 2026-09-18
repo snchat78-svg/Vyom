@@ -1,20 +1,20 @@
 """
 Project : Vyom AI
-Version : 1.3
+Version : 1.4
 Module  : Autonomous Agent
 
 Purpose:
     Persistent autonomous task coordinator.
 
 Architecture:
-    User instruction -> SessionMemory -> GoalCompiler -> WorldState
+    User instruction -> SessionMemory -> shared GoalCompiler -> WorldState
     -> ReasoningEngine (with DeepReasoner when configured)
     -> MissionPlanner -> MissionRuntime -> ToolManager
     -> ObservationVerifier -> SessionMemory -> continue/retry/re-plan.
 
 Important:
     - Existing ToolManager remains the actual executor.
-    - GoalCompiler structures goals.
+    - GoalCompiler structures goals and is shared with ReasoningEngine.
     - ReasoningEngine owns reasoning/route decisions.
     - MissionPlanner is the canonical plan normalization boundary.
     - MissionRuntime owns mission execution state.
@@ -48,13 +48,16 @@ class AutonomousAgent:
     ):
         self.tool_manager = tool_manager if tool_manager is not None else ToolManager()
         self.brain = brain if brain is not None else Brain()
+
+        # One shared compiler keeps the initial goal compilation and the
+        # reasoning compilation on the same contract/state path.
+        self.goal_compiler = GoalCompiler()
         self.reasoning_engine = (
             reasoning_engine
             if reasoning_engine is not None
-            else ReasoningEngine()
+            else ReasoningEngine(goal_compiler=self.goal_compiler)
         )
 
-        self.goal_compiler = GoalCompiler()
         self.mission_planner = MissionPlanner(max_steps=max_steps)
         self.mission_runtime = MissionRuntime(
             max_retries=2,
@@ -176,10 +179,7 @@ class AutonomousAgent:
             )
             return plan if isinstance(plan, list) else []
         except Exception as error:
-            self.task_history.append({
-                "stage": "mission_planner",
-                "error": str(error)
-            })
+            self.task_history.append({"stage": "mission_planner", "error": str(error)})
             return []
 
     def _execute_step(self, step) -> Dict[str, Any]:
@@ -217,11 +217,7 @@ class AutonomousAgent:
                 "step": step
             }
 
-        self.context.record_action({
-            "type": step_type,
-            "intent": current_intent,
-            "step": step
-        })
+        self.context.record_action({"type": step_type, "intent": current_intent, "step": step})
 
         try:
             result = self.tool_manager.execute(current_intent)
@@ -236,22 +232,12 @@ class AutonomousAgent:
                 "verified": False,
                 "result_success": False
             })
-            return {
-                "success": False,
-                "stage": "execution_error",
-                "error": str(error),
-                "step": step
-            }
+            return {"success": False, "stage": "execution_error", "error": str(error), "step": step}
 
         result_successful = self._result_is_successful(result)
-        verification = {}
-        verified = False
-
         try:
             verification = self.verifier.verify(current_intent, result)
-            if isinstance(verification, dict):
-                verified = bool(verification.get("verified", False))
-            else:
+            if not isinstance(verification, dict):
                 verification = {
                     "verified": False,
                     "state": "invalid_verification_result",
@@ -265,11 +251,12 @@ class AutonomousAgent:
                 "error": str(error)
             }
 
+        verified = bool(verification.get("verified", False))
         successful = result_successful and verified
         self.context.record_result(result, successful)
         self._update_context_from_intent(current_intent)
 
-        history_item = {
+        self.task_history.append({
             "step": self.step_count,
             "type": step_type,
             "intent": current_intent,
@@ -277,78 +264,35 @@ class AutonomousAgent:
             "verified": verified,
             "verification": verification,
             "result_success": result_successful
-        }
-        self.task_history.append(history_item)
+        })
 
         if isinstance(result, str):
             lowered = result.lower()
             if "multiple items found" in lowered or "please select a number" in lowered:
-                self.context.set_pending_selection(
-                    target=self.context.current_target,
-                    options=[]
-                )
-        elif isinstance(result, dict) and (
-            result.get("multiple") or result.get("requires_selection")
-        ):
+                self.context.set_pending_selection(target=self.context.current_target, options=[])
+        elif isinstance(result, dict) and (result.get("multiple") or result.get("requires_selection")):
             options = result.get("options", [])
             if not isinstance(options, list):
                 options = []
-            self.context.set_pending_selection(
-                target=self.context.current_target,
-                options=options
-            )
+            self.context.set_pending_selection(target=self.context.current_target, options=options)
 
         if successful:
-            return {
-                "success": True,
-                "stage": "verified",
-                "result": result,
-                "verification": verification,
-                "step": self.step_count
-            }
-
+            return {"success": True, "stage": "verified", "result": result, "verification": verification, "step": self.step_count}
         if result_successful and not verified:
-            return {
-                "success": False,
-                "stage": "verification_failed",
-                "result": result,
-                "verification": verification,
-                "step": self.step_count
-            }
-
-        return {
-            "success": False,
-            "stage": "execution_failed",
-            "result": result,
-            "verification": verification,
-            "step": self.step_count
-        }
+            return {"success": False, "stage": "verification_failed", "result": result, "verification": verification, "step": self.step_count}
+        return {"success": False, "stage": "execution_failed", "result": result, "verification": verification, "step": self.step_count}
 
     def _run_mission(self, goal, plan, intent, analysis, compilation, route):
         if not plan:
             self.active = False
             self.context.mark_failed()
-            return {
-                "success": False,
-                "stage": "empty_plan",
-                "message": "I understood the goal, but there is no execution step available yet.",
-                "goal": goal,
-                "analysis": analysis,
-                "goal_compilation": compilation,
-                "context": self.context.snapshot()
-            }
+            return {"success": False, "stage": "empty_plan", "message": "I understood the goal, but there is no execution step available yet.", "goal": goal, "analysis": analysis, "goal_compilation": compilation, "context": self.context.snapshot()}
 
         runtime_snapshot = self.mission_runtime.start(goal=goal, plan=plan)
         if not isinstance(runtime_snapshot, dict):
             self.active = False
             self.context.mark_failed()
-            return {
-                "success": False,
-                "stage": "mission_runtime_start_error",
-                "message": "Mission Runtime could not start the mission.",
-                "goal": goal,
-                "context": self.context.snapshot()
-            }
+            return {"success": False, "stage": "mission_runtime_start_error", "message": "Mission Runtime could not start the mission.", "goal": goal, "context": self.context.snapshot()}
 
         while self.step_count < self.max_steps:
             if self.mission_runtime.needs_replan():
@@ -362,81 +306,31 @@ class AutonomousAgent:
                     self.active = False
                     self.context.mark_completed()
                     last_result = self.task_history[-1].get("result") if self.task_history else None
-                    return {
-                        "success": True,
-                        "stage": "completed",
-                        "result": last_result,
-                        "goal": goal,
-                        "goal_compilation": compilation,
-                        "analysis": analysis,
-                        "history": self.task_history,
-                        "mission": runtime,
-                        "context": self.context.snapshot()
-                    }
+                    return {"success": True, "stage": "completed", "result": last_result, "goal": goal, "goal_compilation": compilation, "analysis": analysis, "history": self.task_history, "mission": runtime, "context": self.context.snapshot()}
                 if state == "blocked":
                     self.active = False
-                    return {
-                        "success": False,
-                        "stage": "mission_blocked",
-                        "message": runtime.get("last_error", "Mission is blocked."),
-                        "goal": goal,
-                        "goal_compilation": compilation,
-                        "analysis": analysis,
-                        "mission": runtime,
-                        "context": self.context.snapshot()
-                    }
+                    return {"success": False, "stage": "mission_blocked", "message": runtime.get("last_error", "Mission is blocked."), "goal": goal, "goal_compilation": compilation, "analysis": analysis, "mission": runtime, "context": self.context.snapshot()}
                 break
 
             result = self._execute_step(step)
             step_id = step.get("id")
 
             if result.get("stage") == "safety_limit":
-                self.mission_runtime.mark_failed(
-                    step_id=step_id,
-                    result=result,
-                    reason="Autonomous step limit reached."
-                )
+                self.mission_runtime.mark_failed(step_id=step_id, result=result, reason="Autonomous step limit reached.")
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "safety_limit",
-                    "message": "The autonomous task stopped because the safe execution limit was reached.",
-                    "history": self.task_history,
-                    "mission": self.mission_runtime.snapshot(),
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "safety_limit", "message": "The autonomous task stopped because the safe execution limit was reached.", "history": self.task_history, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
 
             if result.get("stage") == "capability_route":
-                self.mission_runtime.block(
-                    reason="Capability route requires a capability executor.",
-                    capability=step.get("capability")
-                )
+                self.mission_runtime.block(reason="Capability route requires a capability executor.", capability=step.get("capability"))
                 self.active = False
-                return {
-                    "success": False,
-                    "stage": "capability_route",
-                    "message": result.get("message"),
-                    "step": step,
-                    "history": self.task_history,
-                    "mission": self.mission_runtime.snapshot(),
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "capability_route", "message": result.get("message"), "step": step, "history": self.task_history, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
 
             if result.get("success", False):
-                self.mission_runtime.mark_completed(
-                    step_id=step_id,
-                    result=result.get("result"),
-                    verification=result.get("verification")
-                )
+                self.mission_runtime.mark_completed(step_id=step_id, result=result.get("result"), verification=result.get("verification"))
                 continue
 
-            retry_available = self.mission_runtime.mark_failed(
-                step_id=step_id,
-                result=result.get("result"),
-                reason=result.get("stage", "execution_failed"),
-                verification=result.get("verification")
-            )
+            retry_available = self.mission_runtime.mark_failed(step_id=step_id, result=result.get("result"), reason=result.get("stage", "execution_failed"), verification=result.get("verification"))
             if retry_available:
                 continue
             if self.mission_runtime.needs_replan():
@@ -446,45 +340,20 @@ class AutonomousAgent:
             if self.step_count >= self.max_steps:
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "safety_limit",
-                    "message": "Autonomous re-planning limit reached.",
-                    "history": self.task_history,
-                    "mission": self.mission_runtime.snapshot(),
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "safety_limit", "message": "Autonomous re-planning limit reached.", "history": self.task_history, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
 
             try:
                 refreshed_state = self.world_state.snapshot(self.context.snapshot())
-                re_reasoning = self.reasoning_engine.reason(
-                    self.current_goal,
-                    intent,
-                    context=refreshed_state,
-                    previous_result=self.context.last_result
-                )
+                re_reasoning = self.reasoning_engine.reason(self.current_goal, intent, context=refreshed_state, previous_result=self.context.last_result)
             except Exception as error:
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "replanning_error",
-                    "error": str(error),
-                    "history": self.task_history,
-                    "mission": self.mission_runtime.snapshot(),
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "replanning_error", "error": str(error), "history": self.task_history, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
 
             if not isinstance(re_reasoning, dict):
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "invalid_replanning_result",
-                    "message": "Re-planning returned an invalid result.",
-                    "history": self.task_history,
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "invalid_replanning_result", "message": "Re-planning returned an invalid result.", "history": self.task_history, "context": self.context.snapshot()}
 
             new_analysis = re_reasoning.get("analysis", {})
             new_route = re_reasoning.get("route", {})
@@ -496,19 +365,14 @@ class AutonomousAgent:
             if not isinstance(new_reasoning_plan, list):
                 new_reasoning_plan = []
 
-            new_compilation = new_analysis.get("compiled_goal") if isinstance(new_analysis, dict) else None
+            new_compilation = new_analysis.get("compiled_goal")
             if isinstance(new_compilation, dict):
                 compilation = new_compilation
                 self.current_compilation = compilation
 
-            # Always pass re-plans through MissionPlanner so runtime sees
-            # the same normalized step contract as the initial mission.
             normalized_replan = self._create_fallback_plan(
                 goal=self.current_goal,
-                analysis={
-                    **new_analysis,
-                    "plan": new_reasoning_plan
-                },
+                analysis={**new_analysis, "plan": new_reasoning_plan},
                 route=new_route,
                 compilation=compilation
             )
@@ -516,67 +380,27 @@ class AutonomousAgent:
             if not normalized_replan:
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "empty_replanned_plan",
-                    "message": "I could not create a new executable mission plan.",
-                    "analysis": new_analysis,
-                    "history": self.task_history,
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "empty_replanned_plan", "message": "I could not create a new executable mission plan.", "analysis": new_analysis, "history": self.task_history, "context": self.context.snapshot()}
 
             if new_route.get("route") not in ("existing_tools", "mission"):
                 self.active = False
-                return {
-                    "success": False,
-                    "stage": "replanning_route_changed",
-                    "message": "The task now requires a different capability or execution route.",
-                    "route": new_route,
-                    "analysis": new_analysis,
-                    "history": self.task_history,
-                    "mission": self.mission_runtime.snapshot(),
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "replanning_route_changed", "message": "The task now requires a different capability or execution route.", "route": new_route, "analysis": new_analysis, "history": self.task_history, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
 
             if not self.mission_runtime.apply_replan(normalized_replan):
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "replan_apply_failed",
-                    "message": "The new mission plan could not be applied.",
-                    "history": self.task_history,
-                    "mission": self.mission_runtime.snapshot(),
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "replan_apply_failed", "message": "The new mission plan could not be applied.", "history": self.task_history, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
 
-            return self._continue_replanned_mission(
-                goal=self.current_goal,
-                intent=intent,
-                analysis=new_analysis,
-                compilation=compilation,
-                route=new_route
-            )
+            return self._continue_replanned_mission(goal=self.current_goal, intent=intent, analysis=new_analysis, compilation=compilation, route=new_route)
 
         self.active = False
         self.context.mark_failed()
-        return {
-            "success": False,
-            "stage": "mission_stopped",
-            "message": "The mission could not be completed.",
-            "goal": goal,
-            "goal_compilation": compilation,
-            "analysis": analysis,
-            "history": self.task_history,
-            "mission": self.mission_runtime.snapshot(),
-            "context": self.context.snapshot()
-        }
+        return {"success": False, "stage": "mission_stopped", "message": "The mission could not be completed.", "goal": goal, "goal_compilation": compilation, "analysis": analysis, "history": self.task_history, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
 
     def _continue_replanned_mission(self, goal, intent, analysis, compilation, route):
         while self.step_count < self.max_steps:
             if self.mission_runtime.needs_replan():
                 break
-
             step = self.mission_runtime.get_next_step()
             if step is None:
                 runtime = self.mission_runtime.snapshot()
@@ -584,62 +408,23 @@ class AutonomousAgent:
                     self.active = False
                     self.context.mark_completed()
                     last_result = self.task_history[-1].get("result") if self.task_history else None
-                    return {
-                        "success": True,
-                        "stage": "completed",
-                        "result": last_result,
-                        "goal": goal,
-                        "goal_compilation": compilation,
-                        "analysis": analysis,
-                        "history": self.task_history,
-                        "mission": runtime,
-                        "context": self.context.snapshot()
-                    }
+                    return {"success": True, "stage": "completed", "result": last_result, "goal": goal, "goal_compilation": compilation, "analysis": analysis, "history": self.task_history, "mission": runtime, "context": self.context.snapshot()}
                 break
 
             result = self._execute_step(step)
             step_id = step.get("id")
-
             if result.get("stage") == "safety_limit":
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "safety_limit",
-                    "message": "The autonomous task reached the safe step limit.",
-                    "history": self.task_history,
-                    "mission": self.mission_runtime.snapshot(),
-                    "context": self.context.snapshot()
-                }
-
+                return {"success": False, "stage": "safety_limit", "message": "The autonomous task reached the safe step limit.", "history": self.task_history, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
             if result.get("stage") == "capability_route":
                 self.active = False
-                self.mission_runtime.block(
-                    reason=result.get("message", "Capability route required."),
-                    capability=step.get("capability")
-                )
-                return {
-                    "success": False,
-                    "stage": "capability_route",
-                    "message": result.get("message"),
-                    "mission": self.mission_runtime.snapshot(),
-                    "context": self.context.snapshot()
-                }
-
+                self.mission_runtime.block(reason=result.get("message", "Capability route required."), capability=step.get("capability"))
+                return {"success": False, "stage": "capability_route", "message": result.get("message"), "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
             if result.get("success", False):
-                self.mission_runtime.mark_completed(
-                    step_id=step_id,
-                    result=result.get("result"),
-                    verification=result.get("verification")
-                )
+                self.mission_runtime.mark_completed(step_id=step_id, result=result.get("result"), verification=result.get("verification"))
                 continue
-
-            retry_available = self.mission_runtime.mark_failed(
-                step_id=step_id,
-                result=result.get("result"),
-                reason=result.get("stage", "execution_failed"),
-                verification=result.get("verification")
-            )
+            retry_available = self.mission_runtime.mark_failed(step_id=step_id, result=result.get("result"), reason=result.get("stage", "execution_failed"), verification=result.get("verification"))
             if retry_available:
                 continue
             break
@@ -649,41 +434,16 @@ class AutonomousAgent:
             self.active = False
             self.context.mark_completed()
             last_result = self.task_history[-1].get("result") if self.task_history else None
-            return {
-                "success": True,
-                "stage": "completed",
-                "result": last_result,
-                "goal": goal,
-                "goal_compilation": compilation,
-                "analysis": analysis,
-                "history": self.task_history,
-                "mission": runtime,
-                "context": self.context.snapshot()
-            }
+            return {"success": True, "stage": "completed", "result": last_result, "goal": goal, "goal_compilation": compilation, "analysis": analysis, "history": self.task_history, "mission": runtime, "context": self.context.snapshot()}
 
         self.active = False
         self.context.mark_failed()
-        return {
-            "success": False,
-            "stage": "replanned_mission_stopped",
-            "message": "The replanned mission could not be completed within the safe limit.",
-            "goal": goal,
-            "goal_compilation": compilation,
-            "analysis": analysis,
-            "route": route,
-            "history": self.task_history,
-            "mission": runtime,
-            "context": self.context.snapshot()
-        }
+        return {"success": False, "stage": "replanned_mission_stopped", "message": "The replanned mission could not be completed within the safe limit.", "goal": goal, "goal_compilation": compilation, "analysis": analysis, "route": route, "history": self.task_history, "mission": runtime, "context": self.context.snapshot()}
 
     def run(self, goal: str, intent: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         goal = str(goal or "").strip()
         if not goal:
-            return {
-                "success": False,
-                "stage": "empty_goal",
-                "message": "Please tell me what you want me to do."
-            }
+            return {"success": False, "stage": "empty_goal", "message": "Please tell me what you want me to do."}
 
         self.current_goal = goal
         self.step_count = 0
@@ -694,12 +454,7 @@ class AutonomousAgent:
             self.context.start_task(goal, preserve_context=True)
         except Exception as error:
             self.active = False
-            return {
-                "success": False,
-                "stage": "session_error",
-                "message": "Session memory could not start the task.",
-                "error": str(error)
-            }
+            return {"success": False, "stage": "session_error", "message": "Session memory could not start the task.", "error": str(error)}
 
         compilation = self._compile_goal(goal, intent=intent)
         compiled_intent = self._get_compiled_intent(compilation)
@@ -709,44 +464,20 @@ class AutonomousAgent:
         # Preserve the fast path for known, deterministic actions.
         if isinstance(effective_intent, dict):
             fast_intent = str(effective_intent.get("intent", "")).strip().lower()
-            fast_targets = (
-                "open", "open_file", "search_file",
-                "search_and_open_file", "close_app"
-            )
+            fast_targets = ("open", "open_file", "search_file", "search_and_open_file", "close_app")
             target_value = str(effective_intent.get("target") or "").strip()
             compiler_confirmed = bool(compiled_intent)
             explicit_intent = isinstance(intent, dict)
             suggested_intents = compilation.get("suggested_intents", [])
             single_compiled_action = isinstance(suggested_intents, list) and len(suggested_intents) == 1
 
-            if (
-                fast_intent in fast_targets
-                and target_value
-                and (compiler_confirmed or explicit_intent)
-                and (explicit_intent or single_compiled_action)
-            ):
+            if fast_intent in fast_targets and target_value and (compiler_confirmed or explicit_intent) and (explicit_intent or single_compiled_action):
                 try:
                     self.brain.think(effective_intent)
                 except Exception as error:
                     self.task_history.append({"stage": "brain", "error": str(error)})
-
-                fast_plan = [{
-                    "step": 1,
-                    "id": "action_1",
-                    "type": "execute_existing_intent",
-                    "goal": goal,
-                    "intent": effective_intent,
-                    "depends_on": [],
-                    "status": "pending"
-                }]
-                return self._run_mission(
-                    goal=goal,
-                    plan=fast_plan,
-                    intent=effective_intent,
-                    analysis={"type": "known_action", "goal": goal},
-                    compilation=compilation,
-                    route={"route": "existing_tools", "reason": "Single known action."}
-                )
+                fast_plan = [{"step": 1, "id": "action_1", "type": "execute_existing_intent", "goal": goal, "intent": effective_intent, "depends_on": [], "status": "pending"}]
+                return self._run_mission(goal=goal, plan=fast_plan, intent=effective_intent, analysis={"type": "known_action", "goal": goal}, compilation=compilation, route={"route": "existing_tools", "reason": "Single known action."})
 
         if isinstance(effective_intent, dict):
             try:
@@ -756,34 +487,16 @@ class AutonomousAgent:
 
         try:
             state_snapshot = self.world_state.snapshot(self.context.snapshot())
-            reasoning = self.reasoning_engine.reason(
-                goal,
-                effective_intent,
-                context=state_snapshot,
-                previous_result=self.context.last_result
-            )
+            reasoning = self.reasoning_engine.reason(goal, effective_intent, context=state_snapshot, previous_result=self.context.last_result)
         except Exception as error:
             self.active = False
             self.context.mark_failed()
-            return {
-                "success": False,
-                "stage": "reasoning_error",
-                "error": str(error),
-                "goal": goal,
-                "goal_compilation": compilation,
-                "context": self.context.snapshot()
-            }
+            return {"success": False, "stage": "reasoning_error", "error": str(error), "goal": goal, "goal_compilation": compilation, "context": self.context.snapshot()}
 
         if not isinstance(reasoning, dict):
             self.active = False
             self.context.mark_failed()
-            return {
-                "success": False,
-                "stage": "invalid_reasoning_result",
-                "message": "ReasoningEngine returned an invalid result.",
-                "goal": goal,
-                "goal_compilation": compilation
-            }
+            return {"success": False, "stage": "invalid_reasoning_result", "message": "ReasoningEngine returned an invalid result.", "goal": goal, "goal_compilation": compilation}
 
         analysis = reasoning.get("analysis", {})
         route = reasoning.get("route", {})
@@ -801,12 +514,7 @@ class AutonomousAgent:
             self.current_compilation = compilation
 
         # MissionPlanner is the canonical boundary before MissionRuntime.
-        normalized_plan = self._create_fallback_plan(
-            goal=goal,
-            analysis={**analysis, "plan": plan},
-            route=route,
-            compilation=compilation
-        )
+        normalized_plan = self._create_fallback_plan(goal=goal, analysis={**analysis, "plan": plan}, route=route, compilation=compilation)
         if normalized_plan:
             plan = normalized_plan
 
@@ -814,53 +522,18 @@ class AutonomousAgent:
             if not plan:
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "empty_plan",
-                    "message": "I understood the goal, but there is no execution step available yet.",
-                    "analysis": analysis,
-                    "goal_compilation": compilation,
-                    "context": self.context.snapshot()
-                }
-            return self._run_mission(
-                goal=goal,
-                plan=plan,
-                intent=effective_intent,
-                analysis=analysis,
-                compilation=compilation,
-                route=route
-            )
+                return {"success": False, "stage": "empty_plan", "message": "I understood the goal, but there is no execution step available yet.", "analysis": analysis, "goal_compilation": compilation, "context": self.context.snapshot()}
+            return self._run_mission(goal=goal, plan=plan, intent=effective_intent, analysis=analysis, compilation=compilation, route=route)
 
         if route.get("route") == "conversation":
             self.active = False
-            return {
-                "success": True,
-                "stage": "conversation",
-                "message": analysis.get("response", analysis.get("reason", "The task requires conversation.")),
-                "goal": self.current_goal,
-                "goal_compilation": compilation,
-                "analysis": analysis,
-                "context": self.context.snapshot()
-            }
+            return {"success": True, "stage": "conversation", "message": analysis.get("response", analysis.get("reason", "The task requires conversation.")), "goal": self.current_goal, "goal_compilation": compilation, "analysis": analysis, "context": self.context.snapshot()}
 
         if route.get("route") == "capability":
             capability = route.get("capability")
             self.active = False
-            self.mission_runtime.block(
-                reason="Required capability is available but its executor is not implemented in AutonomousAgent yet.",
-                capability=capability
-            )
-            return {
-                "success": False,
-                "stage": "capability_not_implemented",
-                "message": "The required capability was identified but its executor is not implemented yet.",
-                "capability": capability,
-                "goal": self.current_goal,
-                "goal_compilation": compilation,
-                "plan": plan,
-                "mission": self.mission_runtime.snapshot(),
-                "context": self.context.snapshot()
-            }
+            self.mission_runtime.block(reason="Required capability is available but its executor is not implemented in AutonomousAgent yet.", capability=capability)
+            return {"success": False, "stage": "capability_not_implemented", "message": "The required capability was identified but its executor is not implemented yet.", "capability": capability, "goal": self.current_goal, "goal_compilation": compilation, "plan": plan, "mission": self.mission_runtime.snapshot(), "context": self.context.snapshot()}
 
         if route.get("route") == "missing_capability":
             try:
@@ -868,51 +541,15 @@ class AutonomousAgent:
             except Exception as error:
                 self.active = False
                 self.context.mark_failed()
-                return {
-                    "success": False,
-                    "stage": "skill_builder_error",
-                    "message": "I understood the goal, but I could not prepare the capability plan.",
-                    "error": str(error),
-                    "goal": self.current_goal,
-                    "goal_compilation": compilation,
-                    "plan": plan,
-                    "context": self.context.snapshot()
-                }
+                return {"success": False, "stage": "skill_builder_error", "message": "I understood the goal, but I could not prepare the capability plan.", "error": str(error), "goal": self.current_goal, "goal_compilation": compilation, "plan": plan, "context": self.context.snapshot()}
 
             self.active = False
             if isinstance(skill_result, dict):
-                return {
-                    "success": skill_result.get("success", False),
-                    "stage": skill_result.get("stage", "skill_planned"),
-                    "message": skill_result.get("message", "I analyzed the goal and created a capability plan."),
-                    "goal": self.current_goal,
-                    "goal_compilation": compilation,
-                    "plan": plan,
-                    "skill": skill_result.get("skill"),
-                    "next_stage": skill_result.get("next_stage"),
-                    "context": self.context.snapshot()
-                }
-
-            return {
-                "success": False,
-                "stage": "skill_builder_error",
-                "message": str(skill_result),
-                "goal": self.current_goal,
-                "goal_compilation": compilation,
-                "plan": plan,
-                "context": self.context.snapshot()
-            }
+                return {"success": skill_result.get("success", False), "stage": skill_result.get("stage", "skill_planned"), "message": skill_result.get("message", "I analyzed the goal and created a capability plan."), "goal": self.current_goal, "goal_compilation": compilation, "plan": plan, "skill": skill_result.get("skill"), "next_stage": skill_result.get("next_stage"), "context": self.context.snapshot()}
+            return {"success": False, "stage": "skill_builder_error", "message": str(skill_result), "goal": self.current_goal, "goal_compilation": compilation, "plan": plan, "context": self.context.snapshot()}
 
         self.active = False
-        return {
-            "success": False,
-            "stage": "stopped",
-            "message": route.get("reason", "Task stopped."),
-            "goal": self.current_goal,
-            "goal_compilation": compilation,
-            "analysis": analysis,
-            "context": self.context.snapshot()
-        }
+        return {"success": False, "stage": "stopped", "message": route.get("reason", "Task stopped."), "goal": self.current_goal, "goal_compilation": compilation, "analysis": analysis, "context": self.context.snapshot()}
 
     def get_context(self):
         return self.context.snapshot()
