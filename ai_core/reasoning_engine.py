@@ -1,6 +1,6 @@
 """
 Project : Vyom AI
-Version : 1.1
+Version : 1.2
 Module  : Reasoning Engine
 
 Purpose:
@@ -13,7 +13,8 @@ Architecture:
       v
     Goal Analysis
       |
-      +--> Existing Intent
+      +--> Existing legacy intent
+      +--> Generic action plan
       +--> Deep Reasoning (configured model, non-trivial goals)
       +--> Known Capability
       +--> Compound Goal
@@ -31,10 +32,15 @@ IMPORTANT:
     - ToolManager remains the executor.
     - DeepReasoner is advisory planning only.
     - Deterministic simple-command behaviour remains the fast path.
+    - Generic actions are provider-agnostic and are not mapped to legacy
+      intents. Existing legacy intent execution remains unchanged.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from ai_core.action_validator import ActionValidator
+from ai_core.capability_registry import CapabilityRegistry
+from ai_core.capability_resolver import CapabilityResolver
 from ai_core.goal_compiler import GoalCompiler
 from ai_core.capability_manager import CapabilityManager
 from ai_core.deep_reasoner import DeepReasoner
@@ -42,6 +48,8 @@ from ai_core.deep_reasoner import DeepReasoner
 
 class ReasoningEngine:
 
+    # Existing execution boundary. This is deliberately kept so existing
+    # ToolManager behaviour remains unchanged during Step 1.
     SAFE_EXECUTABLE_INTENTS = {
         "open",
         "open_file",
@@ -49,6 +57,9 @@ class ReasoningEngine:
         "search_and_open_file",
         "close_app",
     }
+
+    # Legacy intent allowlist remains only as the existing ToolManager
+    # execution guard. New generic actions are NOT enumerated here.
 
     def __init__(
         self,
@@ -76,6 +87,10 @@ class ReasoningEngine:
             )
         )
 
+        self.action_validator = ActionValidator(max_steps=10)
+        self.capability_registry = CapabilityRegistry()
+        self.capability_resolver = CapabilityResolver(self.capability_registry)
+
         self.last_goal = ""
         self.last_analysis: Optional[Dict[str, Any]] = None
         self.last_plan: List[Dict[str, Any]] = []
@@ -90,38 +105,110 @@ class ReasoningEngine:
         return str(value or "").strip()
 
     # =========================================================
-    # DEEP REASONER HANDOFF
+    # MODEL PLAN EXTRACTION
     # =========================================================
 
-    def _extract_deep_intents(self, data: Any) -> List[Dict[str, str]]:
+    def _extract_deep_plan(
+        self,
+        data: Any
+    ) -> Tuple[List[Dict[str, str]], List[Dict[str, Any]], bool]:
+        """Validate model plan data without converting generic actions to intents.
+
+        Returns:
+            (legacy_intents, generic_actions, generic_actions_unsupported)
+
+        Legacy ``execute_existing_intent`` steps are kept for backward
+        compatibility. Generic ``action`` steps remain generic data and are
+        routed through the capability layer; they never fall through to the
+        existing ToolManager automatically.
+        """
         if not isinstance(data, dict):
-            return []
+            return [], [], False
 
         raw_plan = data.get("plan", [])
         if not isinstance(raw_plan, list):
-            return []
+            return [], [], False
 
-        intents: List[Dict[str, str]] = []
+        legacy_intents: List[Dict[str, str]] = []
+        generic_actions: List[Dict[str, Any]] = []
+        unsupported = False
 
         for item in raw_plan:
             if not isinstance(item, dict):
+                unsupported = True
+                break
+
+            step_type = self._normalize(item.get("type", "")).lower()
+
+            if step_type == "execute_existing_intent" or (
+                step_type == "" and isinstance(item.get("intent"), dict)
+            ):
+                raw_intent = item.get("intent")
+                if not isinstance(raw_intent, dict):
+                    unsupported = True
+                    break
+
+                name = self._normalize(raw_intent.get("intent")).lower()
+                target = self._normalize(raw_intent.get("target"))
+
+                if name in self.SAFE_EXECUTABLE_INTENTS and target:
+                    legacy_intents.append({
+                        "intent": name,
+                        "target": target,
+                        "source": "deep_reasoner",
+                    })
+                else:
+                    unsupported = True
+                    break
                 continue
 
-            raw_intent = item.get("intent")
-            if not isinstance(raw_intent, dict):
+            if step_type == "action" or "action" in item:
+                validation = self.action_validator.validate_action(
+                    item,
+                    index=len(generic_actions) + 1,
+                )
+                if not validation.get("valid", False):
+                    unsupported = True
+                    break
+                generic_actions.append(validation["action"])
                 continue
 
-            name = self._normalize(raw_intent.get("intent")).lower()
-            target = self._normalize(raw_intent.get("target"))
+            if step_type in (
+                "conversation",
+                "use_capability",
+                "request_new_capability",
+            ):
+                continue
 
-            if name in self.SAFE_EXECUTABLE_INTENTS and target:
-                intents.append({
-                    "intent": name,
-                    "target": target,
-                    "source": "deep_reasoner"
-                })
+            unsupported = True
+            break
 
+        if unsupported:
+            return [], generic_actions, True
+
+        # Never mix legacy ToolManager intents with generic actions in the
+        # same model plan. That could otherwise cause partial execution.
+        if legacy_intents and generic_actions:
+            return [], generic_actions, True
+
+        if generic_actions:
+            graph = self.action_validator.validate_plan(generic_actions)
+            if not graph.get("valid", False):
+                return [], generic_actions, True
+            generic_actions = graph.get("plan", generic_actions)
+
+        return legacy_intents, generic_actions, False
+
+    def _extract_deep_intents(self, data: Any) -> List[Dict[str, str]]:
+        """Backward-compatible helper for existing legacy callers/tests."""
+        intents, _, unsupported = self._extract_deep_plan(data)
+        if unsupported:
+            return []
         return intents
+
+    # =========================================================
+    # DEEP REASONER HANDOFF
+    # =========================================================
 
     def _deep_reason(
         self,
@@ -140,20 +227,22 @@ class ReasoningEngine:
         except Exception:
             available = False
 
-        # Simple deterministic actions keep the existing low-latency path.
         if (
             not available
             or (
                 len(suggested_intents) == 1
-                and not sub_goals
+                and len(sub_goals) <= 1
                 and previous_result is None
             )
         ):
             return {
                 "suggested_intents": suggested_intents,
                 "sub_goals": sub_goals,
+                "generic_actions": [],
                 "route": None,
                 "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
             }
 
         try:
@@ -172,8 +261,11 @@ class ReasoningEngine:
             return {
                 "suggested_intents": suggested_intents,
                 "sub_goals": sub_goals,
+                "generic_actions": [],
                 "route": None,
                 "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
             }
 
         self.last_deep_reasoning = result
@@ -182,8 +274,11 @@ class ReasoningEngine:
             return {
                 "suggested_intents": suggested_intents,
                 "sub_goals": sub_goals,
+                "generic_actions": [],
                 "route": None,
                 "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
             }
 
         data = result.get("data")
@@ -191,26 +286,24 @@ class ReasoningEngine:
             return {
                 "suggested_intents": suggested_intents,
                 "sub_goals": sub_goals,
+                "generic_actions": [],
                 "route": None,
                 "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
             }
 
-        deep_intents = self._extract_deep_intents(data)
+        deep_intents, generic_actions, unsupported = self._extract_deep_plan(data)
         route = self._normalize(data.get("route")).lower()
 
-        if deep_intents:
-            return {
-                "suggested_intents": deep_intents,
-                "sub_goals": sub_goals,
-                "route": route,
-                "data": data,
-            }
-
         return {
-            "suggested_intents": suggested_intents,
+            "suggested_intents": deep_intents or suggested_intents,
             "sub_goals": sub_goals,
+            "generic_actions": generic_actions,
             "route": route,
             "data": data,
+            "generic_action_plan": bool(generic_actions),
+            "generic_actions_unsupported": unsupported,
         }
 
     # =========================================================
@@ -294,6 +387,19 @@ class ReasoningEngine:
         sub_goals = deep.get("sub_goals", sub_goals)
         deep_data = deep.get("data")
         deep_route = deep.get("route")
+        generic_action_plan = bool(deep.get("generic_action_plan", False))
+        generic_actions_unsupported = bool(
+            deep.get("generic_actions_unsupported", False)
+        )
+        generic_actions = deep.get("generic_actions", [])
+        if not isinstance(generic_actions, list):
+            generic_actions = []
+
+        capability_resolutions = [
+            self.capability_resolver.resolve(action)
+            for action in generic_actions
+            if isinstance(action, dict)
+        ]
 
         if suggested_intents:
             if len(suggested_intents) == 1:
@@ -302,9 +408,15 @@ class ReasoningEngine:
             else:
                 goal_type = "compound_goal"
                 complexity = "medium"
+        elif generic_actions:
+            goal_type = "generic_action_goal"
+            complexity = "complex"
         elif deep_route == "conversation":
             goal_type = "conversation_goal"
             complexity = "simple"
+        elif deep_route == "capability":
+            goal_type = "capability_goal"
+            complexity = "complex"
         elif capabilities:
             goal_type = "capability_goal"
             complexity = "complex"
@@ -315,11 +427,13 @@ class ReasoningEngine:
         objective = compiled.get("objective", goal)
         reason = compiled.get("reason", "")
         language = None
+        deep_capability = None
 
         if isinstance(deep_data, dict):
             objective = deep_data.get("goal", objective) or objective
             reason = deep_data.get("reason", reason) or reason
             language = deep_data.get("language")
+            deep_capability = deep_data.get("capability")
             deep_complexity = self._normalize(deep_data.get("complexity")).lower()
             if deep_complexity in ("simple", "medium", "complex") and goal_type != "known_action":
                 complexity = deep_complexity
@@ -335,16 +449,23 @@ class ReasoningEngine:
             "sub_goals": sub_goals,
             "capabilities": capabilities,
             "requires_new_capability": (
-                not bool(suggested_intents)
-                and not bool(capabilities)
-                and deep_route not in ("conversation",)
-            ),
+                bool(generic_actions)
+                and any(
+                    not item.get("resolved", False)
+                    for item in capability_resolutions
+                )
+            ) or bool(generic_actions_unsupported),
             "context": ctx,
             "previous_result": previous_result,
             "compiled_goal": compiled,
             "deep_reasoning": deep_data,
             "deep_reasoning_source": "model" if deep_data is not None else None,
             "deep_reasoning_language": language,
+            "generic_action_plan": generic_action_plan,
+            "generic_actions": generic_actions,
+            "generic_actions_unsupported": generic_actions_unsupported,
+            "capability_resolutions": capability_resolutions,
+            "deep_capability": deep_capability,
         }
 
         self.last_analysis = analysis
@@ -385,10 +506,57 @@ class ReasoningEngine:
             self.last_route = route
             return route
 
+        # Generic actions are routed through the capability layer. They are
+        # never translated into legacy intents here.
+        generic_actions = analysis.get("generic_actions", [])
+        if isinstance(generic_actions, list) and generic_actions:
+            resolutions = [
+                self.capability_resolver.resolve(action)
+                for action in generic_actions
+                if isinstance(action, dict)
+            ]
+
+            if resolutions and all(item.get("resolved", False) for item in resolutions):
+                capabilities_found = [
+                    item.get("capability")
+                    for item in resolutions
+                    if item.get("capability")
+                ]
+                route = {
+                    "route": "capability",
+                    "reason": "Generic actions have advertised capability providers.",
+                    "capability": capabilities_found[0] if capabilities_found else "",
+                }
+            else:
+                capability = analysis.get("deep_capability")
+                if not capability and generic_actions:
+                    capability = generic_actions[0].get("capability")
+                route = {
+                    "route": "missing_capability",
+                    "reason": (
+                        "The goal requires a generic action capability that is "
+                        "not registered or does not advertise the requested action."
+                    ),
+                }
+                if capability:
+                    route["capability"] = capability
+
+            self.last_route = route
+            return route
+
         if isinstance(deep, dict) and deep.get("route") == "conversation":
             route = {
                 "route": "conversation",
                 "reason": deep.get("reason", "The task requires conversation.")
+            }
+            self.last_route = route
+            return route
+
+        if isinstance(deep, dict) and deep.get("route") == "capability":
+            route = {
+                "route": "capability",
+                "reason": deep.get("reason", "The task requires a capability."),
+                "capability": analysis.get("deep_capability") or ""
             }
             self.last_route = route
             return route
@@ -434,6 +602,9 @@ class ReasoningEngine:
 
         goal = analysis.get("goal", "")
         suggested = analysis.get("suggested_intents", [])
+        generic_actions = analysis.get("generic_actions", [])
+        if not isinstance(generic_actions, list):
+            generic_actions = []
 
         if route_name == "existing_tools":
             if isinstance(suggested, list) and suggested:
@@ -491,6 +662,7 @@ class ReasoningEngine:
                 "type": "use_capability",
                 "goal": goal,
                 "capability": route.get("capability"),
+                "required_actions": generic_actions,
                 "depends_on": [],
                 "status": "pending"
             }]
@@ -503,6 +675,8 @@ class ReasoningEngine:
                 "id": "capability_request_1",
                 "type": "request_new_capability",
                 "goal": goal,
+                "capability": route.get("capability"),
+                "required_actions": generic_actions,
                 "depends_on": [],
                 "status": "pending"
             }]
