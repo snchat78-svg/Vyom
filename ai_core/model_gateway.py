@@ -1,6 +1,6 @@
 """
 Project : Vyom AI
-Version : 1.0
+Version : 1.1
 Module  : Model Gateway
 
 Purpose:
@@ -12,6 +12,7 @@ IMPORTANT:
     - This module does NOT modify Vyom's source code.
     - This module only sends reasoning requests and returns structured AI output.
     - API credentials are read from environment variables.
+    - Generic action plans are data-only and must be validated downstream.
 """
 
 import json
@@ -55,12 +56,15 @@ Your job is to:
 7. Never generate instructions to disable security.
 8. Never request unnecessary permissions.
 9. Never execute arbitrary code.
-10. If a required capability does not exist, explicitly report that a new capability is required.
+10. Never return Python, shell, PowerShell, JavaScript, tool objects, callables, or other executable implementation details.
+11. Use the generic action protocol for actions. The action name is a capability operation, not a user command/intent.
+12. When an existing capability cannot safely satisfy a requested action, route to "missing_capability" rather than inventing an implementation.
 
 Return ONLY valid JSON.
 
 For multi-step executable goals, use route="mission".
-Never include tool implementations, Python code, shell commands, or claims that an action was executed.
+For a single action that an available capability can support, use route="existing_tools" or "capability" according to the supplied capability information.
+The plan describes intended actions only; it must never claim that an action already happened.
 
 Expected structure:
 {
@@ -75,16 +79,22 @@ Expected structure:
         {
             "step": 1,
             "type": "action",
+            "id": "action_1",
             "description": "what should happen",
-            "capability": "",
-            "intent": null
+            "action": "generic_operation_name",
+            "capability": "capability_name",
+            "target": "target if applicable",
+            "args": {},
+            "preconditions": [],
+            "postconditions": [],
+            "depends_on": []
         }
     ],
     "needs_confirmation": false,
     "reason": ""
 }
 
-The plan must describe decisions, not pretend that actions already happened.
+Use only JSON-safe values in actions. Do not put executable code in args.
 """
 
     def _build_request(self, goal, context=None, capabilities=None, previous_result=None):
