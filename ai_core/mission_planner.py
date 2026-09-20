@@ -1,15 +1,21 @@
 """
 Project : Vyom AI
-Version : 1.1
+Version : 1.2
 Module  : Mission Planner
 
 Purpose:
     Convert reasoning output into a dependency-aware mission.
 
 This module DOES NOT execute actions.
+
+Step 1 change:
+    The planner now understands the generic Action Schema while preserving
+    the existing execute_existing_intent format used by the current agent.
 """
 
 from typing import Any, Dict, List, Optional
+
+from ai_core.action_validator import ActionValidator
 
 
 class MissionPlanner:
@@ -21,6 +27,10 @@ class MissionPlanner:
         self.max_steps = max(
             1,
             int(max_steps)
+        )
+
+        self.action_validator = ActionValidator(
+            max_steps=self.max_steps
         )
 
         self.last_plan: List[
@@ -63,6 +73,33 @@ class MissionPlanner:
         }
 
     # =========================================================
+    # NORMALIZE GENERIC ACTION
+    # =========================================================
+
+    def _normalize_action(
+        self,
+        value: Any,
+        index: int
+    ) -> Optional[Dict[str, Any]]:
+        validation = self.action_validator.validate_action(
+            value,
+            index=index
+        )
+
+        if not validation.get(
+            "valid",
+            False
+        ):
+            return None
+
+        action = dict(
+            validation["action"]
+        )
+        action["step"] = index
+        action["type"] = "action"
+        return action
+
+    # =========================================================
     # NORMALIZE STEP
     # =========================================================
 
@@ -86,13 +123,69 @@ class MissionPlanner:
             ) or "execute_existing_intent"
         ).strip()
 
+        # -----------------------------------------------------
+        # Generic Action Schema
+        # -----------------------------------------------------
+
+        if step_type == "action":
+            action = self._normalize_action(
+                raw,
+                index
+            )
+
+            if action is None:
+                return None
+
+            item: Dict[str, Any] = {
+                "step": index,
+                "id": str(
+                    action.get(
+                        "id"
+                    ) or f"action_{index}"
+                ).strip(),
+                "type": "action",
+                "goal": goal,
+                "status": "pending",
+                "depends_on": []
+            }
+            item.update(action)
+            item["step"] = index
+            item["type"] = "action"
+            item["goal"] = goal
+            item["status"] = "pending"
+
+            depends = item.get(
+                "depends_on",
+                []
+            )
+
+            if isinstance(
+                depends,
+                list
+            ) and depends:
+                item["depends_on"] = [
+                    str(x)
+                    for x in depends
+                    if str(x).strip()
+                ]
+            elif previous_id:
+                item["depends_on"] = [
+                    previous_id
+                ]
+
+            return item
+
+        # -----------------------------------------------------
+        # Existing legacy mission step
+        # -----------------------------------------------------
+
         step_id = str(
             raw.get(
                 "id"
             ) or f"action_{index}"
         ).strip()
 
-        item: Dict[str, Any] = {
+        item = {
             "step": index,
             "id": step_id,
             "type": step_type,
