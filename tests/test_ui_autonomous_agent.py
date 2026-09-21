@@ -1,40 +1,5 @@
-import sys
 import types
 import unittest
-
-
-# Keep this unit test independent from the full Windows/tool stack. The real
-# integration is exercised by command_engine.executor and PyInstaller; this
-# test verifies that the Step 2 subclass preserves the base execution
-# contract while intercepting only generic action steps.
-base_module = types.ModuleType("ai_core.autonomous_agent")
-
-
-class FakeBaseAutonomousAgent:
-    def __init__(self, tool_manager=None, brain=None, reasoning_engine=None, max_steps=10):
-        class Context:
-            def record_action(self, item):
-                self.action = item
-
-            def record_result(self, result, success):
-                self.result = result
-                self.success = success
-
-        self.context = Context()
-        self.reasoning_engine = reasoning_engine or types.SimpleNamespace(
-            action_validator=None,
-            capability_registry=None,
-        )
-        self.max_steps = max(1, int(max_steps))
-        self.step_count = 0
-        self.task_history = []
-
-    def _execute_step(self, step):
-        return {"success": False, "stage": "invalid_intent", "step": step}
-
-
-base_module.AutonomousAgent = FakeBaseAutonomousAgent
-sys.modules["ai_core.autonomous_agent"] = base_module
 
 from ai_core.ui_autonomous_agent import UIAutonomousAgent
 
@@ -68,11 +33,20 @@ class FakeExecutor:
 
     def execute(self, action):
         provider = self.providers.get(action["capability"])
+        if provider is None:
+            return {
+                "success": False,
+                "stage": "capability_runtime_missing",
+                "message": "Test provider was not registered.",
+            }
         return provider.execute(action)
 
 
 class UIAutonomousAgentTests(unittest.TestCase):
     def make_agent(self):
+        # Use the real AutonomousAgent base. Only the provider/executor and
+        # validator used by this unit test are substituted. This keeps the
+        # test isolated without modifying sys.modules for other tests.
         agent = UIAutonomousAgent(max_steps=3)
         agent.capability_executor = FakeExecutor()
         agent.action_validator = types.SimpleNamespace(
