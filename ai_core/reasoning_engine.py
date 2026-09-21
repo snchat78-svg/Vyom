@@ -44,6 +44,7 @@ from ai_core.capability_resolver import CapabilityResolver
 from ai_core.goal_compiler import GoalCompiler
 from ai_core.capability_manager import CapabilityManager
 from ai_core.deep_reasoner import DeepReasoner
+from ai_core.context_action_compiler import ContextActionCompiler
 
 
 class ReasoningEngine:
@@ -90,6 +91,7 @@ class ReasoningEngine:
         self.action_validator = ActionValidator(max_steps=10)
         self.capability_registry = CapabilityRegistry()
         self.capability_resolver = CapabilityResolver(self.capability_registry)
+        self.context_action_compiler = ContextActionCompiler(self.goal_compiler)
 
         self.last_goal = ""
         self.last_analysis: Optional[Dict[str, Any]] = None
@@ -107,6 +109,80 @@ class ReasoningEngine:
     # =========================================================
     # MODEL PLAN EXTRACTION
     # =========================================================
+
+    def _extract_ordered_model_plan(self, data: Any) -> Tuple[List[Dict[str, Any]], bool]:
+        """Normalize a model plan while preserving mixed-step ordering.
+
+        Legacy existing-tool steps and generic Action Schema steps may appear
+        in one mission. The execution layer already knows how to dispatch both;
+        this method only validates and normalizes the data boundary.
+        """
+        if not isinstance(data, dict):
+            return [], False
+        raw_plan = data.get("plan", [])
+        if not isinstance(raw_plan, list):
+            return [], False
+
+        ordered: List[Dict[str, Any]] = []
+        for index, raw in enumerate(raw_plan, start=1):
+            if not isinstance(raw, dict):
+                return [], True
+
+            step_type = self._normalize(raw.get("type", "action")).lower()
+            if step_type == "execute_existing_intent":
+                intent = raw.get("intent")
+                if not isinstance(intent, dict):
+                    return [], True
+                name = self._normalize(intent.get("intent")).lower()
+                target = self._normalize(intent.get("target"))
+                if name not in self.SAFE_EXECUTABLE_INTENTS or not target:
+                    return [], True
+                ordered.append({
+                    "step": index,
+                    "id": str(raw.get("id") or f"action_{index}"),
+                    "type": "execute_existing_intent",
+                    "goal": self._normalize(data.get("goal")),
+                    "intent": {"intent": name, "target": target},
+                    "depends_on": list(raw.get("depends_on", [])) if isinstance(raw.get("depends_on"), list) else [],
+                    "status": "pending",
+                })
+                continue
+
+            if step_type == "action" or "action" in raw:
+                validation = self.action_validator.validate_action(raw, index=index)
+                if not validation.get("valid", False):
+                    return [], True
+                action = dict(validation["action"])
+                action["step"] = index
+                action["type"] = "action"
+                action["goal"] = self._normalize(data.get("goal"))
+                action.setdefault("status", "pending")
+                ordered.append(action)
+                continue
+
+            if step_type in ("conversation", "use_capability", "request_new_capability"):
+                step = dict(raw)
+                step["step"] = index
+                step["type"] = step_type
+                ordered.append(step)
+                continue
+
+            return [], True
+
+        # Validate dependencies only across generic Action Schema steps.
+        generic_steps = [step for step in ordered if step.get("type") == "action"]
+        if generic_steps:
+            validation = self.action_validator.validate_plan(generic_steps)
+            if not validation.get("valid", False):
+                return [], True
+            validated_by_id = {str(item.get("id")): item for item in validation.get("plan", [])}
+            for step in ordered:
+                if step.get("type") == "action":
+                    normalized = validated_by_id.get(str(step.get("id")))
+                    if normalized:
+                        step.update(normalized)
+                        step["type"] = "action"
+        return ordered, False
 
     def _extract_deep_plan(
         self,
@@ -184,11 +260,6 @@ class ReasoningEngine:
             break
 
         if unsupported:
-            return [], generic_actions, True
-
-        # Never mix legacy ToolManager intents with generic actions in the
-        # same model plan. That could otherwise cause partial execution.
-        if legacy_intents and generic_actions:
             return [], generic_actions, True
 
         if generic_actions:
@@ -293,13 +364,16 @@ class ReasoningEngine:
                 "generic_actions_unsupported": False,
             }
 
+        ordered_plan, ordered_unsupported = self._extract_ordered_model_plan(data)
         deep_intents, generic_actions, unsupported = self._extract_deep_plan(data)
+        unsupported = bool(unsupported or ordered_unsupported)
         route = self._normalize(data.get("route")).lower()
 
         return {
             "suggested_intents": deep_intents or suggested_intents,
             "sub_goals": sub_goals,
             "generic_actions": generic_actions,
+            "ordered_plan": ordered_plan,
             "route": route,
             "data": data,
             "generic_action_plan": bool(generic_actions),
@@ -366,27 +440,61 @@ class ReasoningEngine:
         if not isinstance(sub_goals, list):
             sub_goals = []
 
+        # ---------------------------------------------------------
+        # Contextual continuation layer
+        # ---------------------------------------------------------
+        # This runs before generic capability matching. It lets a short
+        # follow-up such as "type my name" continue in the current session
+        # without creating a new application-specific intent. It also builds
+        # a complete mixed plan for goals such as "open X and type Y".
+        contextual = self.context_action_compiler.compile(
+            goal=goal,
+            context=ctx,
+        )
+        contextual_plan = contextual.get("plan", [])
+        if not isinstance(contextual_plan, list):
+            contextual_plan = []
+        contextual_complete = bool(contextual.get("complete", False))
+        contextual_clarification = contextual.get("clarification")
+
         capabilities = []
-        if not suggested_intents:
+        if not suggested_intents and not contextual_plan:
             try:
                 capabilities = self.capability_manager.match(goal)
             except Exception:
                 capabilities = []
 
-        deep = self._deep_reason(
-            goal=goal,
-            intent=intent,
-            context=ctx,
-            capabilities=capabilities,
-            previous_result=previous_result,
-            suggested_intents=suggested_intents,
-            sub_goals=sub_goals,
-        )
+        # A complete deterministic contextual plan is already safer and more
+        # predictable than asking an unavailable model to invent actions. Let
+        # the model enrich goals that are not understood by this layer.
+        if suggested_intents or contextual_plan:
+            deep = {
+                "suggested_intents": suggested_intents,
+                "sub_goals": sub_goals,
+                "generic_actions": [],
+                "route": None,
+                "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
+            }
+        else:
+            deep = self._deep_reason(
+                goal=goal,
+                intent=intent,
+                context=ctx,
+                capabilities=capabilities,
+                previous_result=previous_result,
+                suggested_intents=suggested_intents,
+                sub_goals=sub_goals,
+            )
 
         suggested_intents = deep.get("suggested_intents", suggested_intents)
         sub_goals = deep.get("sub_goals", sub_goals)
         deep_data = deep.get("data")
         deep_route = deep.get("route")
+        model_ordered_plan = deep.get("ordered_plan", [])
+        if not isinstance(model_ordered_plan, list):
+            model_ordered_plan = []
         generic_action_plan = bool(deep.get("generic_action_plan", False))
         generic_actions_unsupported = bool(
             deep.get("generic_actions_unsupported", False)
@@ -395,13 +503,39 @@ class ReasoningEngine:
         if not isinstance(generic_actions, list):
             generic_actions = []
 
+        contextual_generic_actions = [
+            action for action in contextual_plan
+            if isinstance(action, dict) and action.get("type") == "action"
+        ]
+        contextual_resolutions = [
+            self.capability_resolver.resolve(action)
+            for action in contextual_generic_actions
+        ]
+
         capability_resolutions = [
             self.capability_resolver.resolve(action)
             for action in generic_actions
             if isinstance(action, dict)
         ]
 
-        if suggested_intents:
+        if contextual_plan and contextual_complete:
+            plan_types = {str(item.get("type", "")).strip().lower() for item in contextual_plan if isinstance(item, dict)}
+            if plan_types == {"action"}:
+                goal_type = "contextual_action_goal"
+                complexity = "simple" if len(contextual_plan) == 1 else "medium"
+            else:
+                goal_type = "contextual_mixed_goal"
+                complexity = "medium"
+        elif model_ordered_plan:
+            plan_types = {str(item.get("type", "")).strip().lower() for item in model_ordered_plan if isinstance(item, dict)}
+            if plan_types == {"action"}:
+                goal_type = "generic_action_goal"
+            elif "execute_existing_intent" in plan_types and "action" in plan_types:
+                goal_type = "model_mixed_goal"
+            else:
+                goal_type = "model_goal"
+            complexity = "simple" if len(model_ordered_plan) == 1 else "complex"
+        elif suggested_intents:
             if len(suggested_intents) == 1:
                 goal_type = "known_action"
                 complexity = compiled.get("complexity", "simple")
@@ -449,12 +583,35 @@ class ReasoningEngine:
             "sub_goals": sub_goals,
             "capabilities": capabilities,
             "requires_new_capability": (
-                bool(generic_actions)
-                and any(
-                    not item.get("resolved", False)
-                    for item in capability_resolutions
+                (
+                    bool(generic_actions)
+                    and any(
+                        not item.get("resolved", False)
+                        for item in capability_resolutions
+                    )
                 )
-            ) or bool(generic_actions_unsupported),
+                or (
+                    bool(contextual_generic_actions)
+                    and any(
+                        not item.get("resolved", False)
+                        for item in contextual_resolutions
+                    )
+                )
+                or bool(generic_actions_unsupported)
+            ),
+            "contextual_plan": contextual_plan,
+            "contextual_plan_complete": contextual_complete,
+            "contextual_continuation": bool(contextual.get("continuation", False)),
+            "contextual_context_target": contextual.get("context_target", ""),
+            "contextual_clarification": contextual_clarification,
+            "contextual_reason": contextual.get("reason", ""),
+            "contextual_capability_resolutions": contextual_resolutions,
+            "model_ordered_plan": model_ordered_plan,
+            "model_generic_capability_resolutions": [
+                self.capability_resolver.resolve(step)
+                for step in model_ordered_plan
+                if isinstance(step, dict) and step.get("type") == "action"
+            ],
             "context": ctx,
             "previous_result": previous_result,
             "compiled_goal": compiled,
@@ -489,6 +646,86 @@ class ReasoningEngine:
         suggested = analysis.get("suggested_intents", [])
         capabilities = analysis.get("capabilities", [])
         deep = analysis.get("deep_reasoning")
+
+        contextual_plan = analysis.get("contextual_plan", [])
+        if isinstance(contextual_plan, list) and contextual_plan and analysis.get("contextual_plan_complete", False):
+            clarification = str(analysis.get("contextual_clarification") or "").strip()
+            if clarification:
+                route = {
+                    "route": "conversation",
+                    "reason": clarification,
+                }
+                self.last_route = route
+                return route
+
+            generic = [
+                step for step in contextual_plan
+                if isinstance(step, dict) and step.get("type") == "action"
+            ]
+            unresolved = [
+                item for item in analysis.get("contextual_capability_resolutions", [])
+                if not item.get("resolved", False)
+            ]
+            has_legacy = any(
+                isinstance(step, dict) and step.get("type") == "execute_existing_intent"
+                for step in contextual_plan
+            )
+            if unresolved:
+                route = {
+                    "route": "missing_capability",
+                    "reason": "A contextual action requires an unavailable capability.",
+                }
+                if generic:
+                    route["capability"] = generic[0].get("capability", "")
+                self.last_route = route
+                return route
+
+            if has_legacy and generic:
+                route = {
+                    "route": "mission",
+                    "reason": "Contextual multi-turn goal contains existing and generic actions.",
+                }
+            elif generic:
+                route = {
+                    "route": "capability",
+                    "reason": "Contextual generic action has an advertised capability provider.",
+                    "capability": generic[0].get("capability", ""),
+                }
+            else:
+                route = {
+                    "route": "existing_tools" if len(contextual_plan) == 1 else "mission",
+                    "reason": "Contextual plan uses existing tools.",
+                }
+            self.last_route = route
+            return route
+
+        model_ordered_plan = analysis.get("model_ordered_plan", [])
+        if isinstance(model_ordered_plan, list) and model_ordered_plan:
+            plan_types = {str(item.get("type", "")).strip().lower() for item in model_ordered_plan if isinstance(item, dict)}
+            if "conversation" in plan_types:
+                route = {"route": "conversation", "reason": analysis.get("deep_reasoning", {}).get("reason", "The task requires conversation.")}
+            elif "execute_existing_intent" in plan_types and "action" in plan_types:
+                route = {"route": "mission", "reason": "The model produced an ordered mixed mission."}
+            elif plan_types == {"action"}:
+                resolutions = analysis.get("model_generic_capability_resolutions", [])
+                if resolutions and all(item.get("resolved", False) for item in resolutions):
+                    route = {
+                        "route": "capability",
+                        "reason": "The model produced generic actions with available providers.",
+                        "capability": resolutions[0].get("capability", ""),
+                    }
+                else:
+                    route = {
+                        "route": "missing_capability",
+                        "reason": "The model produced generic actions without an available provider.",
+                    }
+                    first = next((step for step in model_ordered_plan if isinstance(step, dict) and step.get("type") == "action"), None)
+                    if first:
+                        route["capability"] = first.get("capability", "")
+            else:
+                route = {"route": "mission", "reason": "The model produced an ordered mission plan."}
+            self.last_route = route
+            return route
 
         if isinstance(suggested, list) and len(suggested) == 1:
             route = {
@@ -605,6 +842,48 @@ class ReasoningEngine:
         generic_actions = analysis.get("generic_actions", [])
         if not isinstance(generic_actions, list):
             generic_actions = []
+
+        contextual_plan = analysis.get("contextual_plan", [])
+        if (
+            isinstance(contextual_plan, list)
+            and contextual_plan
+            and analysis.get("contextual_plan_complete", False)
+        ):
+            self.last_plan = [dict(step) for step in contextual_plan if isinstance(step, dict)]
+            return self.last_plan
+
+        model_ordered_plan = analysis.get("model_ordered_plan", [])
+
+        # A model may describe the required generic operations even when no
+        # provider is available. In that case the mission must remain blocked
+        # at the capability-request boundary rather than exposing an action as
+        # executable.
+        if route_name == "missing_capability":
+            plan = [{
+                "step": 1,
+                "id": "capability_request_1",
+                "type": "request_new_capability",
+                "goal": goal,
+                "capability": route.get("capability")
+                or (
+                    model_ordered_plan[0].get("capability", "")
+                    if isinstance(model_ordered_plan, list) and model_ordered_plan
+                    and isinstance(model_ordered_plan[0], dict)
+                    else None
+                ),
+                "required_actions": [
+                    step for step in model_ordered_plan
+                    if isinstance(step, dict) and step.get("type") == "action"
+                ],
+                "depends_on": [],
+                "status": "pending",
+            }]
+            self.last_plan = plan
+            return plan
+
+        if isinstance(model_ordered_plan, list) and model_ordered_plan:
+            self.last_plan = [dict(step) for step in model_ordered_plan if isinstance(step, dict)]
+            return self.last_plan
 
         if route_name == "existing_tools":
             if isinstance(suggested, list) and suggested:
