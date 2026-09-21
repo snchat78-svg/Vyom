@@ -403,17 +403,67 @@ class MissionPlanner:
 
             if route_name == "capability":
 
-                plan = [{
-                    "step": 1,
-                    "id": "capability_1",
-                    "type": "use_capability",
-                    "goal": goal,
-                    "capability": route.get(
-                        "capability"
-                    ),
-                    "depends_on": [],
-                    "status": "pending"
-                }]
+                # Preserve validated generic actions as real mission steps.
+                # No action name is translated into a fixed legacy intent.
+                generic_actions = analysis.get(
+                    "generic_actions",
+                    []
+                )
+
+                if isinstance(generic_actions, list) and generic_actions:
+                    for raw_action in generic_actions:
+                        if len(plan) >= self.max_steps:
+                            break
+
+                        action = self._normalize_action(
+                            raw_action,
+                            len(plan) + 1
+                        )
+                        if not action:
+                            continue
+
+                        action_id = str(
+                            action.get("id")
+                            or f"action_{len(plan) + 1}"
+                        ).strip()
+
+                        depends_on = action.get("depends_on", [])
+                        if not isinstance(depends_on, list):
+                            depends_on = []
+                        depends_on = [
+                            str(item)
+                            for item in depends_on
+                            if str(item).strip()
+                        ]
+                        if not depends_on and previous_id:
+                            depends_on = [previous_id]
+
+                        item = dict(action)
+                        item.update({
+                            "step": len(plan) + 1,
+                            "id": action_id,
+                            "type": "action",
+                            "goal": goal,
+                            "status": "pending",
+                            "depends_on": depends_on,
+                        })
+                        plan.append(item)
+                        previous_id = action_id
+
+                # Preserve the legacy capability fallback when no concrete
+                # generic actions were supplied.
+                if not plan:
+                    plan = [{
+                        "step": 1,
+                        "id": "capability_1",
+                        "type": "use_capability",
+                        "goal": goal,
+                        "capability": route.get(
+                            "capability"
+                        ),
+                        "depends_on": [],
+                        "status": "pending"
+                    }]
 
             elif route_name == "missing_capability":
 
