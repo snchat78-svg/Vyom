@@ -656,16 +656,64 @@ class ReasoningEngine:
             return plan
 
         if route_name == "capability":
-            plan = [{
-                "step": 1,
-                "id": "capability_1",
-                "type": "use_capability",
-                "goal": goal,
-                "capability": route.get("capability"),
-                "required_actions": generic_actions,
-                "depends_on": [],
-                "status": "pending"
-            }]
+            # Generic actions remain generic all the way into the mission
+            # runtime. CapabilityExecutor selects the runtime provider.
+            plan = []
+            previous_id = None
+
+            for index, raw_action in enumerate(generic_actions, start=1):
+                if not isinstance(raw_action, dict):
+                    continue
+
+                normalized = self.action_validator.validate_action(
+                    raw_action,
+                    index=index,
+                )
+                if not normalized.get("valid", False):
+                    self.last_plan = []
+                    return []
+
+                action = dict(normalized["action"])
+                action_id = str(
+                    action.get("id") or f"action_{index}"
+                ).strip()
+
+                depends_on = action.get("depends_on", [])
+                if not isinstance(depends_on, list):
+                    depends_on = []
+                depends_on = [
+                    str(value)
+                    for value in depends_on
+                    if str(value).strip()
+                ]
+                if not depends_on and previous_id:
+                    depends_on = [previous_id]
+
+                action.update({
+                    "step": index,
+                    "id": action_id,
+                    "type": "action",
+                    "goal": goal,
+                    "depends_on": depends_on,
+                    "status": "pending",
+                })
+                plan.append(action)
+                previous_id = action_id
+
+            if not plan:
+                # Preserve the pre-Step-2 capability route for capability
+                # descriptions that do not contain concrete actions.
+                plan = [{
+                    "step": 1,
+                    "id": "capability_1",
+                    "type": "use_capability",
+                    "goal": goal,
+                    "capability": route.get("capability"),
+                    "required_actions": generic_actions,
+                    "depends_on": [],
+                    "status": "pending"
+                }]
+
             self.last_plan = plan
             return plan
 
