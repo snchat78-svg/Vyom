@@ -133,7 +133,8 @@ class GenericReasoningIntegrationTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["route"]["route"], "capability")
         self.assertEqual(result["route"]["capability"], "windows_ui")
-        self.assertEqual(result["plan"][0]["type"], "use_capability")
+        self.assertEqual(result["plan"][0]["type"], "action")
+        self.assertEqual(result["plan"][0]["action"], "click_control")
 
     def test_mixed_legacy_and_generic_plan_never_partially_executes(self):
         deep = FakeDeepReasoner({
