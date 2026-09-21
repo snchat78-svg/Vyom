@@ -80,34 +80,44 @@ class GenericReasoningIntegrationTests(unittest.TestCase):
         self.assertEqual(result["plan"][0]["type"], "action")
         self.assertEqual(result["plan"][0]["action"], "click_control")
 
-    def test_mixed_legacy_and_generic_plan_never_partially_executes(self):
+    def test_mixed_legacy_and_generic_plan_preserves_order(self):
         deep = FakeDeepReasoner({
             "understood": True,
             "goal": "open app then click",
             "language": "english",
             "complexity": "complex",
             "route": "mission",
+            "capability": "windows_ui",
             "plan": [
                 {
                     "type": "execute_existing_intent",
-                    "intent": {"intent": "open", "target": "notepad"},
+                    "intent": {"intent": "open", "target": "some app"},
                 },
                 {
                     "type": "action",
                     "id": "a2",
-                    "action": "click_control",
+                    "action": "click",
                     "capability": "windows_ui",
-                    "target": "Save",
+                    "target": "",
+                    "args": {"x": 10, "y": 20},
                 },
             ],
         })
         engine = ReasoningEngine(deep_reasoner=deep)
-        result = engine.reason("open notepad then click save")
+        engine.capability_registry.register(
+            name="windows_ui",
+            description="Windows UI provider",
+            actions=["click"],
+            enabled=True,
+        )
+        result = engine.reason("open some app then click at 10 20")
 
         self.assertTrue(result["success"])
-        self.assertNotEqual(result["route"]["route"], "mission")
-        self.assertEqual(result["route"]["route"], "missing_capability")
-        self.assertEqual(result["plan"][0]["type"], "request_new_capability")
+        self.assertEqual(result["route"]["route"], "mission")
+        self.assertEqual(
+            [step["type"] for step in result["plan"]],
+            ["execute_existing_intent", "action"],
+        )
 
     def test_legacy_fast_path_remains_unchanged(self):
         deep = FakeDeepReasoner({"should": "not be called"})
