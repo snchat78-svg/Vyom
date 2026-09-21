@@ -1,60 +1,4 @@
-import sys
-import types
 import unittest
-
-
-def install_stubs():
-    goal_compiler = types.ModuleType("ai_core.goal_compiler")
-
-    class GoalCompiler:
-        def compile(self, goal, intent=None, context=None):
-            text = str(goal).lower()
-            if "calculator" in text and "and" not in text:
-                return {
-                    "success": True,
-                    "understood": True,
-                    "objective": goal,
-                    "complexity": "simple",
-                    "suggested_intents": [{"intent": "open", "target": "calculator"}],
-                    "sub_goals": [{"step": 1, "goal": goal}],
-                    "reason": "deterministic",
-                }
-            return {
-                "success": True,
-                "understood": True,
-                "objective": goal,
-                "complexity": "complex",
-                "suggested_intents": [],
-                "sub_goals": [{"step": 1, "goal": goal}, {"step": 2, "goal": "follow up"}],
-                "reason": "delegated",
-            }
-
-    goal_compiler.GoalCompiler = GoalCompiler
-    sys.modules["ai_core.goal_compiler"] = goal_compiler
-
-    capability_manager = types.ModuleType("ai_core.capability_manager")
-
-    class CapabilityManager:
-        def match(self, goal):
-            return []
-
-    capability_manager.CapabilityManager = CapabilityManager
-    sys.modules["ai_core.capability_manager"] = capability_manager
-
-    deep_reasoner = types.ModuleType("ai_core.deep_reasoner")
-
-    class DeepReasoner:
-        def is_available(self):
-            return False
-
-        def reset(self):
-            pass
-
-    deep_reasoner.DeepReasoner = DeepReasoner
-    sys.modules["ai_core.deep_reasoner"] = deep_reasoner
-
-
-install_stubs()
 
 from ai_core.reasoning_engine import ReasoningEngine
 
@@ -168,7 +112,7 @@ class GenericReasoningIntegrationTests(unittest.TestCase):
     def test_legacy_fast_path_remains_unchanged(self):
         deep = FakeDeepReasoner({"should": "not be called"})
         engine = ReasoningEngine(deep_reasoner=deep)
-        result = engine.reason("calculator")
+        result = engine.reason("open calculator")
 
         self.assertTrue(result["success"])
         self.assertEqual(result["route"]["route"], "existing_tools")
