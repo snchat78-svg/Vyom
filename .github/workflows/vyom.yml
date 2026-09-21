@@ -21,6 +21,7 @@ jobs:
           Write-Host "BUILD BRANCH: $env:GITHUB_REF_NAME"
           Write-Host "BUILD REF:    $env:GITHUB_REF"
           Write-Host "BUILD SHA:    $env:GITHUB_SHA"
+
           $checked = git rev-parse HEAD
           Write-Host "CHECKED SHA:  $checked"
 
@@ -46,49 +47,108 @@ jobs:
 
           python -m pip install SpeechRecognition PyAudio pyttsx3
 
-      - name: Verify Project Structure
+      - name: Verify All Tracked Python Files
+        shell: powershell
+        run: |
+          $trackedPython = @(git ls-files "*.py")
+
+          if ($trackedPython.Count -eq 0) {
+              Write-Error "No tracked Python files were found."
+              exit 1
+          }
+
+          Write-Host "TRACKED PYTHON FILE COUNT: $($trackedPython.Count)"
+
+          foreach ($file in $trackedPython) {
+              if (!(Test-Path $file)) {
+                  Write-Error "Tracked Python file is missing from checkout: $file"
+                  exit 1
+              }
+          }
+
+          Write-Host "ALL TRACKED PYTHON FILES ARE PRESENT."
+
+      - name: Verify Critical Runtime Modules
         shell: powershell
         run: |
           $requiredFiles = @(
+              "main.py",
+              "requirements.txt",
+              "ai_core/__init__.py",
               "ai_core/main.py",
               "ai_core/autonomous_agent.py",
               "ai_core/brain.py",
-              "ai_core/reasoning_engine.py",
-              "ai_core/reasoning_gateway.py",
-              "ai_core/action_schema.py",
-              "ai_core/action_validator.py",
+              "ai_core/capability_manager.py",
+              "ai_core/capability_executor.py",
               "ai_core/capability_registry.py",
               "ai_core/capability_resolver.py",
-              "ai_core/capability_executor.py",
-              "ai_core/ui_autonomous_agent.py",
+              "ai_core/action_schema.py",
+              "ai_core/action_validator.py",
+              "ai_core/config.py",
+              "ai_core/conversation_manager.py",
+              "ai_core/conversation_result.py",
+              "ai_core/deep_reasoner.py",
+              "ai_core/goal_compiler.py",
+              "ai_core/goal_router.py",
+              "ai_core/logger.py",
               "ai_core/mission_planner.py",
+              "ai_core/mission_runtime.py",
               "ai_core/model_gateway.py",
+              "ai_core/observation_verifier.py",
+              "ai_core/reasoning_engine.py",
+              "ai_core/reasoning_gateway.py",
+              "ai_core/response_engine.py",
               "ai_core/skill_builder.py",
               "ai_core/skill_registry.py",
+              "ai_core/ui_autonomous_agent.py",
+              "ai_core/world_state.py",
+              "command_engine/__init__.py",
               "command_engine/executor.py",
               "command_engine/intent.py",
+              "command_engine/multilingual_command.py",
+              "command_engine/parser.py",
+              "tools/__init__.py",
+              "tools/app_registry.py",
+              "tools/file_manager.py",
               "tools/tool_manager.py",
               "tools/universal_app_launcher.py",
               "tools/universal_resolver.py",
               "memory/selection_manager.py",
-              "windows_agent/process_manager.py",
-              "windows_agent/window_manager.py",
-              "windows_agent/input_controller.py",
+              "memory/session_memory.py",
+              "windows_agent/__init__.py",
               "windows_agent/clipboard_manager.py",
+              "windows_agent/input_controller.py",
+              "windows_agent/launcher.py",
+              "windows_agent/process_manager.py",
               "windows_agent/screen_observer.py",
               "windows_agent/ui_automation.py",
-              "voice/voice_controller.py",
+              "windows_agent/window_manager.py",
+              "voice/__init__.py",
               "voice/speech_to_text.py",
-              "voice/text_to_speech.py"
+              "voice/text_to_speech.py",
+              "voice/voice_controller.py",
+              "tests/test_action_core.py",
+              "tests/test_conversation_manager.py",
+              "tests/test_deep_reasoner_gateway.py",
+              "tests/test_generic_reasoning_integration.py",
+              "tests/test_goal_intelligence.py",
+              "tests/test_mission_planner_generic_actions.py",
+              "tests/test_model_gateway_protocol.py",
+              "tests/test_reasoning_core_wiring.py",
+              "tests/test_reasoning_gateway.py",
+              "tests/test_ui_autonomous_agent.py",
+              "tests/test_voice_conversation_integration.py",
+              "tests/test_windows_ui_capability.py"
           )
 
           foreach ($file in $requiredFiles) {
               if (!(Test-Path $file)) {
-                  Write-Error "Missing required file: $file"
+                  Write-Error "Missing critical runtime/test file: $file"
                   exit 1
               }
-              Write-Host "FOUND: $file"
           }
+
+          Write-Host "ALL CRITICAL RUNTIME AND TEST FILES ARE PRESENT."
 
       - name: Python Syntax Check
         shell: powershell
@@ -107,10 +167,12 @@ jobs:
               exit 1
           }
 
+          Write-Host "PYTHON SYNTAX CHECK PASSED."
+
       - name: Core Import Check
         shell: powershell
         run: |
-          python -c "import ai_core; import ai_core.autonomous_agent; import ai_core.reasoning_engine; import ai_core.reasoning_gateway; import ai_core.action_schema; import ai_core.action_validator; import ai_core.capability_registry; import ai_core.capability_resolver; import ai_core.capability_executor; import ai_core.ui_autonomous_agent; import ai_core.mission_planner; import command_engine.executor; import tools.tool_manager; import windows_agent.window_manager; import windows_agent.input_controller; import windows_agent.clipboard_manager; import windows_agent.screen_observer; import windows_agent.ui_automation; print('VYOM CORE + STEP2 IMPORT TEST PASSED')"
+          python -c "import ai_core; import ai_core.main; import ai_core.autonomous_agent; import ai_core.brain; import ai_core.capability_manager; import ai_core.capability_executor; import ai_core.capability_registry; import ai_core.capability_resolver; import ai_core.action_schema; import ai_core.action_validator; import ai_core.config; import ai_core.conversation_manager; import ai_core.conversation_result; import ai_core.deep_reasoner; import ai_core.goal_compiler; import ai_core.goal_router; import ai_core.logger; import ai_core.mission_planner; import ai_core.mission_runtime; import ai_core.model_gateway; import ai_core.observation_verifier; import ai_core.reasoning_engine; import ai_core.reasoning_gateway; import ai_core.response_engine; import ai_core.skill_builder; import ai_core.skill_registry; import ai_core.ui_autonomous_agent; import ai_core.world_state; import command_engine.executor; import command_engine.intent; import command_engine.multilingual_command; import command_engine.parser; import tools.tool_manager; import tools.universal_app_launcher; import tools.universal_resolver; import memory.selection_manager; import memory.session_memory; import windows_agent.clipboard_manager; import windows_agent.input_controller; import windows_agent.launcher; import windows_agent.process_manager; import windows_agent.screen_observer; import windows_agent.ui_automation; import windows_agent.window_manager; print('VYOM CORE + STEP2 IMPORT TEST PASSED')"
 
       - name: Voice Import Check
         shell: powershell
@@ -149,36 +211,6 @@ jobs:
             --collect-submodules memory `
             --collect-submodules windows_agent `
             --collect-submodules voice `
-            --hidden-import ai_core.autonomous_agent `
-            --hidden-import ai_core.brain `
-            --hidden-import ai_core.reasoning_engine `
-            --hidden-import ai_core.reasoning_gateway `
-            --hidden-import ai_core.action_schema `
-            --hidden-import ai_core.action_validator `
-            --hidden-import ai_core.capability_registry `
-            --hidden-import ai_core.capability_resolver `
-            --hidden-import ai_core.capability_executor `
-            --hidden-import ai_core.ui_autonomous_agent `
-            --hidden-import ai_core.mission_planner `
-            --hidden-import ai_core.model_gateway `
-            --hidden-import ai_core.capability_manager `
-            --hidden-import ai_core.skill_builder `
-            --hidden-import ai_core.skill_registry `
-            --hidden-import command_engine.executor `
-            --hidden-import command_engine.intent `
-            --hidden-import tools.tool_manager `
-            --hidden-import tools.universal_app_launcher `
-            --hidden-import tools.universal_resolver `
-            --hidden-import memory.selection_manager `
-            --hidden-import windows_agent.process_manager `
-            --hidden-import windows_agent.window_manager `
-            --hidden-import windows_agent.input_controller `
-            --hidden-import windows_agent.clipboard_manager `
-            --hidden-import windows_agent.screen_observer `
-            --hidden-import windows_agent.ui_automation `
-            --hidden-import voice.voice_controller `
-            --hidden-import voice.speech_to_text `
-            --hidden-import voice.text_to_speech `
             --name Vyom `
             ai_core/main.py
 
@@ -186,6 +218,8 @@ jobs:
               Write-Error "Vyom.exe build failed."
               exit 1
           }
+
+          Write-Host "Vyom.exe build completed successfully."
 
       - name: Verify Vyom EXE
         shell: powershell
