@@ -7,7 +7,7 @@ Purpose:
     Hybrid local/cloud reasoning layer.
 
 Priority:
-    1. Configured AI model through ModelGateway.
+    1. Configured AI model through the validated AI Reasoning Gateway.
     2. Lightweight local goal reasoning when no model is configured.
 
 The local path is intentionally dependency-free so Vyom can work on
@@ -18,6 +18,7 @@ This module never executes computer actions.
 
 from typing import Any, Dict, Optional
 
+from ai_core.reasoning_gateway import AIReasoningGateway
 from ai_core.model_gateway import ModelGateway
 from ai_core.goal_compiler import GoalCompiler
 
@@ -27,7 +28,8 @@ class DeepReasoner:
     def __init__(
         self,
         model_gateway: Optional[ModelGateway] = None,
-        goal_compiler: Optional[GoalCompiler] = None
+        goal_compiler: Optional[GoalCompiler] = None,
+        reasoning_gateway: Optional[AIReasoningGateway] = None,
     ):
         self.model_gateway = (
             model_gateway
@@ -38,6 +40,11 @@ class DeepReasoner:
             goal_compiler
             if goal_compiler is not None
             else GoalCompiler()
+        )
+        self.reasoning_gateway = (
+            reasoning_gateway
+            if reasoning_gateway is not None
+            else AIReasoningGateway(self.model_gateway)
         )
         self.last_result = None
 
@@ -118,9 +125,9 @@ class DeepReasoner:
         previous_result=None,
         intent=None,
     ):
-        # If a model is configured, keep the existing gateway path.
-        if self.model_gateway.is_available():
-            result = self.model_gateway.complete(
+        # A configured real model always enters through the validated gateway.
+        if self.reasoning_gateway.is_available():
+            result = self.reasoning_gateway.reason(
                 goal=goal,
                 context=context,
                 capabilities=capabilities,
@@ -132,6 +139,10 @@ class DeepReasoner:
             ):
                 self.last_result = result
                 return result
+
+            # If the real model is configured but its response fails validation,
+            # do not execute an unvalidated model decision. Fall back to the
+            # existing deterministic local reasoner.
 
         result = self._local_reason(
             goal=goal,
@@ -145,10 +156,14 @@ class DeepReasoner:
 
     def is_available(self):
         # "Available" means a real model endpoint is configured.
-        return self.model_gateway.is_available()
+        return self.reasoning_gateway.is_available()
 
     def reset(self):
         self.last_result = None
+        try:
+            self.reasoning_gateway.reset()
+        except Exception:
+            pass
         try:
             self.goal_compiler.last_compilation = None
         except Exception:

@@ -1,60 +1,20 @@
 """
 Project : Vyom AI
-Version : 1.0
+Version : 1.1
 Module  : Executor
 
 Purpose:
-    Connect:
+    Connect the user-facing command/voice layer to Vyom's persistent
+    AutonomousAgent while preserving the existing deterministic fast paths.
 
-        User Command
-             |
-             v
-        IntentEngine
-             |
-             v
-        Session State
-             |
-             +----------------------+
-             |                      |
-             v                      v
-        Selection             AutonomousAgent
-             |                      |
-             v                      v
-       ToolManager             ReasoningEngine
-                                    |
-                          +---------+---------+
-                          |                   |
-                          v                   v
-                    Existing Tools      Capability System
-
-Important:
-
-    AutonomousAgent is created once and reused for the
-    entire application session.
-
-    This allows:
-
-        command 1
-        command 2
-        command 3
-
-    to share the same working context.
-
-Example:
-
-    open notepad
-    one
-    type hello
-    save it
-
-Security:
-
-    This module does not execute arbitrary generated code.
+Step 2 change:
+    The session now uses UIAutonomousAgent. That subclass intercepts only
+    generic Action Schema steps. Existing open/file/search/close handling
+    remains on ToolManager exactly as before.
 """
 
-
 from ai_core.brain import Brain
-from ai_core.autonomous_agent import AutonomousAgent
+from ai_core.ui_autonomous_agent import UIAutonomousAgent
 from command_engine.intent import IntentEngine
 from ai_core.goal_router import GoalRouter
 import re
@@ -79,7 +39,10 @@ tool_manager = ToolManager()
 #
 # One persistent agent for the entire application session.
 #
-autonomous_agent = AutonomousAgent(
+# UIAutonomousAgent preserves the base AutonomousAgent contract and adds
+# generic Windows UI capability execution without replacing the existing
+# ToolManager/application/file/process stack.
+autonomous_agent = UIAutonomousAgent(
     tool_manager=tool_manager,
     brain=brain
 )
@@ -630,10 +593,6 @@ def execute(
     # =========================================================
     # GOAL / COMMAND ROUTING
     # =========================================================
-    # Compound goals must be routed before IntentEngine can reduce them to
-    # the first matching one-action pattern. For a goal, AutonomousAgent
-    # receives the original natural-language goal with no partial intent.
-    # Single deterministic commands keep the existing fast path unchanged.
 
     try:
 
@@ -862,12 +821,6 @@ def execute(
 
     # =========================================================
     # FAST LANE
-    #
-    # Simple known commands should NOT pay the full
-    # AutonomousAgent -> ReasoningEngine -> Plan route.
-    #
-    # These operations are deterministic and are already
-    # implemented by ToolManager.
     # =========================================================
 
     fast_intents = {
@@ -990,9 +943,6 @@ def execute(
 
     # =========================================================
     # NATURAL / COMPLEX GOAL
-    #
-    # Only genuinely unknown or non-deterministic goals
-    # go through the AutonomousAgent.
     # =========================================================
 
     try:
@@ -1045,4 +995,3 @@ def execute(
         message,
         intent
     )
-
