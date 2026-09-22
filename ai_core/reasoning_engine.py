@@ -464,20 +464,19 @@ class ReasoningEngine:
             except Exception:
                 capabilities = []
 
-        # A complete deterministic contextual plan is already safer and more
-        # predictable than asking an unavailable model to invent actions. Let
-        # the model enrich goals that are not understood by this layer.
-        if suggested_intents or contextual_plan:
-            deep = {
-                "suggested_intents": suggested_intents,
-                "sub_goals": sub_goals,
-                "generic_actions": [],
-                "route": None,
-                "data": None,
-                "generic_action_plan": False,
-                "generic_actions_unsupported": False,
-            }
-        else:
+        # Keep the deterministic fast path for a single simple action, but
+        # connect DeepReasoner for every genuinely non-trivial goal. This is
+        # important even when the contextual compiler already has a safe
+        # fallback plan: DeepReasoner remains the advisory planning layer for
+        # compound/multi-step goals, while the deterministic plan remains the
+        # fallback if the model is unavailable or its output is rejected.
+        non_trivial = (
+            len(suggested_intents) > 1
+            or len(sub_goals) > 1
+            or len(contextual_plan) > 1
+        )
+
+        if non_trivial or (not suggested_intents and not contextual_plan):
             deep = self._deep_reason(
                 goal=goal,
                 intent=intent,
@@ -487,6 +486,16 @@ class ReasoningEngine:
                 suggested_intents=suggested_intents,
                 sub_goals=sub_goals,
             )
+        else:
+            deep = {
+                "suggested_intents": suggested_intents,
+                "sub_goals": sub_goals,
+                "generic_actions": [],
+                "route": None,
+                "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
+            }
 
         suggested_intents = deep.get("suggested_intents", suggested_intents)
         sub_goals = deep.get("sub_goals", sub_goals)
