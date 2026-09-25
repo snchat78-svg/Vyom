@@ -42,6 +42,7 @@ import shutil
 import difflib
 import re
 import time
+import unicodedata
 
 try:
     from tools.app_registry import find_application
@@ -162,47 +163,121 @@ class UniversalAppLauncher:
         self.cache_seconds = 60
 
     # ========================================================
-    # HINDI / DEVANAGARI APPLICATION ALIASES
+    # UNIVERSAL MULTILINGUAL TARGET NORMALIZATION
     #
-    # These are language aliases for common Windows applications, not a
-    # command allowlist. They let natural Hindi speech such as:
-    #
-    #     "नोटपैड खोलो"
-    #     "ओपन एक्सेल"
-    #
-    # resolve to the installed English application name found by Windows.
+    # User speech may contain Devanagari while Windows application,
+    # file and folder names are commonly stored in Latin script. This
+    # layer contains no application aliases. It preserves the exact
+    # target first, then adds a generic phonetic Latin representation.
     # ========================================================
 
-    DEVANAGARI_APP_ALIASES = {
-        "नोटपैड": "notepad",
-        "एक्सेल": "excel",
-        "एमएस एक्सेल": "excel",
-        "माइक्रोसॉफ्ट एक्सेल": "excel",
-        "क्रोम": "chrome",
-        "गूगल क्रोम": "chrome",
-        "कैलकुलेटर": "calculator",
-        "कैलकुलेटर": "calculator",
-        "वर्ड": "word",
-        "एमएस वर्ड": "word",
-        "माइक्रोसॉफ्ट वर्ड": "word",
-        "पावरपॉइंट": "powerpoint",
-        "पावर प्वाइंट": "powerpoint",
-        "पावर पॉइंट": "powerpoint",
-        "पेंट": "paint",
-        "फोटोशॉप": "photoshop",
-        "फाइल एक्सप्लोरर": "file explorer",
-        "फाइल एक्सप्लोरर": "file explorer",
+    DEVANAGARI_BASE = {
+        "अ": "a", "आ": "aa", "इ": "i", "ई": "i", "उ": "u", "ऊ": "u",
+        "ऋ": "ri", "ए": "e", "ऐ": "ai", "ओ": "o", "औ": "au",
+        "क": "k", "ख": "kh", "ग": "g", "घ": "gh", "ङ": "ng",
+        "च": "ch", "छ": "chh", "ज": "j", "झ": "jh", "ञ": "ny",
+        "ट": "t", "ठ": "th", "ड": "d", "ढ": "dh", "ण": "n",
+        "त": "t", "थ": "th", "द": "d", "ध": "dh", "न": "n",
+        "प": "p", "फ": "ph", "ब": "b", "भ": "bh", "म": "m",
+        "य": "y", "र": "r", "ल": "l", "व": "v", "श": "sh",
+        "ष": "sh", "स": "s", "ह": "h", "क़": "q", "ख़": "kh",
+        "ग़": "gh", "ज़": "z", "ड़": "r", "ढ़": "rh", "फ़": "f",
+        "य़": "y", "ळ": "l",
     }
+
+    DEVANAGARI_MATRA = {
+        "ा": "aa", "ि": "i", "ी": "i", "ु": "u", "ू": "u",
+        "ृ": "ri", "ॄ": "ri", "े": "e", "ै": "ai", "ो": "o",
+        "ौ": "au", "ं": "n", "ः": "h", "ँ": "n", "ॉ": "o",
+        "ॅ": "e", "ॊ": "o", "ॆ": "e",
+    }
+
+    def _transliterate_devanagari(self, value):
+        text = str(value or "")
+        if not text:
+            return ""
+
+        result = []
+        index = 0
+        while index < len(text):
+            char = text[index]
+
+            if char in self.DEVANAGARI_BASE:
+                base = self.DEVANAGARI_BASE[char]
+                if index + 1 < len(text) and text[index + 1] == "्":
+                    result.append(base)
+                    index += 2
+                    continue
+                if index + 1 < len(text) and text[index + 1] in self.DEVANAGARI_MATRA:
+                    result.append(base + self.DEVANAGARI_MATRA[text[index + 1]])
+                    index += 2
+                    continue
+                result.append(base + "a")
+                index += 1
+                continue
+
+            if char in self.DEVANAGARI_MATRA:
+                result.append(self.DEVANAGARI_MATRA[char])
+                index += 1
+                continue
+
+            if char == "्":
+                index += 1
+                continue
+
+            result.append(char)
+            index += 1
+
+        return "".join(result)
+
+    def _phonetic_key(self, value):
+        value = self.normalize(value)
+        if not value:
+            return ""
+
+        replacements = (
+            ("ksh", "x"), ("ks", "x"), ("chh", "c"), ("ch", "c"),
+            ("sh", "s"), ("ph", "f"), ("bh", "b"), ("dh", "d"),
+            ("th", "t"), ("kh", "h"), ("gh", "g"), ("aa", "a"),
+            ("ee", "i"), ("oo", "u"), ("ai", "e"), ("au", "o"),
+        )
+        for source, replacement_value in replacements:
+            value = value.replace(source, replacement_value)
+
+        value = re.sub(r"[^a-z0-9]", "", value)
+        return "".join(char for char in value if char not in "aeiou")
+
+    def _match_score(self, target, candidate):
+        target = self.normalize(target)
+        candidate = self.normalize(candidate)
+        if not target or not candidate:
+            return 0.0
+        if target == candidate:
+            return 1.0
+        if target in candidate or candidate in target:
+            return 0.90
+
+        raw_score = difflib.SequenceMatcher(None, target, candidate).ratio()
+        target_phonetic = self._phonetic_key(target)
+        candidate_phonetic = self._phonetic_key(candidate)
+        phonetic_score = 0.0
+        if target_phonetic and candidate_phonetic:
+            phonetic_score = difflib.SequenceMatcher(
+                None,
+                target_phonetic,
+                candidate_phonetic,
+            ).ratio()
+        return max(raw_score, phonetic_score)
 
     def _target_variants(self, target):
         value = self.clean_target(target)
-        variants = []
-        if value:
-            variants.append(value)
-        normalized = self.normalize(value)
-        alias = self.DEVANAGARI_APP_ALIASES.get(normalized)
-        if alias and alias not in variants:
-            variants.append(alias)
+        if not value:
+            return []
+
+        variants = [value]
+        transliterated = self._transliterate_devanagari(value).strip()
+        if transliterated and transliterated.lower() != value.lower():
+            variants.append(transliterated)
         return variants
 
     # ========================================================
@@ -1194,71 +1269,58 @@ catch {
     ):
 
         target = self.clean_target(target)
-
         if not target:
             return []
 
         target_variants = self._target_variants(target)
-        target_normalized = self.normalize(target_variants[0]) if target_variants else ""
-        match_normalized = [self.normalize(v) for v in target_variants if self.normalize(v)]
+        if not target_variants:
+            return []
 
-        # ----------------------------------------------------
-        # FAST PATH
-        #
-        # Normal commands such as Chrome/Notepad should never
-        # wait for several PowerShell/AppsFolder scans.
-        # First check sources that are fast and deterministic.
-        # ----------------------------------------------------
         exact = []
-        partial = []
+        scored = []
 
-        # 1. Windows App Paths registry (very fast when available)
+        def add_candidate(item, score):
+            if not isinstance(item, dict):
+                return
+            if score >= 0.999:
+                self._add_result(exact, item)
+                return
+            if score >= 0.62:
+                scored.append((float(score), item))
+
         if find_application is not None:
-            try:
-                registry_path = find_application(target)
-            except Exception:
-                registry_path = None
-
-            if registry_path:
-                name = os.path.splitext(os.path.basename(registry_path))[0]
-                self._add_result(
-                    exact,
-                    {
+            for variant in target_variants:
+                try:
+                    registry_path = find_application(variant)
+                except Exception:
+                    registry_path = None
+                if registry_path:
+                    name = os.path.splitext(os.path.basename(registry_path))[0]
+                    add_candidate({
                         "name": name,
                         "path": registry_path,
                         "app_id": "",
                         "aumid": "",
                         "type": "registry"
-                    }
-                )
+                    }, max(self._match_score(variant, name), 0.99))
 
-        # 2. PATH executable
+        for variant in target_variants:
+            try:
+                path_result = self.find_path_application(variant)
+            except Exception:
+                path_result = None
+            if path_result:
+                path_name = os.path.splitext(os.path.basename(path_result))[0]
+                add_candidate({
+                    "name": path_name,
+                    "path": path_result,
+                    "app_id": "",
+                    "aumid": "",
+                    "type": "path"
+                }, self._match_score(variant, path_name))
+
         try:
-            path_result = self.find_path_application(target)
-        except Exception:
-            path_result = None
-
-        if path_result:
-            path_name = os.path.splitext(os.path.basename(path_result))[0]
-            item = {
-                "name": path_name,
-                "path": path_result,
-                "app_id": "",
-                "aumid": "",
-                "type": "path"
-            }
-            if self.normalize(path_name) == target_normalized:
-                self._add_result(exact, item)
-            else:
-                self._add_result(partial, item)
-
-        # 3. Start Menu and Desktop are cheap compared with the
-        # PowerShell/AppsFolder discovery path.
-        try:
-            quick_sources = [
-                self.scan_start_menu(),
-                self.scan_desktop(),
-            ]
+            quick_sources = [self.scan_start_menu(), self.scan_desktop()]
         except Exception:
             quick_sources = []
 
@@ -1266,72 +1328,72 @@ catch {
             for app in source_items:
                 if not isinstance(app, dict):
                     continue
-
-                app_name = self.normalize(app.get("name", ""))
+                app_name = str(app.get("name", "")).strip()
                 if not app_name:
                     continue
+                score = max(
+                    self._match_score(variant, app_name)
+                    for variant in target_variants
+                )
+                add_candidate(app, score)
 
-                if app_name in match_normalized:
-                    self._add_result(exact, app)
-                elif any(value and value in app_name for value in match_normalized):
-                    self._add_result(partial, app)
-
-        # Exact match is enough to continue immediately. This is the
-        # critical fix for the apparent voice-mode freeze.
         if exact:
             return exact[:self.max_results]
 
-        # If quick sources produced meaningful partial matches, return
-        # them before invoking slow system discovery.
-        if partial:
-            return partial[:self.max_results]
-
-        # ----------------------------------------------------
-        # SLOW FALLBACK
-        #
-        # Used only when the fast sources did not find anything.
-        # Existing discovery behaviour is preserved here.
-        # ----------------------------------------------------
-        database = self.build_database(
-            force=force_refresh
-        )
-
-        exact = []
-        partial = []
-
+        database = self.build_database(force=force_refresh)
         for app in database:
             if not isinstance(app, dict):
                 continue
-
-            app_name = self.normalize(app.get("name", ""))
+            app_name = str(app.get("name", "")).strip()
             if not app_name:
                 continue
+            score = max(
+                self._match_score(variant, app_name)
+                for variant in target_variants
+            )
+            add_candidate(app, score)
 
-            if app_name in match_normalized:
-                self._add_result(exact, app)
-            elif any(value and value in app_name for value in match_normalized):
-                self._add_result(partial, app)
-
-        # Program Files is intentionally last because recursive disk
-        # scanning can be expensive on the user's older HDD.
         if not exact:
             try:
-                program_results = self.scan_program_files(target)
+                for variant in target_variants:
+                    for item in self.scan_program_files(variant):
+                        if not isinstance(item, dict):
+                            continue
+                        item_name = str(item.get("name", "")).strip()
+                        add_candidate(
+                            item,
+                            max(
+                                self._match_score(v, item_name)
+                                for v in target_variants
+                            ),
+                        )
             except Exception:
-                program_results = []
+                pass
 
-            for item in program_results:
-                item_name = self.normalize(item.get("name", ""))
-                if item_name in match_normalized:
-                    self._add_result(exact, item)
-                elif any(value and value in item_name for value in match_normalized):
-                    self._add_result(partial, item)
+        results = list(exact)
+        seen = set()
+        for item in results:
+            seen.add((
+                str(item.get("path", "")).lower(),
+                str(item.get("app_id", "")).lower(),
+                str(item.get("aumid", "")).lower(),
+                str(item.get("name", "")).lower(),
+            ))
 
-        results = []
-        for item in exact:
-            self._add_result(results, item)
-        for item in partial:
-            self._add_result(results, item)
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        for _, item in scored:
+            key = (
+                str(item.get("path", "")).lower(),
+                str(item.get("app_id", "")).lower(),
+                str(item.get("aumid", "")).lower(),
+                str(item.get("name", "")).lower(),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(item)
+            if len(results) >= self.max_results:
+                break
 
         return results[:self.max_results]
 
@@ -2203,19 +2265,17 @@ exit 3
         # Get-StartApps but are visible to AppsFolder.
         # ----------------------------------------------------
 
-        if self.open_appsfolder_by_name(
-            target
-        ):
-
-            return {
-                "success": True,
-                "message": (
-                    "Opened Windows application: "
-                    + target
-                ),
-                "results": [],
-                "suggestions": []
-            }
+        for variant in self._target_variants(target):
+            if self.open_appsfolder_by_name(variant):
+                return {
+                    "success": True,
+                    "message": (
+                        "Opened Windows application: "
+                        + variant
+                    ),
+                    "results": [],
+                    "suggestions": []
+                }
 
         # ----------------------------------------------------
         # SPELLING SUGGESTIONS
