@@ -289,7 +289,8 @@ class ReasoningEngine:
         capabilities: List[Any],
         previous_result: Any,
         suggested_intents: List[Dict[str, Any]],
-        sub_goals: List[Any]
+        sub_goals: List[Any],
+        force: bool = False,
     ) -> Dict[str, Any]:
         self.last_deep_reasoning = None
 
@@ -301,7 +302,8 @@ class ReasoningEngine:
         if (
             not available
             or (
-                len(suggested_intents) == 1
+                not force
+                and len(suggested_intents) == 1
                 and len(sub_goals) <= 1
                 and previous_result is None
             )
@@ -464,19 +466,20 @@ class ReasoningEngine:
             except Exception:
                 capabilities = []
 
-        # Keep the deterministic fast path for a single simple action, but
-        # connect DeepReasoner for every genuinely non-trivial goal. This is
-        # important even when the contextual compiler already has a safe
-        # fallback plan: DeepReasoner remains the advisory planning layer for
-        # compound/multi-step goals, while the deterministic plan remains the
-        # fallback if the model is unavailable or its output is rejected.
-        non_trivial = (
-            len(suggested_intents) > 1
+        # A deterministic contextual plan may safely use the fast path when
+        # it is a single action. Compound/contextual missions are non-trivial:
+        # keep DeepReasoner connected to the planning pipeline while retaining
+        # the deterministic contextual plan as the safe fallback whenever the
+        # reasoner is unavailable or returns unusable data.
+        contextual_is_compound = len(contextual_plan) > 1
+        legacy_is_compound = len(suggested_intents) > 1
+        goal_is_non_trivial = bool(
+            contextual_is_compound
+            or legacy_is_compound
             or len(sub_goals) > 1
-            or len(contextual_plan) > 1
         )
 
-        if non_trivial or (not suggested_intents and not contextual_plan):
+        if goal_is_non_trivial:
             deep = self._deep_reason(
                 goal=goal,
                 intent=intent,
@@ -485,8 +488,9 @@ class ReasoningEngine:
                 previous_result=previous_result,
                 suggested_intents=suggested_intents,
                 sub_goals=sub_goals,
+                force=True,
             )
-        else:
+        elif suggested_intents or contextual_plan:
             deep = {
                 "suggested_intents": suggested_intents,
                 "sub_goals": sub_goals,
@@ -496,6 +500,16 @@ class ReasoningEngine:
                 "generic_action_plan": False,
                 "generic_actions_unsupported": False,
             }
+        else:
+            deep = self._deep_reason(
+                goal=goal,
+                intent=intent,
+                context=ctx,
+                capabilities=capabilities,
+                previous_result=previous_result,
+                suggested_intents=suggested_intents,
+                sub_goals=sub_goals,
+            )
 
         suggested_intents = deep.get("suggested_intents", suggested_intents)
         sub_goals = deep.get("sub_goals", sub_goals)
