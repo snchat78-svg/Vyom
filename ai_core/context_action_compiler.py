@@ -137,9 +137,13 @@ class ContextActionCompiler:
             "description": value,
         }
 
-        # Text entry: generic and application-agnostic.
+        # Text entry: generic and application-agnostic. Speech recognition
+        # may prepend a contextual Hindi/English wrapper such as "उसमें",
+        # "इसमें", "उसके अंदर", "there", or "in it". Those wrappers do
+        # not identify an application and therefore must not become part of
+        # the text that gets typed.
         match = re.match(
-            r"^(?:please\s+)?(?:type|write|enter|paste|टाइप\s+कर(?:ो|ें|ना)?|टाइप|लिखो|लिखें|लिख|डालो|डालें|डाल)\s+(.+)$",
+            r"^(?:please\s+)?(?:(?:उसमें|इसमें|उसके\s+अंदर|इसके\s+अंदर|उसने|इसने|यहाँ|वहाँ|usme|isme|uske\s+andar|iske\s+andar|in\s+it|in\s+that|there|here)\s+)?(?:type|write|enter|paste|टाइप\s+कर(?:ो|ें|ना)?|टाइप|लिखो|लिखें|लिख|डालो|डालें|डाल)\s+(.+)$",
             value,
             flags=re.IGNORECASE,
         )
@@ -152,6 +156,36 @@ class ContextActionCompiler:
             resolved = self._resolve_text(match.group(1), context)
             if not resolved.get("resolved"):
                 return {"kind": "clarification", "message": resolved.get("clarification", "क्या text लिखना है?")}
+            base.update({
+                "action": "type_text",
+                "target": resolved["value"],
+                "args": {"text": resolved["value"]},
+                "preconditions": ["an active input target is available"],
+                "postconditions": ["the requested text has been dispatched to the active input target"],
+            })
+            return {"kind": "action", "action": base}
+
+        # Natural Hindi/Hinglish also commonly places the action verb after
+        # the content, e.g. "शंभू लाल लिखो" or "उसमें मेरा नाम लिखो".
+        # Keep this generic: the content is data, while the trailing verb is
+        # only the language-level action marker.
+        match = re.match(
+            r"^(?:please\s+)?(?:(?:उसमें|इसमें|उसके\s+अंदर|इसके\s+अंदर|उसने|इसने|यहाँ|वहाँ|usme|isme|uske\s+andar|iske\s+andar|in\s+it|in\s+that|there|here)\s+)?(.+?)\s+(?:type|write|enter|paste|टाइप(?:\s+कर(?:ो|ें|ना)?)?|लिखो|लिखें|लिख|डालो|डालें|डाल)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            if not current_target:
+                return {
+                    "kind": "clarification",
+                    "message": "किस active application या input target में text लिखना है? पहले उसे खोलें या focus करें।",
+                }
+            resolved = self._resolve_text(match.group(1), context)
+            if not resolved.get("resolved"):
+                return {
+                    "kind": "clarification",
+                    "message": resolved.get("clarification", "क्या text लिखना है?"),
+                }
             base.update({
                 "action": "type_text",
                 "target": resolved["value"],
@@ -382,4 +416,3 @@ class ContextActionCompiler:
             "context_target": self._context_target(ctx),
             "reason": "Contextual instruction compiled into an ordered safe plan.",
         }
-
