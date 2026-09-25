@@ -31,6 +31,10 @@ class IntentEngine:
         "चौथी": "4", "चौथे": "4", "पांच": "5", "पाँच": "5", "पांचवा": "5",
         "पाँचवा": "5", "छह": "6", "छः": "6", "सात": "7", "आठ": "8",
         "नौ": "9", "दस": "10",
+        # Common Hindi spellings of spoken English number words.
+        "वन": "1", "टू": "2", "थ्री": "3", "फोर": "4",
+        "फाइव": "5", "सिक्स": "6", "सेवन": "7", "एट": "8",
+        "नाइन": "9", "टेन": "10",
     }
 
     CONVERSATION_PHRASES = {
@@ -84,8 +88,22 @@ class IntentEngine:
         if text in self.NUMBER_WORDS:
             return self.NUMBER_WORDS[text]
 
+        # Natural Hindi/English selection prefixes such as:
+        #   "नंबर वन", "नंबर 1", "number one", "क्रमांक दो".
+        prefix_match = re.match(
+            r"^(?:number|नंबर|क्रमांक|option|item|choice|no)\s+(.+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if prefix_match:
+            candidate = prefix_match.group(1).strip()
+            if candidate.isdigit():
+                return candidate
+            if candidate in self.NUMBER_WORDS:
+                return self.NUMBER_WORDS[candidate]
+
         value = re.sub(
-            r"(?:^|\s)(?:number|option|item|choice|no)\s+",
+            r"(?:^|\s)(?:number|नंबर|option|item|choice|no|क्रमांक)\s+",
             "",
             text,
             count=1,
@@ -231,6 +249,20 @@ class IntentEngine:
         if text in ("exit", "quit", "stop"):
             return {"intent": "close_app", "target": ""}
 
+        # A bare open command is still a known command. Return a missing
+        # target so the executor can ask what should be opened instead of
+        # sending the input down the unknown-goal path.
+        if text in (
+            "open", "launch", "start", "run",
+            "open karo", "launch karo", "start karo", "run karo",
+            "खोल", "खोलो", "खोलना", "खोलिए", "खोलिये",
+            "खोल दो", "ओपन", "ओपन करो",
+            "चालू", "चालू करो", "चलाओ",
+            "khol", "kholo", "kholna", "kholiye",
+            "chalu", "chalu karo", "chalao",
+        ):
+            return {"intent": "open", "target": ""}
+
         # ---------------------------------------------------------
         # COMMAND / GOAL BOUNDARY
         # ---------------------------------------------------------
@@ -291,4 +323,3 @@ class IntentEngine:
             return {"intent": "open_file", "target": text}
 
         return {"intent": "unknown", "target": original}
-
