@@ -175,7 +175,7 @@ class RomanTextNormalizer:
         # Longest phrases first so "बंद कर दो" is not reduced to "बंद".
         for source in sorted(cls.COMMAND_WORDS, key=len, reverse=True):
             replacement = cls.COMMAND_WORDS[source]
-            value = re.sub(r"(?<!\\S)" + re.escape(source) + r"(?!\\S)", replacement, value)
+            value = re.sub(r"(?<!\S)" + re.escape(source) + r"(?!\S)", replacement, value)
         return value
 
     @classmethod
