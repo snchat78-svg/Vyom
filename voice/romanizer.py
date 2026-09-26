@@ -155,6 +155,29 @@ class RomanTextNormalizer:
         value = re.sub(r"uu", "u", value)
         return value
 
+    # Common Hindi command-language spellings are normalized to the Roman
+    # forms already understood by Vyom's generic intent parser. This list is
+    # language syntax only; it contains no application names.
+    COMMAND_WORDS = {
+        "नंबर": "number", "क्रमांक": "kramank",
+        "खोलो": "kholo", "खोलना": "kholna", "खोलिए": "kholiye", "खोलिये": "kholiye",
+        "खोल": "khol", "ओपन": "open", "लॉन्च": "launch", "स्टार्ट": "start",
+        "चालू": "chalu", "चलाओ": "chalao",
+        "बंद": "band", "बंद करो": "band karo", "बंद कर": "band kar",
+        "बंद कर दो": "band kar do", "रोक": "rok", "रोक दो": "rok do",
+        "क्लोज": "close", "सर्च": "search", "फाइंड": "find",
+        "लिखो": "likho", "लिखें": "likhen", "टाइप": "type", "टाइप करो": "type karo",
+        "करो": "karo", "कर दो": "kar do", "कृपया": "kripya",
+    }
+
+    @classmethod
+    def _normalize_command_words(cls, value):
+        # Longest phrases first so "बंद कर दो" is not reduced to "बंद".
+        for source in sorted(cls.COMMAND_WORDS, key=len, reverse=True):
+            replacement = cls.COMMAND_WORDS[source]
+            value = re.sub(r"(?<!\\S)" + re.escape(source) + r"(?!\\S)", replacement, value)
+        return value
+
     @classmethod
     def normalize(cls, text):
         """Return the transcript in Latin/Roman script.
@@ -191,6 +214,7 @@ class RomanTextNormalizer:
         value = "".join(pieces)
         value = re.sub(r"[\r\n\t]+", " ", value)
         value = re.sub(r"\s+", " ", value).strip()
+        value = cls._normalize_command_words(value)
         return value
 
 
