@@ -50,6 +50,11 @@ class RomanVoiceBoundaryTests(unittest.TestCase):
         self.assertEqual(value, "Skype kholo")
         self.assertFalse(RomanTextNormalizer.contains_devanagari(value))
 
+    def test_romanizer_normalizes_generic_number_command_word(self):
+        value = normalize_voice_text("नंबर दो")
+        self.assertEqual(value, "number do")
+        self.assertFalse(RomanTextNormalizer.contains_devanagari(value))
+
     def test_romanizer_handles_mixed_command_without_devanagari(self):
         value = normalize_voice_text("Google Chrome खोलो")
         self.assertEqual(value, "Google Chrome kholo")
