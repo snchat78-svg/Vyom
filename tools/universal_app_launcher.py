@@ -44,6 +44,8 @@ import re
 import time
 import unicodedata
 
+from tools.phonetic_matcher import score_candidate
+
 try:
     from tools.app_registry import find_application
 except Exception:
@@ -248,26 +250,7 @@ class UniversalAppLauncher:
         return "".join(char for char in value if char not in "aeiou")
 
     def _match_score(self, target, candidate):
-        target = self.normalize(target)
-        candidate = self.normalize(candidate)
-        if not target or not candidate:
-            return 0.0
-        if target == candidate:
-            return 1.0
-        if target in candidate or candidate in target:
-            return 0.90
-
-        raw_score = difflib.SequenceMatcher(None, target, candidate).ratio()
-        target_phonetic = self._phonetic_key(target)
-        candidate_phonetic = self._phonetic_key(candidate)
-        phonetic_score = 0.0
-        if target_phonetic and candidate_phonetic:
-            phonetic_score = difflib.SequenceMatcher(
-                None,
-                target_phonetic,
-                candidate_phonetic,
-            ).ratio()
-        return max(raw_score, phonetic_score)
+        return score_candidate(target, candidate)
 
     def _target_variants(self, target):
         value = self.clean_target(target)
