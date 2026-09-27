@@ -190,201 +190,31 @@ def _get_selection_number(
     intent
 ):
 
-    # ---------------------------------------------------------
-    # IntentEngine selection
-    # ---------------------------------------------------------
-
-    if isinstance(
-        intent,
-        dict
-    ):
-
-        selection = intent.get(
-            "selection"
-        )
-
+    # The IntentEngine is the single source of truth for selection parsing.
+    # This prevents the voice path and normal command path from interpreting
+    # "number 1 kholo", "1 open", etc. differently.
+    if isinstance(intent, dict):
+        selection = intent.get("selection")
         if selection is not None:
-
-            return str(
-                selection
-            )
-
-    text = str(
-        command or ""
-    ).strip().lower()
-
-    # ---------------------------------------------------------
-    # Direct number
-    # ---------------------------------------------------------
-
-    if text.isdigit():
-
-        return text
-
-    # ---------------------------------------------------------
-    # English number words
-    # ---------------------------------------------------------
-
-    numbers = {
-
-        "zero": "0",
-
-        "one": "1",
-        "first": "1",
-
-        "two": "2",
-        "second": "2",
-
-        "three": "3",
-        "third": "3",
-
-        "four": "4",
-        "fourth": "4",
-
-        "five": "5",
-        "fifth": "5",
-
-        "six": "6",
-
-        "seven": "7",
-
-        "eight": "8",
-
-        "nine": "9",
-
-        "ten": "10"
-    }
-
-    if text in numbers:
-
-        return numbers[text]
-
-    # ---------------------------------------------------------
-    # Prefix forms
-    # ---------------------------------------------------------
-
-    prefixes = [
-        "number ",
-        "option ",
-        "item ",
-        "choice ",
-        "no "
-    ]
-
-    for prefix in prefixes:
-
-        if text.startswith(
-            prefix
-        ):
-
-            value = text[
-                len(prefix):
-            ].strip()
-
-            if value.isdigit():
-
+            value = str(selection).strip()
+            if value:
                 return value
 
-            if value in numbers:
+    try:
+        detected = intent_engine._detect_selection(
+            str(command or "")
+        )
+    except Exception:
+        detected = None
 
-                return numbers[value]
+    if detected is not None:
+        value = str(detected).strip()
+        if value:
+            return value
 
-    # ---------------------------------------------------------
-    # Hindi
-    # ---------------------------------------------------------
+    text = str(command or "").strip()
+    return text if text.isdigit() else None
 
-    hindi_numbers = {
-
-        "शून्य": "0",
-
-        "एक": "1",
-        "पहला": "1",
-        "पहली": "1",
-
-        "दो": "2",
-        "दूसरा": "2",
-        "दूसरी": "2",
-
-        "तीन": "3",
-        "तीसरा": "3",
-        "तीसरी": "3",
-
-        "चार": "4",
-        "चौथा": "4",
-        "चौथी": "4",
-
-        "पांच": "5",
-        "पाँच": "5"
-    }
-
-    if text in hindi_numbers:
-
-        return hindi_numbers[text]
-
-    # ---------------------------------------------------------
-    # Natural selection phrases
-    # ---------------------------------------------------------
-
-    selection_phrases = {
-
-        "पहला वाला": "1",
-        "पहली वाली": "1",
-        "पहले वाला": "1",
-        "पहले वाली": "1",
-        "पहला खोलो": "1",
-        "पहला खोल दो": "1",
-
-        "दूसरा वाला": "2",
-        "दूसरी वाली": "2",
-        "दूसरा खोलो": "2",
-        "दूसरा खोल दो": "2",
-
-        "तीसरा वाला": "3",
-        "तीसरी वाली": "3",
-        "तीसरा खोलो": "3",
-        "तीसरा खोल दो": "3",
-
-        "चौथा वाला": "4",
-        "चौथी वाली": "4",
-
-        "पांचवां वाला": "5",
-        "पाँचवाँ वाला": "5",
-
-        "first one": "1",
-        "first one open": "1",
-        "open the first": "1",
-        "open the first one": "1",
-        "first one please": "1",
-
-        "second one": "2",
-        "open the second": "2",
-        "open the second one": "2",
-
-        "third one": "3",
-        "open the third": "3"
-    }
-
-    if text in selection_phrases:
-
-        return selection_phrases[text]
-
-    # Natural prefixes such as:
-    # "open the first one", "पहला वाला खोल दो"
-    normalized = re.sub(
-        r"[^a-zA-Z0-9ऀ-ॿ ]+",
-        " ",
-        text
-    )
-
-    normalized = " ".join(
-        normalized.split()
-    )
-
-    if normalized in selection_phrases:
-
-        return selection_phrases[normalized]
-
-    return None
 
 
 # =============================================================
