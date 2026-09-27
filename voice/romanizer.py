@@ -159,6 +159,8 @@ class RomanTextNormalizer:
     # forms already understood by Vyom's generic intent parser. This list is
     # language syntax only; it contains no application names.
     COMMAND_WORDS = {
+        "opan": "open", "opn": "open", "lanch": "launch", "stert": "start",
+        "cloz": "close", "serch": "search", "taip": "type", "nanbar": "number",
         "नंबर": "number", "nanbar": "number", "क्रमांक": "kramank",
         "खोलो": "kholo", "खोलना": "kholna", "खोलिए": "kholiye", "खोलिये": "kholiye",
         "खोल": "khol", "ओपन": "open", "लॉन्च": "launch", "स्टार्ट": "start",
