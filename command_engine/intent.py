@@ -31,6 +31,12 @@ class IntentEngine:
         "चौथी": "4", "चौथे": "4", "पांच": "5", "पाँच": "5", "पांचवा": "5",
         "पाँचवा": "5", "छह": "6", "छः": "6", "सात": "7", "आठ": "8",
         "नौ": "9", "दस": "10",
+        # Romanized Hindi number words commonly produced by speech recognition.
+        "pahla": "1", "pehla": "1", "pehli": "1", "pehle": "1",
+        "dusra": "2", "doosra": "2", "dusri": "2", "doosri": "2",
+        "teesra": "3", "tisra": "3", "teesri": "3",
+        "chautha": "4", "choutha": "4", "chauthi": "4",
+        "panchva": "5", "panchwan": "5",
         # Common Hindi spellings of spoken English number words.
         "वन": "1", "टू": "2", "थ्री": "3", "फोर": "4",
         "फाइव": "5", "सिक्स": "6", "सेवन": "7", "एट": "8",
@@ -81,48 +87,104 @@ class IntentEngine:
                 return kind
         return None
 
+    def _selection_value(self, value: str):
+        candidate = self._normalize(value).strip()
+        if not candidate:
+            return None
+        if candidate.isdigit():
+            return candidate
+        mapped = self.NUMBER_WORDS.get(candidate)
+        if mapped is not None:
+            return mapped
+        return None
+
+    def _strip_selection_suffix(self, value: str) -> str:
+        candidate = self._normalize(value).strip()
+        if not candidate:
+            return ""
+
+        suffixes = (
+            "open it", "open", "select", "choose", "pick",
+            "please", "pls", "kholo", "khol", "kholen",
+            "khol do", "kholdo", "open karo", "open kar",
+            "select karo", "select kar", "chuno", "chun lo",
+            "चुनो", "चुनिए", "चुन लो", "खोलो", "खोलना",
+            "खोलिए", "खोलिये", "खोल दो", "खोल दें",
+            "कर दो", "करो"
+        )
+        changed = True
+        while changed and candidate:
+            changed = False
+            for suffix in sorted(suffixes, key=len, reverse=True):
+                if candidate == suffix:
+                    return ""
+                marker = " " + suffix
+                if candidate.endswith(marker):
+                    candidate = candidate[:-len(marker)].strip()
+                    changed = True
+                    break
+        return candidate
+
     def _detect_selection(self, command: str):
         text = self._normalize(command)
-        if text.isdigit():
-            return text
-        if text in self.NUMBER_WORDS:
-            return self.NUMBER_WORDS[text]
+        if not text:
+            return None
 
-        # Natural Hindi/English selection prefixes such as:
-        #   "नंबर वन", "नंबर 1", "number one", "क्रमांक दो".
+        direct = self._selection_value(text)
+        if direct is not None:
+            return direct
+
+        # Prefix selections:
+        #   number 1
+        #   number 1 kholo
+        #   option one open
+        #   no 2 select
         prefix_match = re.match(
-            r"^(?:number|नंबर|क्रमांक|option|item|choice|no)\s+(.+)$",
+            r"^(?:number|nambar|नंबर|क्रमांक|option|item|choice|no)\s+(.+)$",
             text,
             flags=re.IGNORECASE,
         )
         if prefix_match:
-            candidate = prefix_match.group(1).strip()
-            if candidate.isdigit():
-                return candidate
-            if candidate in self.NUMBER_WORDS:
-                return self.NUMBER_WORDS[candidate]
+            candidate = self._strip_selection_suffix(prefix_match.group(1))
+            direct = self._selection_value(candidate)
+            if direct is not None:
+                return direct
 
-        value = re.sub(
-            r"(?:^|\s)(?:number|नंबर|option|item|choice|no|क्रमांक)\s+",
-            "",
+            # Spoken number followed by extra action words.
+            first_token = candidate.split(" ", 1)[0] if candidate else ""
+            direct = self._selection_value(first_token)
+            if direct is not None and len(candidate.split()) <= 3:
+                return direct
+
+        # Bare numeric selection followed by a generic action:
+        #   1
+        #   1 kholo
+        #   2 open karo
+        numeric_match = re.match(
+            r"^(\d+)(?:\s+.+)?$",
             text,
-            count=1,
             flags=re.IGNORECASE,
-        ).strip()
-        value = re.sub(
-            r"\s+(?:please|pls|open|open it|select|choose|pick|खोलो|खोलना|खोलिए|खोलिये|खोल दो|खोल दें|चुनो|चुनिए|चुन लो|कर दो|करो)$",
-            "",
-            value,
-            flags=re.IGNORECASE,
-        ).strip()
-        if value in self.NUMBER_WORDS:
-            return self.NUMBER_WORDS[value]
-        if value in (
+        )
+        if numeric_match:
+            return numeric_match.group(1)
+
+        cleaned = self._strip_selection_suffix(text)
+
+        # Ordinal / number phrases such as:
+        #   first one open
+        #   second option
+        #   पहला वाला खोलो
+        if cleaned in (
             "first one", "first option", "first item",
             "second one", "second option", "second item",
             "third one", "third option", "third item",
             "fourth one", "fourth option", "fourth item",
             "fifth one", "fifth option", "fifth item",
+            "पहला वाला", "पहली वाली", "पहले वाला", "पहले वाली",
+            "दूसरा वाला", "दूसरी वाली", "दूसरे वाला",
+            "तीसरा वाला", "तीसरी वाली", "तीसरे वाला",
+            "चौथा वाला", "चौथी वाली",
+            "पांचवां वाला", "पाँचवाँ वाला",
         ):
             return {
                 "first one": "1", "first option": "1", "first item": "1",
@@ -130,37 +192,38 @@ class IntentEngine:
                 "third one": "3", "third option": "3", "third item": "3",
                 "fourth one": "4", "fourth option": "4", "fourth item": "4",
                 "fifth one": "5", "fifth option": "5", "fifth item": "5",
-            }[value]
-
-        if value in (
-            "पहला वाला", "पहली वाली", "पहले वाला", "पहले वाली",
-            "दूसरा वाला", "दूसरी वाली", "दूसरे वाला",
-            "तीसरा वाला", "तीसरी वाली", "तीसरे वाला",
-            "चौथा वाला", "चौथी वाली", "पांचवां वाला", "पाँचवाँ वाला",
-        ):
-            return {
                 "पहला वाला": "1", "पहली वाली": "1", "पहले वाला": "1", "पहले वाली": "1",
                 "दूसरा वाला": "2", "दूसरी वाली": "2", "दूसरे वाला": "2",
                 "तीसरा वाला": "3", "तीसरी वाली": "3", "तीसरे वाला": "3",
                 "चौथा वाला": "4", "चौथी वाली": "4",
                 "पांचवां वाला": "5", "पाँचवाँ वाला": "5",
-            }[value]
-        if value.isdigit():
-            return value
+            }[cleaned]
 
-        patterns = [
-            r"^(?:the\s+)?(.+?)\s+(?:one|option|item)$",
-            r"^(.+?)\s+वाला$", r"^(.+?)\s+वाली$", r"^(.+?)\s+वाले$",
-            r"^(.+?)\s+चुनो$", r"^(.+?)\s+चुनिए$", r"^(.+?)\s+चुन लो$",
-        ]
-        for pattern in patterns:
-            match = re.match(pattern, text)
+        # Natural "open the first/second/third" forms.
+        ordinal_patterns = (
+            r"^(?:open|select|choose|pick)\s+the\s+(first|second|third|fourth|fifth)$",
+            r"^(first|second|third|fourth|fifth)\s+(?:one|option|item)$",
+        )
+        for pattern in ordinal_patterns:
+            match = re.match(pattern, cleaned, flags=re.IGNORECASE)
             if match:
-                candidate = match.group(1).strip()
-                if candidate in self.NUMBER_WORDS:
-                    return self.NUMBER_WORDS[candidate]
-                if candidate.isdigit():
-                    return candidate
+                return self.NUMBER_WORDS.get(match.group(1))
+
+        # Romanized Hindi ordinals produced by the voice boundary.
+        roman_ordinal = self._selection_value(cleaned)
+        if roman_ordinal is not None:
+            return roman_ordinal
+
+        # Generic "number/option/item ..." forms with a trailing action.
+        generic_match = re.match(
+            r"^(?:number|nambar|नंबर|क्रमांक|option|item|choice|no)\s+(.+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if generic_match:
+            candidate = self._strip_selection_suffix(generic_match.group(1))
+            return self._selection_value(candidate)
+
         return None
 
     def _strip_polite_suffix(self, target: str) -> str:
@@ -178,7 +241,7 @@ class IntentEngine:
 
         # Open: action may appear before OR after the target.
         open_after = re.match(
-            r"^(?:please\s+|मेरे\s+लिए\s+|मुझे\s+|जरा\s+|ज़रा\s+)?(.+?)\s+(?:open|launch|start|run|खोल|खोलो|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|चला|khol|kholo|kholna|chalu|chalu karo|chalao|open karo|launch karo|start karo|ओपन|खोल दो|ओपन करो)(?:\s+.*)?$",
+            r"^(?:please\s+|मेरे\s+लिए\s+|मुझे\s+|जरा\s+|ज़रा\s+)?(.+?)\s+(?:open|launch|start|run|खोल|खोलो|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|चला|khol|kholo|kholna|kholiye|kholen|khol do|kholdo|chalu|chalu karo|chalao|open karo|open kar|launch karo|start karo|ओपन|खोल दो|ओपन करो)(?:\s+.*)?$",
             text,
             flags=re.IGNORECASE,
         )
@@ -189,7 +252,7 @@ class IntentEngine:
                 return "open", target
 
         open_before = re.match(
-            r"^(?:please\s+)?(?:open|launch|start|run|खोलो?|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|khol|kholo|chalu|chalao|open karo|launch karo|start karo)\s+(.+?)$",
+            r"^(?:please\s+)?(?:open|launch|start|run|खोलो?|खोलना|खोलिए|खोलिये|खोल दो|चालू करो|चालू|चलाओ|चला दो|khol|kholo|kholna|kholiye|kholen|khol do|kholdo|chalu|chalu karo|chalao|open karo|open kar|launch karo|start karo|opan|opn)\s+(.+?)$",
             text,
             flags=re.IGNORECASE,
         )
@@ -258,7 +321,7 @@ class IntentEngine:
             "खोल", "खोलो", "खोलना", "खोलिए", "खोलिये",
             "खोल दो", "ओपन", "ओपन करो",
             "चालू", "चालू करो", "चलाओ",
-            "khol", "kholo", "kholna", "kholiye",
+            "khol", "kholo", "kholna", "kholiye", "kholen", "khol do", "kholdo",
             "chalu", "chalu karo", "chalao",
         ):
             return {"intent": "open", "target": ""}
