@@ -44,6 +44,8 @@ import re
 import time
 import unicodedata
 
+from tools.phonetic_matcher import rank_candidates
+
 from tools.phonetic_matcher import score_candidate
 
 try:
@@ -1315,8 +1317,8 @@ catch {
                 if not app_name:
                     continue
                 score = max(
-                    self._match_score(variant, app_name)
-                    for variant in target_variants
+                    self._match_score(candidate_variant, app_name)
+                    for candidate_variant in target_variants
                 )
                 add_candidate(app, score)
 
@@ -1436,19 +1438,19 @@ catch {
         )
 
         # ----------------------------------------------------
-        # difflib matching
+        # Generic phonetic + spelling matching
         # ----------------------------------------------------
 
-        matches = difflib.get_close_matches(
+        phonetic_matches = rank_candidates(
             normalized_target,
             candidates,
-            n=limit,
-            cutoff=0.30
+            threshold=0.62,
+            limit=limit
         )
 
         results = []
 
-        for match in matches:
+        for _, match in phonetic_matches:
 
             name = mapping.get(
                 match,
