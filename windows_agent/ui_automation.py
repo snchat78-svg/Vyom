@@ -119,11 +119,16 @@ class WindowsUICapability:
             "find_ui_element", "focus_ui_element", "click_ui_element",
             "invoke_ui_element", "set_ui_value", "select_ui_element",
             "toggle_ui_element", "expand_ui_element", "collapse_ui_element",
-            "type_text",
         }
+        metadata = action.get("metadata")
+        explicit_verification = (
+            isinstance(metadata, dict)
+            and isinstance(metadata.get("verification"), dict)
+        )
+        should_verify = name in verification_actions or explicit_verification
         before = (
             self.ui_observer.snapshot(action)
-            if name in verification_actions
+            if should_verify
             else None
         )
 
@@ -144,7 +149,7 @@ class WindowsUICapability:
                 "action": name,
             }
 
-        if name in verification_actions and result.get("success"):
+        if should_verify and result.get("success"):
             after = self.ui_observer.snapshot(action)
             verification = self.ui_verifier.verify(
                 action=action,
