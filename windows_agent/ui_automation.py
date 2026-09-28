@@ -48,6 +48,8 @@ from windows_agent.screen_observer import ScreenObserver
 from windows_agent.window_manager import WindowManager
 from windows_agent.ui_grounder import UIElementGrounder
 from windows_agent import ui_patterns
+from windows_agent.ui_state_observer import UIStateObserver
+from windows_agent.ui_verifier import UIVerificationEngine
 
 
 class WindowsUICapability:
@@ -68,6 +70,8 @@ class WindowsUICapability:
         self.clipboard_manager = clipboard_manager or ClipboardManager()
         self.screen_observer = screen_observer or ScreenObserver()
         self.ui_grounder = ui_grounder or UIElementGrounder()
+        self.ui_observer = UIStateObserver()
+        self.ui_verifier = UIVerificationEngine(observer=self.ui_observer)
 
         self._handlers = {
             "focus_window": self._focus_window,
@@ -111,6 +115,18 @@ class WindowsUICapability:
                 "message": f"Windows UI capability does not support action '{name}'.",
             }
 
+        verification_actions = {
+            "find_ui_element", "focus_ui_element", "click_ui_element",
+            "invoke_ui_element", "set_ui_value", "select_ui_element",
+            "toggle_ui_element", "expand_ui_element", "collapse_ui_element",
+            "type_text",
+        }
+        before = (
+            self.ui_observer.snapshot(action)
+            if name in verification_actions
+            else None
+        )
+
         try:
             result = handler(action)
         except Exception as error:
@@ -122,11 +138,31 @@ class WindowsUICapability:
             }
 
         if not isinstance(result, dict):
-            return {
+            result = {
                 "success": bool(result),
                 "stage": "action_completed" if result else "action_failed",
                 "action": name,
             }
+
+        if name in verification_actions and result.get("success"):
+            after = self.ui_observer.snapshot(action)
+            verification = self.ui_verifier.verify(
+                action=action,
+                before=before or {},
+                after=after,
+                execution_result=result,
+            )
+            result["verification"] = verification
+            if not verification.get("verified", False):
+                result["success"] = False
+                result["stage"] = "verification_failed"
+                result["message"] = verification.get(
+                    "reason",
+                    "UI action executed but its postcondition was not verified.",
+                )
+            else:
+                result["stage"] = "verified"
+
         return result
 
     def _ground(self, action: Dict[str, Any]) -> Dict[str, Any]:
