@@ -38,6 +38,8 @@ from windows_agent.clipboard_manager import ClipboardManager
 from windows_agent.input_controller import InputController
 from windows_agent.screen_observer import ScreenObserver
 from windows_agent.window_manager import WindowManager
+from windows_agent.ui_element_grounder import UIElementGrounder
+from windows_agent import ui_patterns
 
 
 class WindowsUICapability:
@@ -51,11 +53,13 @@ class WindowsUICapability:
         input_controller: Optional[InputController] = None,
         clipboard_manager: Optional[ClipboardManager] = None,
         screen_observer: Optional[ScreenObserver] = None,
+        ui_grounder: Optional[UIElementGrounder] = None,
     ):
         self.window_manager = window_manager or WindowManager()
         self.input_controller = input_controller or InputController()
         self.clipboard_manager = clipboard_manager or ClipboardManager()
         self.screen_observer = screen_observer or ScreenObserver()
+        self.ui_grounder = ui_grounder or UIElementGrounder()
 
         self._handlers = {
             "focus_window": self._focus_window,
@@ -72,6 +76,15 @@ class WindowsUICapability:
             "read_active_window": self._read_active_window,
             "read_windows": self._read_windows,
             "wait": self._wait,
+            "find_ui_element": self._find_ui_element,
+            "focus_ui_element": self._focus_ui_element,
+            "click_ui_element": self._click_ui_element,
+            "invoke_ui_element": self._invoke_ui_element,
+            "set_ui_value": self._set_ui_value,
+            "select_ui_element": self._select_ui_element,
+            "toggle_ui_element": self._toggle_ui_element,
+            "expand_ui_element": self._expand_ui_element,
+            "collapse_ui_element": self._collapse_ui_element,
         }
 
     def supported_actions(self) -> List[str]:
@@ -107,6 +120,73 @@ class WindowsUICapability:
                 "action": name,
             }
         return result
+
+    def _ground(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        return self.ui_grounder.ground(action.get("target", ""), self._args(action))
+
+    def _semantic_result(self, operation: str, grounded: Dict[str, Any], callback=None, *args) -> Dict[str, Any]:
+        if not grounded.get("success"):
+            return grounded
+        element = grounded.get("element")
+        info = grounded.get("element_info") or {}
+        try:
+            result = callback(element, *args) if callback else None
+            return ui_patterns.operation_result(
+                success=True,
+                operation=operation,
+                element_info=info,
+                result=result,
+            )
+        except Exception as error:
+            return ui_patterns.operation_result(
+                success=False,
+                operation=operation,
+                element_info=info,
+                error=str(error),
+            )
+
+    def _find_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        grounded = self._ground(action)
+        if not grounded.get("success"):
+            return grounded
+        return {
+            "success": True,
+            "stage": "ui_element_found",
+            "element_info": grounded.get("element_info", {}),
+            "verification": grounded.get("verification", {}),
+        }
+
+    def _focus_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        return self._semantic_result("focus_ui_element", self._ground(action), ui_patterns.focus)
+
+    def _click_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        return self._semantic_result("click_ui_element", self._ground(action), ui_patterns.click)
+
+    def _invoke_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        return self._semantic_result("invoke_ui_element", self._ground(action), ui_patterns.invoke)
+
+    def _set_ui_value(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        args = self._args(action)
+        value = args.get("value", "")
+        lookup = dict(args)
+        lookup.pop("value", None)
+        element_target = lookup.get("element_target")
+        if element_target:
+            lookup["name"] = element_target
+        grounded = self.ui_grounder.ground(action.get("target", ""), lookup)
+        return self._semantic_result("set_ui_value", grounded, ui_patterns.set_value, value)
+
+    def _select_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        return self._semantic_result("select_ui_element", self._ground(action), ui_patterns.select)
+
+    def _toggle_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        return self._semantic_result("toggle_ui_element", self._ground(action), ui_patterns.toggle)
+
+    def _expand_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        return self._semantic_result("expand_ui_element", self._ground(action), ui_patterns.expand)
+
+    def _collapse_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        return self._semantic_result("collapse_ui_element", self._ground(action), ui_patterns.collapse)
 
     @staticmethod
     def _args(action: Dict[str, Any]) -> Dict[str, Any]:
