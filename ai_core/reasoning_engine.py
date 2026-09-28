@@ -491,7 +491,7 @@ class ReasoningEngine:
             or len(sub_goals) > 1
         )
 
-        if goal_is_non_trivial:
+        if goal_is_non_trivial or contextual_plan:
             deep = self._deep_reason(
                 goal=goal,
                 intent=intent,
@@ -500,9 +500,9 @@ class ReasoningEngine:
                 previous_result=previous_result,
                 suggested_intents=suggested_intents,
                 sub_goals=sub_goals,
-                force=True,
+                force=goal_is_non_trivial,
             )
-        elif suggested_intents or contextual_plan:
+        elif suggested_intents:
             deep = {
                 "suggested_intents": suggested_intents,
                 "sub_goals": sub_goals,
@@ -682,6 +682,34 @@ class ReasoningEngine:
         capabilities = analysis.get("capabilities", [])
         deep = analysis.get("deep_reasoning")
 
+        model_ordered_plan = analysis.get("model_ordered_plan", [])
+        if isinstance(model_ordered_plan, list) and model_ordered_plan:
+            plan_types = {str(item.get("type", "")).strip().lower() for item in model_ordered_plan if isinstance(item, dict)}
+            if "conversation" in plan_types:
+                route = {"route": "conversation", "reason": analysis.get("deep_reasoning", {}).get("reason", "The task requires conversation.")}
+            elif "execute_existing_intent" in plan_types and "action" in plan_types:
+                route = {"route": "mission", "reason": "The model produced an ordered mixed mission."}
+            elif plan_types == {"action"}:
+                resolutions = analysis.get("model_generic_capability_resolutions", [])
+                if resolutions and all(item.get("resolved", False) for item in resolutions):
+                    route = {
+                        "route": "capability",
+                        "reason": "The model produced generic actions with available providers.",
+                        "capability": resolutions[0].get("capability", ""),
+                    }
+                else:
+                    route = {
+                        "route": "missing_capability",
+                        "reason": "The model produced generic actions without an available provider.",
+                    }
+                    first = next((step for step in model_ordered_plan if isinstance(step, dict) and step.get("type") == "action"), None)
+                    if first:
+                        route["capability"] = first.get("capability", "")
+            else:
+                route = {"route": "mission", "reason": "The model produced an ordered mission plan."}
+            self.last_route = route
+            return route
+
         contextual_plan = analysis.get("contextual_plan", [])
         if isinstance(contextual_plan, list) and contextual_plan and analysis.get("contextual_plan_complete", False):
             clarification = str(analysis.get("contextual_clarification") or "").strip()
@@ -731,34 +759,6 @@ class ReasoningEngine:
                     "route": "existing_tools" if len(contextual_plan) == 1 else "mission",
                     "reason": "Contextual plan uses existing tools.",
                 }
-            self.last_route = route
-            return route
-
-        model_ordered_plan = analysis.get("model_ordered_plan", [])
-        if isinstance(model_ordered_plan, list) and model_ordered_plan:
-            plan_types = {str(item.get("type", "")).strip().lower() for item in model_ordered_plan if isinstance(item, dict)}
-            if "conversation" in plan_types:
-                route = {"route": "conversation", "reason": analysis.get("deep_reasoning", {}).get("reason", "The task requires conversation.")}
-            elif "execute_existing_intent" in plan_types and "action" in plan_types:
-                route = {"route": "mission", "reason": "The model produced an ordered mixed mission."}
-            elif plan_types == {"action"}:
-                resolutions = analysis.get("model_generic_capability_resolutions", [])
-                if resolutions and all(item.get("resolved", False) for item in resolutions):
-                    route = {
-                        "route": "capability",
-                        "reason": "The model produced generic actions with available providers.",
-                        "capability": resolutions[0].get("capability", ""),
-                    }
-                else:
-                    route = {
-                        "route": "missing_capability",
-                        "reason": "The model produced generic actions without an available provider.",
-                    }
-                    first = next((step for step in model_ordered_plan if isinstance(step, dict) and step.get("type") == "action"), None)
-                    if first:
-                        route["capability"] = first.get("capability", "")
-            else:
-                route = {"route": "mission", "reason": "The model produced an ordered mission plan."}
             self.last_route = route
             return route
 
@@ -879,6 +879,11 @@ class ReasoningEngine:
             generic_actions = []
 
         contextual_plan = analysis.get("contextual_plan", [])
+        model_ordered_plan = analysis.get("model_ordered_plan", [])
+        if isinstance(model_ordered_plan, list) and model_ordered_plan:
+            self.last_plan = [dict(step) for step in model_ordered_plan if isinstance(step, dict)]
+            return self.last_plan
+
         if (
             isinstance(contextual_plan, list)
             and contextual_plan
@@ -887,7 +892,6 @@ class ReasoningEngine:
             self.last_plan = [dict(step) for step in contextual_plan if isinstance(step, dict)]
             return self.last_plan
 
-        model_ordered_plan = analysis.get("model_ordered_plan", [])
 
         # A model may describe the required generic operations even when no
         # provider is available. In that case the mission must remain blocked
