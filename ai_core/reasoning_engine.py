@@ -322,7 +322,7 @@ class ReasoningEngine:
             result = self.deep_reasoner.reason(
                 goal=goal,
                 context=context,
-                capabilities=reasoning_capabilities,
+                capabilities=capabilities,
                 previous_result=previous_result,
                 intent=intent,
             )
