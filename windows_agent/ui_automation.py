@@ -46,7 +46,7 @@ from windows_agent.clipboard_manager import ClipboardManager
 from windows_agent.input_controller import InputController
 from windows_agent.screen_observer import ScreenObserver
 from windows_agent.window_manager import WindowManager
-from windows_agent.ui_element_grounder import UIElementGrounder
+from windows_agent.ui_grounder import UIElementGrounder
 from windows_agent import ui_patterns
 
 
