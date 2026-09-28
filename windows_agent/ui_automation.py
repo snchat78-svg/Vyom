@@ -23,10 +23,18 @@ Scope of Step 2:
     - read_active_window
     - read_windows
     - wait
+    - find_ui_element
+    - focus_ui_element
+    - click_ui_element
+    - invoke_ui_element
+    - set_ui_value
+    - select_ui_element
+    - toggle_ui_element
+    - expand_ui_element
+    - collapse_ui_element
 
-Higher-level UI element grounding, OCR and semantic control discovery belong
-in later capabilities; this provider is the generic low-level computer
-control layer.
+Semantic UI Automation is layered above the existing low-level Win32
+fallbacks. OCR/visual grounding remains a separate future capability.
 """
 
 from __future__ import annotations
