@@ -880,18 +880,6 @@ class ReasoningEngine:
 
         contextual_plan = analysis.get("contextual_plan", [])
         model_ordered_plan = analysis.get("model_ordered_plan", [])
-        if isinstance(model_ordered_plan, list) and model_ordered_plan:
-            self.last_plan = [dict(step) for step in model_ordered_plan if isinstance(step, dict)]
-            return self.last_plan
-
-        if (
-            isinstance(contextual_plan, list)
-            and contextual_plan
-            and analysis.get("contextual_plan_complete", False)
-        ):
-            self.last_plan = [dict(step) for step in contextual_plan if isinstance(step, dict)]
-            return self.last_plan
-
 
         # A model may describe the required generic operations even when no
         # provider is available. In that case the mission must remain blocked
@@ -922,6 +910,18 @@ class ReasoningEngine:
 
         if isinstance(model_ordered_plan, list) and model_ordered_plan:
             self.last_plan = [dict(step) for step in model_ordered_plan if isinstance(step, dict)]
+            return self.last_plan
+
+        if route_name != "missing_capability" and isinstance(model_ordered_plan, list) and model_ordered_plan:
+            self.last_plan = [dict(step) for step in model_ordered_plan if isinstance(step, dict)]
+            return self.last_plan
+
+        if route_name != "missing_capability" and (
+            isinstance(contextual_plan, list)
+            and contextual_plan
+            and analysis.get("contextual_plan_complete", False)
+        ):
+            self.last_plan = [dict(step) for step in contextual_plan if isinstance(step, dict)]
             return self.last_plan
 
         if route_name == "existing_tools":
