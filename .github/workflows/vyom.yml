@@ -197,6 +197,7 @@ jobs:
               "tests/test_ui_autonomous_agent.py",
               "tests/test_voice_conversation_integration.py",
               "tests/test_phase1_contracts.py",
+              "tests/test_ui_automation_phase2.py",
               "tests/test_windows_ui_capability.py"
           )
 
