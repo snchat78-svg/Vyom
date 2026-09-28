@@ -196,7 +196,6 @@ class UIVerificationEngine:
                 {"kind": "element_not_exists", "source": "target_element"},
                 {"kind": "ui_tree_changed"},
                 {"kind": "window_changed"},
-                {"kind": "focused_changed"},
             ]
         if name == "type_text":
             args = action.get("args")
