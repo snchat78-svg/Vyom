@@ -4,6 +4,9 @@ run-name: Vyom EXE | branch=${{ github.ref_name }} | commit=${{ github.sha }}
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - updated
 
 jobs:
   build:
