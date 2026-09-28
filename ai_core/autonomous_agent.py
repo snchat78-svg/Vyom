@@ -125,7 +125,10 @@ class AutonomousAgent:
         # GOAL-CENTRIC ARCHITECTURE
         # =========================================================
 
-        self.goal_compiler = GoalCompiler()
+        # ReasoningEngine owns the canonical GoalCompiler. Reuse that exact
+        # instance so goal compilation, contextual compilation, and deep
+        # reasoning cannot drift into separate compiler state.
+        self.goal_compiler = self.reasoning_engine.goal_compiler
 
         self.mission_planner = MissionPlanner(
             max_steps=max_steps
@@ -2090,12 +2093,20 @@ class AutonomousAgent:
         # EXECUTABLE / MISSION ROUTES
         # =========================================================
 
-        if route.get(
-            "route"
-        ) in (
+        route_name = str(route.get("route") or "").strip().lower()
+        executable_capability_plan = (
+            route_name == "capability"
+            and bool(plan)
+            and any(
+                isinstance(step, dict) and step.get("type") == "action"
+                for step in plan
+            )
+        )
+
+        if route_name in (
             "existing_tools",
             "mission"
-        ):
+        ) or executable_capability_plan:
 
             if not plan:
 
@@ -2154,9 +2165,7 @@ class AutonomousAgent:
         # CAPABILITY FOUND
         # =========================================================
 
-        if route.get(
-            "route"
-        ) == "capability":
+        if route_name == "capability":
 
             capability = route.get(
                 "capability"
