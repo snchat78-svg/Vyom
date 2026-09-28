@@ -286,6 +286,54 @@ class ContextActionCompiler:
             })
             return {"kind": "action", "action": base}
 
+        # Semantic UI Automation targets. A plain target such as
+        # "Search" is data, not an application name. The runtime resolves it
+        # through Windows UI Automation properties/control patterns.
+        match = re.match(
+            r"^(?:please\\s+)?(?:click|क्लिक)(?:\\s+(?:the|on|पर|को))?\\s+(.+)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            target = self._normalize(match.group(1))
+            base.update({
+                "action": "click_ui_element",
+                "target": target,
+                "args": {},
+                "postconditions": ["the requested UI element was found and invoked"],
+            })
+            return {"kind": "action", "action": base}
+
+        match = re.match(
+            r"^(?:please\\s+)?(?:invoke|activate|press|select|choose|invoke\\s+the)\\s+(.+)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            target = self._normalize(match.group(1))
+            base.update({
+                "action": "invoke_ui_element",
+                "target": target,
+                "args": {},
+                "postconditions": ["the requested UI control was invoked"],
+            })
+            return {"kind": "action", "action": base}
+
+        match = re.match(
+            r"^(?:please\\s+)?(?:focus|फोकस)(?:\\s+(?:the|on|पर))\\s+(.+)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            target = self._normalize(match.group(1))
+            base.update({
+                "action": "focus_ui_element",
+                "target": target,
+                "args": {},
+                "postconditions": ["the requested UI element is focused"],
+            })
+            return {"kind": "action", "action": base}
+
         # Explicit coordinates are the only low-level click form accepted in
         # Step 2B. Semantic control finding belongs to the later vision layer.
         match = re.match(r"^(?:please\s+)?(?:double[- ]?click|डबल\s+क्लिक)(?:\s+at|\s+पर)?\s*(-?\d+)\s*[, ]\s*(-?\d+)$", value, re.IGNORECASE)
