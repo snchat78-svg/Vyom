@@ -87,7 +87,7 @@ class Phase2UIAutomationTests(unittest.TestCase):
         )
         self.assertTrue(result["complete"])
         self.assertEqual(result["plan"][0]["action"], "click_ui_element")
-        self.assertEqual(result["plan"][0]["target"], "search")
+        self.assertEqual(result["plan"][0]["target"], "Search")
 
     def test_coordinate_click_remains_legacy_fallback(self):
         compiler = ContextActionCompiler()
