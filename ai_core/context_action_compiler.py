@@ -290,7 +290,7 @@ class ContextActionCompiler:
         # "Search" is data, not an application name. The runtime resolves it
         # through Windows UI Automation properties/control patterns.
         match = re.match(
-            r"^(?:please\\s+)?(?:click|क्लिक)(?:\\s+(?:the|on|पर|को))?\\s+(.+)$",
+            r"^(?:please\s+)?(?:click|क्लिक)(?:\s+(?:the|on|पर|को))?\s+(.+)$",
             value,
             flags=re.IGNORECASE,
         )
@@ -306,7 +306,7 @@ class ContextActionCompiler:
                 return {"kind": "action", "action": base}
 
         match = re.match(
-            r"^(?:please\\s+)?(?:invoke|activate|press|select|choose|invoke\\s+the)\\s+(.+)$",
+            r"^(?:please\s+)?(?:invoke|activate|press|select|choose|invoke\s+the)\s+(.+)$",
             value,
             flags=re.IGNORECASE,
         )
@@ -321,7 +321,7 @@ class ContextActionCompiler:
             return {"kind": "action", "action": base}
 
         match = re.match(
-            r"^(?:please\\s+)?(?:focus|फोकस)(?:\\s+(?:the|on|पर))\\s+(.+)$",
+            r"^(?:please\s+)?(?:focus|फोकस)(?:\s+(?:the|on|पर))\s+(.+)$",
             value,
             flags=re.IGNORECASE,
         )
