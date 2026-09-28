@@ -322,7 +322,7 @@ class ReasoningEngine:
             result = self.deep_reasoner.reason(
                 goal=goal,
                 context=context,
-                capabilities=capabilities,
+                capabilities=reasoning_capabilities,
                 previous_result=previous_result,
                 intent=intent,
             )
@@ -465,6 +465,18 @@ class ReasoningEngine:
                 capabilities = self.capability_manager.match(goal)
             except Exception:
                 capabilities = []
+
+        # Runtime providers advertise their generic actions through the
+        # canonical registry. Keep these descriptions separate from the
+        # legacy goal-capability list so route decisions do not accidentally
+        # treat every registered provider as a match for every goal.
+        reasoning_capabilities = list(capabilities)
+        try:
+            reasoning_capabilities.extend(
+                self.capability_registry.list_capabilities(enabled_only=True)
+            )
+        except Exception:
+            pass
 
         # A deterministic contextual plan may safely use the fast path when
         # it is a single action. Compound/contextual missions are non-trivial:
