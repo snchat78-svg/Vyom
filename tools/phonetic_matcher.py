@@ -53,6 +53,10 @@ def _phonetic_key(value):
         ("th", "t"), ("kh", "h"), ("gh", "g"), ("aa", "a"),
         ("ee", "i"), ("ii", "i"), ("oo", "u"), ("uu", "u"),
         ("ai", "e"), ("au", "o"),
+        # Voice recognition can interchange /v/ and /w/ in Romanized
+        # Hindi/Hinglish. Treat them as the same phonetic class while
+        # keeping the matcher generic and application-agnostic.
+        ("v", "w"),
     )
     for source, replacement in replacements:
         value = value.replace(source, replacement)
