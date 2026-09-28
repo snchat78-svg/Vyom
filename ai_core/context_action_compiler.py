@@ -296,13 +296,14 @@ class ContextActionCompiler:
         )
         if match:
             target = self._normalize(match.group(1))
-            base.update({
-                "action": "click_ui_element",
-                "target": target,
-                "args": {},
-                "postconditions": ["the requested UI element was found and invoked"],
-            })
-            return {"kind": "action", "action": base}
+            if not re.fullmatch(r"-?\d+\s*[, ]\s*-?\d+", target):
+                base.update({
+                    "action": "click_ui_element",
+                    "target": target,
+                    "args": {},
+                    "postconditions": ["the requested UI element was found and invoked"],
+                })
+                return {"kind": "action", "action": base}
 
         match = re.match(
             r"^(?:please\\s+)?(?:invoke|activate|press|select|choose|invoke\\s+the)\\s+(.+)$",
