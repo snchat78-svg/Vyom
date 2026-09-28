@@ -152,8 +152,33 @@ class UIStateObserver:
         return self.element_state(window)
 
     def focused_element_state(self) -> Dict[str, Any]:
-        element = self.active_element()
-        return self.element_state(element)
+        desktop = self._desktop()
+        if desktop is None:
+            return {"exists": False}
+
+        try:
+            active = desktop.get_active()
+        except Exception:
+            active = None
+
+        if active is None:
+            return {"exists": False}
+
+        try:
+            focused = active.descendants(
+                control_type=None,
+            )
+            for element in focused:
+                state = self.element_state(element)
+                if state.get("focused") is True:
+                    return state
+        except Exception:
+            pass
+
+        active_state = self.element_state(active)
+        if active_state.get("focused") is True:
+            return active_state
+        return {"exists": False}
 
     def _tree_signature(self) -> List[Dict[str, Any]]:
         active = self.active_element()
