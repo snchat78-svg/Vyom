@@ -1040,9 +1040,15 @@ class AutonomousAgent:
                             )
                         )
 
+                    final_stage = "completed"
+                    if self.task_history:
+                        last_history = self.task_history[-1]
+                        if bool(last_history.get("verified", False)):
+                            final_stage = "verified"
+
                     return {
                         "success": True,
-                        "stage": "completed",
+                        "stage": final_stage,
                         "result": last_result,
                         "goal": goal,
                         "goal_compilation": compilation,
