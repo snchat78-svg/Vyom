@@ -17,6 +17,7 @@ import sys
 import time
 
 from .romanizer import normalize_voice_text
+from .command_normalizer import VoiceCommandNormalizer
 
 
 class SpeechToText:
@@ -57,6 +58,7 @@ class SpeechToText:
         self._device_error_count = 0
         self._recognition_error_count = 0
         self._sr_module = None
+        self.command_normalizer = VoiceCommandNormalizer()
         self._initialize()
 
     def _log(self, message):
@@ -428,7 +430,9 @@ class SpeechToText:
         if first.get("status") == "device_error":
             return first
         if first.get("success") or first.get("text"):
-            text = str(first.get("text") or "").strip()
+            raw_text = str(first.get("text") or "").strip()
+            command_meta = self.command_normalizer.normalize(raw_text)
+            text = str(command_meta.get("text") or raw_text).strip()
             self._last_text = text
             self._last_language = self.preferred_language
             self._last_status = "recognized"
@@ -437,6 +441,8 @@ class SpeechToText:
                 "success": True, "text": text,
                 "alternatives": list(first.get("alternatives") or []),
                 "language": self.preferred_language,
+                "command_confidence": command_meta.get("confidence", 0.0),
+                "command_corrections": command_meta.get("corrections", []),
                 "status": "recognized",
             }
 
@@ -447,7 +453,9 @@ class SpeechToText:
         if second.get("status") == "device_error":
             return second
         if second.get("success") or second.get("text"):
-            text = str(second.get("text") or "").strip()
+            raw_text = str(second.get("text") or "").strip()
+            command_meta = self.command_normalizer.normalize(raw_text)
+            text = str(command_meta.get("text") or raw_text).strip()
             self._last_text = text
             self._last_language = self.fallback_language
             self._last_status = "recognized"
@@ -456,6 +464,8 @@ class SpeechToText:
                 "success": True, "text": text,
                 "alternatives": list(second.get("alternatives") or []),
                 "language": self.fallback_language,
+                "command_confidence": command_meta.get("confidence", 0.0),
+                "command_corrections": command_meta.get("corrections", []),
                 "status": "recognized",
             }
 
