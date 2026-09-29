@@ -347,12 +347,13 @@ class IntentEngine:
                 "voice": voice_meta,
             }
 
-        natural = self._natural_family(original)
+        natural = self._natural_family(normalized_input)
         if natural:
             family, target = natural
             return {
                 "intent": "open" if family == "open" else "close_app",
                 "target": target,
+                "voice": voice_meta,
             }
 
         if text.startswith("find and open ") or text.startswith("search and open "):
