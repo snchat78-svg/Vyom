@@ -500,7 +500,7 @@ class ReasoningEngine:
                 previous_result=previous_result,
                 suggested_intents=suggested_intents,
                 sub_goals=sub_goals,
-                force=goal_is_non_trivial,
+                force=(goal_is_non_trivial or bool(contextual_plan)),
             )
         elif suggested_intents:
             deep = {
