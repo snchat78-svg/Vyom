@@ -87,6 +87,9 @@ from memory.session_memory import SessionMemory
 
 from ai_core.observation_verifier import ObservationVerifier
 from ai_core.world_state import WorldStateModel
+from windows_agent.ui_state_observer import UIStateObserver
+from windows_agent.clipboard_manager import ClipboardManager
+from windows_agent.screen_observer import ScreenObserver
 
 
 class AutonomousAgent:
@@ -155,7 +158,11 @@ class AutonomousAgent:
 
         self.verifier = ObservationVerifier()
 
-        self.world_state = WorldStateModel()
+        self.world_state = WorldStateModel(
+            ui_observer=UIStateObserver(),
+            clipboard_manager=ClipboardManager(),
+            screen_observer=ScreenObserver(),
+        )
 
         # =========================================================
         # SESSION MEMORY
@@ -1247,7 +1254,10 @@ class AutonomousAgent:
 
                 refreshed_state = (
                     self.world_state.snapshot(
-                        self.context.snapshot()
+                        self.context.snapshot(),
+                        mission_state=self.mission_runtime.snapshot(),
+                        include_ui=True,
+                        include_clipboard=True,
                     )
                 )
 
@@ -1960,7 +1970,10 @@ class AutonomousAgent:
 
             state_snapshot = (
                 self.world_state.snapshot(
-                    self.context.snapshot()
+                    self.context.snapshot(),
+                    mission_state=self.mission_runtime.snapshot(),
+                    include_ui=True,
+                    include_clipboard=True,
                 )
             )
 
