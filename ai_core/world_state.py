@@ -157,10 +157,10 @@ class WorldStateModel:
             "cwd": os.getcwd(),
 
             # Session/context owner data.
-            "current_app": ctx.get("current_app"),
-            "current_file": ctx.get("current_file"),
-            "current_target": ctx.get("current_target"),
-            "task_state": ctx.get("task_state"),
+            "current_app": ctx.get("current_app") or "",
+            "current_file": ctx.get("current_file") or "",
+            "current_target": ctx.get("current_target") or "",
+            "task_state": ctx.get("task_state") or "",
             "last_success": ctx.get("last_success"),
             "pending_selection": ctx.get("pending_selection", False),
             "awaiting_confirmation": ctx.get("awaiting_confirmation", False),
