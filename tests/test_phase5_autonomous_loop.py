@@ -15,12 +15,17 @@ class Phase5ObservationTests(unittest.TestCase):
         self.assertEqual(observation["phase"], "test")
         self.assertEqual(observation["step_id"], "a1")
         self.assertIn("world_state", observation)
-        self.assertTrue(
+        self.assertFalse(
             any(
                 item.get("stage") == "observation"
                 for item in agent.task_history
                 if isinstance(item, dict)
             )
+        )
+        self.assertTrue(agent.world_state.observation_history)
+        self.assertEqual(
+            agent.world_state.observation_history[-1]["phase"],
+            "test",
         )
 
     def test_observation_failure_does_not_execute_or_mutate_targets(self):
