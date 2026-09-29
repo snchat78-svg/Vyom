@@ -262,7 +262,7 @@ jobs:
         shell: powershell
         run: |
 
-          python -c "import voice; import voice.voice_controller; import voice.speech_to_text; import voice.text_to_speech; print('VOICE IMPORT TEST PASSED')"
+          python -c "import voice; import voice.voice_controller; import voice.command_normalizer; import voice.speech_to_text; import voice.text_to_speech; print('VOICE IMPORT TEST PASSED')"
 
 
       # ======================================================
