@@ -1098,8 +1098,14 @@ class AutonomousAgent:
                         )
 
                     final_stage = "completed"
-                    if self.task_history:
-                        last_history = self.task_history[-1]
+                    execution_history = [
+                        item
+                        for item in self.task_history
+                        if isinstance(item, dict)
+                        and item.get("stage") != "observation"
+                    ]
+                    if execution_history:
+                        last_history = execution_history[-1]
                         if bool(last_history.get("verified", False)):
                             final_stage = "verified"
 
