@@ -1,9 +1,8 @@
 """Generic voice-command normalization and confidence scoring.
 
-This layer sits between STT romanization and the existing IntentEngine.
-It corrects only language-level command words. Runtime targets such as
-applications, files, folders, URLs, and user names are deliberately left
-untouched so the existing universal resolver can handle them.
+The normalizer corrects noisy command language at the voice boundary while
+protecting runtime targets. Application, file, folder and user names are not
+stored here and are not fuzzy-corrected as command words.
 """
 
 import difflib
@@ -12,12 +11,11 @@ from typing import Dict, List, Tuple
 
 
 class VoiceCommandNormalizer:
-    """Application-agnostic correction of noisy spoken command language."""
+    """Application-agnostic correction of spoken command syntax."""
 
-    # Canonical command vocabulary only. No application/file names belong here.
     COMMAND_ALIASES = {
-        "open": ("opan", "opn", "oppen", "opain", "opan"),
-        "close": ("cloz", "kloj", "cloze", "clouse", "cloze"),
+        "open": ("opan", "opn", "oppen", "opain"),
+        "close": ("cloz", "kloj", "cloze", "clouse"),
         "search": ("serch", "sarch", "seach", "surch"),
         "find": ("fand", "phind", "fin"),
         "type": ("taip", "tiep", "typ", "taipe"),
@@ -28,7 +26,7 @@ class VoiceCommandNormalizer:
         "delete": ("delet", "delit", "dilit"),
         "save": ("saiv", "sive", "seiv"),
         "launch": ("lanch", "laun", "lonch"),
-        "start": ("stert", "stat", "start"),
+        "start": ("stert", "stat"),
         "stop": ("stap", "stopp"),
         "number": ("nanbar", "nambar", "numbar"),
         "cancel": ("cansal", "cancle", "cansel"),
@@ -36,14 +34,13 @@ class VoiceCommandNormalizer:
         "paste": ("paist", "pest"),
         "cut": ("kat", "katt"),
         "undo": ("ando", "undu"),
-        "redo": ("redo", "rido"),
+        "redo": ("rido",),
         "scroll": ("scrol", "skrol"),
         "back": ("bak", "bake"),
         "forward": ("forword", "foward", "forwad"),
         "refresh": ("refres", "refrech"),
     }
 
-    # Common Hindi/Hinglish action words. These are syntax, not targets.
     HINDI_ACTIONS = {
         "khol": "open", "kholo": "open", "kholna": "open", "kholiye": "open",
         "kholen": "open", "khol do": "open", "kholdo": "open",
@@ -51,9 +48,19 @@ class VoiceCommandNormalizer:
         "band kar do": "close", "rok": "stop", "rok do": "stop",
         "likho": "type", "likhen": "type", "likhna": "type",
         "taip karo": "type", "type karo": "type",
-        "dabao": "press", "dabaye": "press", "click karo": "click",
-        "save karo": "save", "bachaao": "save",
+        "dabao": "press", "dabaye": "press",
+        "click karo": "click", "save karo": "save",
         "dhundo": "search", "dhoondo": "search", "khojo": "search",
+    }
+
+    COMMAND_HELPERS = {
+        "karo", "kar", "karen", "kariye", "karie", "do", "dena",
+        "please", "pls", "now",
+    }
+
+    CONNECTORS = {
+        "and", "then", "after", "afterthat", "aur", "phir",
+        "uske", "baad", "fir",
     }
 
     def __init__(self, min_similarity: float = 0.74):
@@ -65,15 +72,20 @@ class VoiceCommandNormalizer:
                 self._alias_to_canonical[alias] = canonical
 
     @staticmethod
-    def _clean(text: str) -> str:
-        value = str(text or "").strip().lower()
+    def _clean_word(value: str) -> str:
+        return re.sub(r"[^a-z0-9_-]", "", str(value or "").strip().lower())
+
+    @staticmethod
+    def _clean_text(value: str) -> str:
+        value = str(value or "").strip().lower()
         value = re.sub(r"[^a-z0-9_\s-]", " ", value)
         return re.sub(r"\s+", " ", value).strip()
 
     def _best_word(self, word: str) -> Tuple[str, float]:
-        normalized = self._clean(word)
+        normalized = self._clean_word(word)
         if not normalized:
             return "", 0.0
+
         exact = self._alias_to_canonical.get(normalized)
         if exact:
             return exact, 1.0
@@ -85,9 +97,20 @@ class VoiceCommandNormalizer:
             if score > best_score:
                 best_score = score
                 best_name = canonical
+
         if best_score >= self.min_similarity:
             return best_name, best_score
         return normalized, best_score
+
+    def _replace_at(self, tokens: List[str], index: int, canonical: str, score: float, corrections):
+        original = tokens[index]
+        tokens[index] = canonical
+        corrections.append({
+            "from": original,
+            "to": canonical,
+            "score": round(float(score), 4),
+            "position": index,
+        })
 
     def normalize(self, text: str) -> Dict[str, object]:
         original = str(text or "").strip()
@@ -100,59 +123,74 @@ class VoiceCommandNormalizer:
             }
 
         tokens = original.lower().split()
-        output: List[str] = []
-        corrections = []
-        scores = []
+        corrections: List[Dict[str, object]] = []
+        scores: List[float] = []
 
-        index = 0
-        while index < len(tokens):
-            # Prefer known multi-word Hindi/Hinglish command phrases.
-            if index + 2 < len(tokens):
-                phrase = " ".join(tokens[index:index + 3])
-                canonical = self.HINDI_ACTIONS.get(phrase)
-                if canonical:
-                    output.append(canonical)
-                    corrections.append({"from": phrase, "to": canonical, "score": 1.0})
-                    scores.append(1.0)
-                    index += 3
-                    continue
-            if index + 1 < len(tokens):
-                phrase = " ".join(tokens[index:index + 2])
-                canonical = self.HINDI_ACTIONS.get(phrase)
-                if canonical:
-                    output.append(canonical)
-                    corrections.append({"from": phrase, "to": canonical, "score": 1.0})
-                    scores.append(1.0)
-                    index += 2
-                    continue
+        # Exact multi-word Hinglish/Hindi command phrases are safe to correct
+        # wherever they occur because they contain explicit action syntax.
+        i = 0
+        while i < len(tokens):
+            matched = False
+            for width in (3, 2):
+                if i + width <= len(tokens):
+                    phrase = " ".join(tokens[i:i + width])
+                    canonical = self.HINDI_ACTIONS.get(phrase)
+                    if canonical:
+                        tokens[i:i + width] = [canonical]
+                        corrections.append({
+                            "from": phrase,
+                            "to": canonical,
+                            "score": 1.0,
+                            "position": i,
+                        })
+                        scores.append(1.0)
+                        matched = True
+                        break
+            if matched:
+                continue
+            i += 1
 
+        # Correct a fuzzy English/Roman command only in command position:
+        # start of utterance, or after an explicit multi-step connector.
+        # Runtime targets are therefore protected from fuzzy command rewriting.
+        command_positions = {0}
+        for index, token in enumerate(tokens):
+            if token in self.CONNECTORS and index + 1 < len(tokens):
+                command_positions.add(index + 1)
+
+        # A trailing command before a helper (e.g. "notepad kloj karo") is
+        # also command context, but the helper itself is never fuzzy-corrected.
+        for index in range(len(tokens) - 1):
+            if tokens[index + 1] in self.COMMAND_HELPERS:
+                command_positions.add(index)
+
+        for index in sorted(command_positions):
+            if index >= len(tokens):
+                continue
             token = tokens[index]
+            if token in self.COMMAND_HELPERS or token in self.CONNECTORS:
+                continue
             canonical, score = self._best_word(token)
-            # Only replace a token when it is a command alias/correction.
             if canonical != token and score >= self.min_similarity:
-                output.append(canonical)
-                corrections.append({"from": token, "to": canonical, "score": round(score, 4)})
+                self._replace_at(tokens, index, canonical, score, corrections)
                 scores.append(score)
-            else:
-                output.append(token)
-            index += 1
 
-        normalized = " ".join(output).strip()
-        # Confidence is conservative: an unchanged sentence is high-confidence
-        # only when it already contains a known command word.
-        command_hits = sum(1 for token in output if token in self.COMMAND_ALIASES)
-        correction_scores = [float(item["score"]) for item in corrections]
-        if correction_scores:
-            confidence = min(correction_scores)
-        elif command_hits:
-            confidence = 1.0
-        else:
-            confidence = 0.0
+        normalized = " ".join(tokens).strip()
+
+        command_hits = sum(
+            1 for token in tokens
+            if token in self.COMMAND_ALIASES
+        )
+        confidence = (
+            min(scores)
+            if scores
+            else (1.0 if command_hits else 0.0)
+        )
 
         return {
             "text": normalized,
             "changed": normalized != original.lower(),
-            "confidence": round(confidence, 4),
+            "confidence": round(float(confidence), 4),
             "corrections": corrections,
         }
 
