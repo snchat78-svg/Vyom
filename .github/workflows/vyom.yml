@@ -201,6 +201,8 @@ jobs:
               "tests/test_reasoning_gateway.py",
               "tests/test_ui_autonomous_agent.py",
               "tests/test_voice_conversation_integration.py",
+              "tests/test_voice_command_normalizer.py",
+              "tests/test_phase5_autonomous_loop.py",
               "tests/test_phase1_contracts.py",
               "tests/test_ui_automation_phase2.py",
               "tests/test_phase3_verification.py",
