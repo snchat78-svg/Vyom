@@ -106,6 +106,11 @@ class UIAutonomousAgent(AutonomousAgent):
         successful = result_successful and verified
 
         self.context.record_result(result, successful)
+        self.world_state.record_execution(
+            action=action,
+            result=result,
+            verification=verification,
+        )
         self.task_history.append({
             "step": self.step_count,
             "type": "action",
