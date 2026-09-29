@@ -40,6 +40,8 @@ class WorldStateModel:
         self.last_action: Optional[Dict[str, Any]] = None
         self.last_result: Any = None
         self.last_verification: Optional[Dict[str, Any]] = None
+        self.observation_history: list = []
+        self.max_observation_history = 50
 
     def _running_processes(self):
         if os.name != "nt":
@@ -127,6 +129,13 @@ class WorldStateModel:
                 state["size"] = {"width": 0, "height": 0}
         return state
 
+    def record_observation(self, observation: Dict[str, Any]) -> None:
+        """Store bounded observation history without polluting execution history."""
+        if not isinstance(observation, dict):
+            return
+        self.observation_history.append(dict(observation))
+        del self.observation_history[:-self.max_observation_history]
+
     def record_execution(
         self,
         action: Optional[Dict[str, Any]],
@@ -180,6 +189,7 @@ class WorldStateModel:
                 if isinstance(mission_state, dict)
                 else {}
             ),
+            "observation_history": [dict(item) for item in self.observation_history],
         }
 
         if include_ui:
