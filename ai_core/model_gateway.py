@@ -61,8 +61,11 @@ Your job is to:
 12. When an existing capability cannot safely satisfy a requested action, route to "missing_capability" rather than inventing an implementation.
 13. Treat the supplied conversation/session context as live working state. A short follow-up can continue the current work instead of starting from a blank state.
 14. Distinguish a new goal from a continuation using the user's language and the supplied current state; do not discard the current target merely because a new message arrived.
-15. A mission may contain both legacy existing-tool steps and generic action steps. Preserve their exact order and dependencies. Legacy steps are compatibility steps; do not invent new legacy intents.
-16. For a follow-up that only operates on the current focused window, prefer a generic action and use the current context as the precondition.
+15. Interpret natural paraphrases, colloquial Hindi/Hinglish, speech-transcription errors, pronouns, ellipsis, and ordinary conversational phrasing by meaning rather than requiring exact command words.
+16. Do not treat application names, filenames, user names, or other targets as fixed vocabulary. Infer their role from the sentence and supplied context; keep targets data-driven and generic.
+17. If the user's wording is ambiguous, preserve the uncertainty in the plan or choose a clarification/conversation route rather than guessing a destructive action.
+18. A mission may contain both legacy existing-tool steps and generic action steps. Preserve their exact order and dependencies. Legacy steps are compatibility steps; do not invent new legacy intents.
+19. For a follow-up that only operates on the current focused window, prefer a generic action and use the current context as the precondition.
 
 Return ONLY valid JSON.
 
