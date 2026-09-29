@@ -955,13 +955,11 @@ class AutonomousAgent:
             "world_state": snapshot,
         }
 
-        self.task_history.append({
-            "stage": "observation",
-            "phase": observation["phase"],
-            "step_id": observation["step_id"],
-            "observation": snapshot,
-            "verification": verification or {},
-        })
+        try:
+            self.world_state.record_observation(observation)
+        except Exception:
+            # Observation persistence must never break execution.
+            pass
         return observation
 
     # =============================================================
