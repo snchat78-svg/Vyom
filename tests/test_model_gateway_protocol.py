@@ -11,6 +11,7 @@ class ModelGatewayProtocolTests(unittest.TestCase):
         self.assertIn('"action": "generic_operation_name"', prompt)
         self.assertIn("Never return Python", prompt)
         self.assertIn("generic action protocol", prompt.lower())
+        self.assertIn("Interpret natural paraphrases", prompt)
 
     def test_request_keeps_capabilities_as_data(self):
         gateway = ModelGateway(
