@@ -15,6 +15,7 @@ from typing import Any, Dict
 
 from command_engine.multilingual_command import MultilingualCommand
 from ai_core.goal_router import GoalRouter
+from voice.command_normalizer import VoiceCommandNormalizer
 
 
 class IntentEngine:
@@ -63,6 +64,7 @@ class IntentEngine:
     def __init__(self):
         self.multilingual = MultilingualCommand()
         self.goal_router = GoalRouter()
+        self.voice_normalizer = VoiceCommandNormalizer()
 
     def _normalize(self, text: Any) -> str:
         value = str(text or "").strip().lower()
@@ -286,13 +288,15 @@ class IntentEngine:
 
     def detect(self, command: Any) -> Dict[str, Any]:
         original = str(command or "").strip()
-        text = self._normalize(original)
+        voice_meta = self.voice_normalizer.normalize(original)
+        normalized_input = str(voice_meta.get("text") or original).strip()
+        text = self._normalize(normalized_input)
         if not text:
-            return {"intent": "unknown", "target": "", "selection": None}
+            return {"intent": "unknown", "target": "", "selection": None, "voice": voice_meta}
 
         selection = self._detect_selection(text)
         if selection is not None:
-            return {"intent": "selection", "target": selection, "selection": selection}
+            return {"intent": "selection", "target": selection, "selection": selection, "voice": voice_meta}
 
         conversation = self._conversation(text)
         if conversation:
@@ -307,10 +311,10 @@ class IntentEngine:
             "बंद करो", "बंद कर दो", "इसे बंद करो", "इसे बंद कर दो",
             "इसे बंद कर", "इसे रोक दो", "band karo", "band kar do"
         ):
-            return {"intent": "close_current", "target": ""}
+            return {"intent": "close_current", "target": "", "voice": voice_meta}
 
         if text in ("exit", "quit", "stop"):
-            return {"intent": "close_app", "target": ""}
+            return {"intent": "close_app", "target": "", "voice": voice_meta}
 
         # A bare open command is still a known command. Return a missing
         # target so the executor can ask what should be opened instead of
@@ -324,7 +328,7 @@ class IntentEngine:
             "khol", "kholo", "kholna", "kholiye", "kholen", "khol do", "kholdo",
             "chalu", "chalu karo", "chalao",
         ):
-            return {"intent": "open", "target": ""}
+            return {"intent": "open", "target": "", "voice": voice_meta}
 
         # ---------------------------------------------------------
         # COMMAND / GOAL BOUNDARY
@@ -340,6 +344,7 @@ class IntentEngine:
                 "goal": original,
                 "route_reason": route.get("reason", "goal"),
                 "compound": bool(route.get("compound", False)),
+                "voice": voice_meta,
             }
 
         natural = self._natural_family(original)
@@ -352,7 +357,7 @@ class IntentEngine:
 
         if text.startswith("find and open ") or text.startswith("search and open "):
             prefix = "find and open " if text.startswith("find and open ") else "search and open "
-            return {"intent": "search_and_open_file", "target": text[len(prefix):].strip()}
+            return {"intent": "search_and_open_file", "target": text[len(prefix):].strip(), "voice": voice_meta}
 
         try:
             converted = self.multilingual.convert(original)
@@ -363,9 +368,9 @@ class IntentEngine:
             family = converted.get("intent")
             target = self._strip_polite_suffix(str(converted.get("target") or "").strip())
             if family == "open":
-                return {"intent": "open", "target": target}
+                return {"intent": "open", "target": target, "voice": voice_meta}
             if family == "close":
-                return {"intent": "close_app", "target": target}
+                return {"intent": "close_app", "target": target, "voice": voice_meta}
             if family == "search":
                 match = re.search(
                     r"([^\s]+\.(?:txt|pdf|doc|docx|xls|xlsx|csv|ppt|pptx|jpg|jpeg|png|gif|mp3|mp4|zip|rar|py|json|xml))$",
@@ -375,7 +380,7 @@ class IntentEngine:
                 if match:
                     target = match.group(1)
                 target = re.sub(r"^(?:फाइल|फ़ाइल|file)\s+", "", target, flags=re.IGNORECASE).strip()
-                return {"intent": "search_file", "target": target}
+                return {"intent": "search_file", "target": target, "voice": voice_meta}
 
         file_extensions = (
             ".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv",
@@ -383,6 +388,6 @@ class IntentEngine:
             ".mp4", ".zip", ".rar", ".py", ".json", ".xml"
         )
         if any(text.endswith(ext) for ext in file_extensions):
-            return {"intent": "open_file", "target": text}
+            return {"intent": "open_file", "target": text, "voice": voice_meta}
 
-        return {"intent": "unknown", "target": original}
+        return {"intent": "unknown", "target": original, "voice": voice_meta}
