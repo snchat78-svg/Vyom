@@ -926,6 +926,44 @@ class AutonomousAgent:
             "step": self.step_count
         }
 
+    def _observe_cycle(self, *, phase: str, step: Optional[Dict[str, Any]] = None, result: Any = None, verification: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Capture a fresh, serializable world/context observation.
+
+        Observation is deliberately provider-agnostic. UI/file/process details
+        remain owned by WorldState and platform capabilities; this method only
+        creates the stable boundary used by the autonomous loop.
+        """
+        try:
+            snapshot = self.world_state.snapshot(
+                self.context.snapshot(),
+                mission_state=self.mission_runtime.snapshot(),
+                include_ui=True,
+                include_clipboard=True,
+            )
+        except Exception as error:
+            snapshot = {
+                "observation_error": str(error),
+                "mission_state": self.mission_runtime.snapshot(),
+            }
+
+        observation = {
+            "phase": str(phase or ""),
+            "step_id": (step or {}).get("id") if isinstance(step, dict) else None,
+            "step_type": (step or {}).get("type") if isinstance(step, dict) else None,
+            "result": result,
+            "verification": verification or {},
+            "world_state": snapshot,
+        }
+
+        self.task_history.append({
+            "stage": "observation",
+            "phase": observation["phase"],
+            "step_id": observation["step_id"],
+            "observation": snapshot,
+            "verification": verification or {},
+        })
+        return observation
+
     # =============================================================
     # RUN MISSION THROUGH RUNTIME
     # =============================================================
@@ -973,6 +1011,8 @@ class AutonomousAgent:
         # =========================================================
         # START MISSION RUNTIME
         # =========================================================
+
+        self._observe_cycle(phase="before_mission", result=None)
 
         runtime_snapshot = (
             self.mission_runtime.start(
@@ -1099,8 +1139,17 @@ class AutonomousAgent:
             # Execute the selected step.
             # -----------------------------------------------------
 
+            self._observe_cycle(phase="before_action", step=step, result=None)
+
             result = self._execute_step(
                 step
+            )
+
+            self._observe_cycle(
+                phase="after_action",
+                step=step,
+                result=result.get("result") if isinstance(result, dict) else result,
+                verification=result.get("verification") if isinstance(result, dict) else {},
             )
 
             step_id = step.get(
@@ -1405,11 +1454,13 @@ class AutonomousAgent:
             # Validate route
             # -----------------------------------------------------
 
-            if new_route.get(
-                "route"
-            ) not in (
-                "existing_tools",
-                "mission"
+            new_route_name = str(new_route.get("route") or "").strip().lower()
+            new_has_actions = any(
+                isinstance(item, dict) and item.get("type") == "action"
+                for item in new_reasoning_plan
+            )
+            if new_route_name not in ("existing_tools", "mission", "capability") or (
+                new_route_name == "capability" and not new_has_actions
             ):
 
                 self.active = False
