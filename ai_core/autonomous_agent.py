@@ -802,6 +802,16 @@ class AutonomousAgent:
         # HISTORY
         # =========================================================
 
+        self.world_state.record_execution(
+            action={
+                "type": step_type,
+                "intent": current_intent,
+                "step": step,
+            },
+            result=result,
+            verification=verification,
+        )
+
         history_item = {
             "step": self.step_count,
             "type": step_type,
