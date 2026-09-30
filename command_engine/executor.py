@@ -497,6 +497,36 @@ def execute(
     ).strip().lower()
 
     # =========================================================
+    # UNKNOWN -> SEMANTIC GOAL PATH
+    #
+    # "unknown" is not a failed command. It means the deterministic
+    # parser did not decide the meaning. Give the complete utterance
+    # to the semantic reasoning layer instead of returning a robot-like
+    # unknown result or trying to add another phrase rule.
+    # =========================================================
+
+    if intent_type == "unknown":
+        try:
+            result = autonomous_agent.run(
+                goal=command,
+                intent=None,
+            )
+        except Exception as error:
+            return response_engine.failure_response(
+                command,
+                str(error)
+            )
+
+        message = _result_to_message(result)
+        _sync_pending_selection_context(command)
+
+        return _natural_response(
+            command,
+            message,
+            None
+        )
+
+    # =========================================================
     # CONTEXTUAL CLOSE
     # =========================================================
 
