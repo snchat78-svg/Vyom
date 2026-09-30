@@ -173,7 +173,12 @@ def _natural_response(
             command=command,
             result=result,
             intent=intent,
-            selection_options=options
+            selection_options=options,
+            context=(
+                autonomous_agent.context.snapshot()
+                if hasattr(autonomous_agent, "context")
+                else {}
+            ),
         )
 
     except Exception:
