@@ -491,7 +491,21 @@ class ReasoningEngine:
             or len(sub_goals) > 1
         )
 
-        if goal_is_non_trivial or contextual_plan:
+        if contextual_plan and contextual_complete:
+            # A complete deterministic contextual plan is already resolved
+            # against the current session/world context. Do not let an
+            # external model replace that safe plan merely because a provider
+            # is available in CI or at runtime.
+            deep = {
+                "suggested_intents": suggested_intents,
+                "sub_goals": sub_goals,
+                "generic_actions": [],
+                "route": None,
+                "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
+            }
+        elif goal_is_non_trivial:
             deep = self._deep_reason(
                 goal=goal,
                 intent=intent,
@@ -500,7 +514,7 @@ class ReasoningEngine:
                 previous_result=previous_result,
                 suggested_intents=suggested_intents,
                 sub_goals=sub_goals,
-                force=(goal_is_non_trivial or (bool(contextual_plan) and not suggested_intents)),
+                force=True,
             )
         elif suggested_intents:
             deep = {
