@@ -27,6 +27,7 @@ class ModelGateway:
         self.api_key = api_key or os.environ.get("VYOM_AI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
         self.api_url = api_url or os.environ.get("VYOM_AI_API_URL", "")
         self.model = model or os.environ.get("VYOM_AI_MODEL", "")
+        self.enabled = os.environ.get("VYOM_AI_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
 
         # If no custom OpenAI-compatible endpoint is configured, use the
         # official Gemini OpenAI-compatible REST endpoint when GEMINI_API_KEY
@@ -34,10 +35,12 @@ class ModelGateway:
         if not self.api_url and os.environ.get("GEMINI_API_KEY", ""):
             self.api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         if not self.model and os.environ.get("GEMINI_API_KEY", ""):
-            self.model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+            self.model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
         self.timeout = max(5, int(timeout))
 
     def is_available(self):
+        if not self.enabled:
+            return False
         if not self.api_url or not self.model:
             return False
 
