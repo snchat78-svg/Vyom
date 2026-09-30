@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 from ai_core.reasoning_gateway import AIReasoningGateway
 from ai_core.model_gateway import ModelGateway
 from ai_core.goal_compiler import GoalCompiler
+from ai_core.logger import log
 
 
 class DeepReasoner:
@@ -126,7 +127,15 @@ class DeepReasoner:
         intent=None,
     ):
         # A configured real model always enters through the validated gateway.
-        if self.reasoning_gateway.is_available():
+        model_available = False
+        try:
+            model_available = bool(self.reasoning_gateway.is_available())
+        except Exception:
+            model_available = False
+
+        log("[AI] DEEP REASONER: model_available=%s" % model_available)
+
+        if model_available:
             result = self.reasoning_gateway.reason(
                 goal=goal,
                 context=context,
@@ -138,12 +147,14 @@ class DeepReasoner:
                 and result.get("success", False)
             ):
                 self.last_result = result
+                log("[AI] DEEP REASONER SOURCE: model")
                 return result
 
             # If the real model is configured but its response fails validation,
             # do not execute an unvalidated model decision. Fall back to the
             # existing deterministic local reasoner.
 
+        log("[AI] DEEP REASONER SOURCE: local_reasoner")
         result = self._local_reason(
             goal=goal,
             context=context,
