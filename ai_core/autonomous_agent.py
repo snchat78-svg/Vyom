@@ -1315,6 +1315,15 @@ class AutonomousAgent:
 
             try:
 
+                # Phase 5.6: capture a fresh observation before semantic
+                # re-reasoning. The new plan must be grounded in the state
+                # that exists after the failed/retried execution, not the
+                # stale state from the original plan.
+                self._observe_cycle(
+                    phase="before_replan",
+                    result=self.context.last_result,
+                )
+
                 refreshed_state = (
                     self.world_state.snapshot(
                         self.context.snapshot(),
@@ -1333,6 +1342,13 @@ class AutonomousAgent:
                             self.context.last_result
                         )
                     )
+                )
+
+                # Keep the semantic re-plan itself observable without
+                # mixing it into task_history (which remains execution-only).
+                self._observe_cycle(
+                    phase="after_replan",
+                    result=re_reasoning,
                 )
 
             except Exception as error:
@@ -1637,8 +1653,21 @@ class AutonomousAgent:
 
                 break
 
+            self._observe_cycle(
+                phase="before_action",
+                step=step,
+                result=None,
+            )
+
             result = self._execute_step(
                 step
+            )
+
+            self._observe_cycle(
+                phase="after_action",
+                step=step,
+                result=result.get("result") if isinstance(result, dict) else result,
+                verification=result.get("verification") if isinstance(result, dict) else {},
             )
 
             step_id = step.get(
