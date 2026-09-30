@@ -68,12 +68,35 @@ class ContextActionCompiler:
 
     @staticmethod
     def _context_target(context: Dict[str, Any]) -> str:
-        return str(
+        direct = str(
             context.get("current_target")
             or context.get("current_app")
             or context.get("current_file")
             or ""
         ).strip()
+        if direct:
+            return direct
+
+        focused = context.get("focused_control")
+        if not isinstance(focused, dict):
+            ui = context.get("ui")
+            focused = ui.get("focused_element") if isinstance(ui, dict) else None
+
+        if isinstance(focused, dict) and focused.get("exists", False):
+            return "focused_element"
+
+        return ""
+
+    @staticmethod
+    def _has_execution_context(context: Dict[str, Any]) -> bool:
+        if ContextActionCompiler._context_target(context):
+            return True
+
+        focused = context.get("focused_control")
+        if not isinstance(focused, dict):
+            ui = context.get("ui")
+            focused = ui.get("focused_element") if isinstance(ui, dict) else None
+        return bool(isinstance(focused, dict) and focused.get("exists", False))
 
     @staticmethod
     def _extract_name(history: Any) -> Optional[str]:
@@ -148,7 +171,7 @@ class ContextActionCompiler:
             flags=re.IGNORECASE,
         )
         if match:
-            if not current_target:
+            if not self._has_execution_context(context):
                 return {
                     "kind": "clarification",
                     "message": "किस active application या input target में text लिखना है? पहले उसे खोलें या focus करें।",
