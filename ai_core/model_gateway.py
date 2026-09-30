@@ -35,7 +35,7 @@ class ModelGateway:
         if not self.api_url and os.environ.get("GEMINI_API_KEY", ""):
             self.api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         if not self.model and os.environ.get("GEMINI_API_KEY", ""):
-            self.model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
+            self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
         self.timeout = max(5, int(timeout))
 
     def is_available(self):
