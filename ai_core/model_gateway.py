@@ -24,9 +24,17 @@ import urllib.request
 class ModelGateway:
 
     def __init__(self, api_key=None, api_url=None, model=None, timeout=60):
-        self.api_key = api_key or os.environ.get("VYOM_AI_API_KEY", "")
+        self.api_key = api_key or os.environ.get("VYOM_AI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
         self.api_url = api_url or os.environ.get("VYOM_AI_API_URL", "")
         self.model = model or os.environ.get("VYOM_AI_MODEL", "")
+
+        # If no custom OpenAI-compatible endpoint is configured, use the
+        # official Gemini OpenAI-compatible REST endpoint when GEMINI_API_KEY
+        # is present. No provider secret is stored in source code.
+        if not self.api_url and os.environ.get("GEMINI_API_KEY", ""):
+            self.api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        if not self.model and os.environ.get("GEMINI_API_KEY", ""):
+            self.model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
         self.timeout = max(5, int(timeout))
 
     def is_available(self):
@@ -180,6 +188,51 @@ Use only JSON-safe values in actions. Do not put executable code in args.
             }
 
         return self._extract_response(provider_response)
+
+    def chat(self, system_prompt, user_payload, temperature=0.4):
+        """Provider-independent plain-text model call for conversational replies.
+
+        This is intentionally separate from complete(), whose contract is
+        strict structured JSON for action reasoning.
+        """
+        if not self.is_available():
+            return {"success": False, "available": False, "error": "AI model gateway is not configured."}
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": str(system_prompt or "")},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            ],
+            "temperature": float(temperature),
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(self.api_url, data=data, method="POST")
+        request.add_header("Content-Type", "application/json")
+        if self.api_key:
+            request.add_header("Authorization", "Bearer " + self.api_key)
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            try:
+                details = error.read().decode("utf-8")
+            except Exception:
+                details = str(error)
+            return {"success": False, "available": True, "error": f"AI model HTTP error: {error.code} {details}"}
+        except Exception as error:
+            return {"success": False, "available": True, "error": str(error)}
+
+        try:
+            provider_response = json.loads(raw)
+            choices = provider_response.get("choices", [])
+            content = choices[0].get("message", {}).get("content", "") if choices else ""
+            if content:
+                return {"success": True, "available": True, "text": str(content).strip()}
+            return {"success": False, "available": True, "error": "AI model returned an empty response."}
+        except Exception as error:
+            return {"success": False, "available": True, "error": str(error)}
 
     def _extract_response(self, response):
         if not isinstance(response, dict):
