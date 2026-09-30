@@ -180,6 +180,22 @@ class UIStateObserver:
             return active_state
         return {"exists": False}
 
+    def selected_element_state(self):
+        desktop = self._desktop()
+        if desktop is None:
+            return {"exists": False}
+        active = self.active_element()
+        if active is None:
+            return {"exists": False}
+        try:
+            for element in active.descendants():
+                state = self.element_state(element)
+                if state.get("selected") is True:
+                    return state
+        except Exception:
+            pass
+        return {"exists": False}
+
     def _tree_signature(self) -> List[Dict[str, Any]]:
         active = self.active_element()
         root = self._top_level(active) if active is not None else None
@@ -248,6 +264,7 @@ class UIStateObserver:
             "available": self.is_available(),
             "active_window": self.active_window_state(),
             "focused_element": self.focused_element_state(),
+            "selected_element": self.selected_element_state(),
             "target_element": self.element_state(target_element),
             "ui_tree_signature": self._tree_signature(),
         }
