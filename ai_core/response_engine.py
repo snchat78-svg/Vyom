@@ -323,7 +323,8 @@ class ResponseEngine:
         command: str,
         result: Any,
         intent: Optional[Dict[str, Any]] = None,
-        selection_options=None
+        selection_options=None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> str:
         # A configured model gets the final conversational turn so Vyom can
         # respond naturally like an assistant instead of exposing executor
@@ -343,6 +344,7 @@ class ResponseEngine:
                         "user_message": str(command or ""),
                         "execution_result": result,
                         "detected_intent": intent or {},
+                        "context": context if isinstance(context, dict) else {},
                     },
                     temperature=0.45,
                 )
