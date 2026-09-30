@@ -507,9 +507,12 @@ def execute(
 
     if intent_type == "unknown":
         try:
+            # Preserve the parser's unknown classification as metadata only.
+            # AutonomousAgent/semantic reasoning must decide the actual
+            # meaning; no legacy intent is created from it.
             result = autonomous_agent.run(
                 goal=command,
-                intent=None,
+                intent=intent,
             )
         except Exception as error:
             return response_engine.failure_response(
