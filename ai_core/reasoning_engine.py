@@ -515,6 +515,7 @@ class ReasoningEngine:
             contextual_plan
             and contextual_complete
             and not contextual_clarification
+            and contextual_actions_resolved
             and all(
                 isinstance(step, dict)
                 and (
@@ -526,18 +527,7 @@ class ReasoningEngine:
                         ).lower() in self.SAFE_EXECUTABLE_INTENTS
                         and self._normalize(step["intent"].get("target"))
                     )
-                    or (
-                        step.get("type") == "action"
-                        and (
-                            step.get("id")
-                            in {
-                                item.get("action", {}).get("id")
-                                for item in contextual_resolutions
-                                if item.get("resolved", False)
-                                and isinstance(item.get("action"), dict)
-                            }
-                        )
-                    )
+                    or step.get("type") == "action"
                 )
                 for step in contextual_plan
             )
