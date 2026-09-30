@@ -20,6 +20,8 @@ import os
 import urllib.error
 import urllib.request
 
+from ai_core.logger import log
+
 
 class ModelGateway:
 
@@ -37,6 +39,23 @@ class ModelGateway:
         if not self.model and os.environ.get("GEMINI_API_KEY", ""):
             self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
         self.timeout = max(5, int(timeout))
+
+    def provider_status(self):
+        url = str(self.api_url or "").lower()
+        if "generativelanguage.googleapis.com" in url:
+            provider = "gemini"
+        elif url:
+            provider = "custom"
+        else:
+            provider = "none"
+
+        return {
+            "provider": provider,
+            "enabled": bool(self.enabled),
+            "configured": bool(self.api_key or url.startswith(("http://127.0.0.1", "http://localhost", "http://[::1]"))),
+            "available": bool(self.is_available()),
+            "model": self.model or "",
+        }
 
     def is_available(self):
         if not self.enabled:
@@ -142,6 +161,18 @@ Use only JSON-safe values in actions. Do not put executable code in args.
         }
 
     def complete(self, goal, context=None, capabilities=None, previous_result=None):
+        status = self.provider_status()
+        log(
+            "[AI] REASONING PROVIDER: provider=%s enabled=%s configured=%s available=%s model=%s"
+            % (
+                status["provider"],
+                status["enabled"],
+                status["configured"],
+                status["available"],
+                status["model"] or "none",
+            )
+        )
+
         if not self.is_available():
             return {
                 "success": False,
@@ -160,6 +191,7 @@ Use only JSON-safe values in actions. Do not put executable code in args.
         if self.api_key:
             request.add_header("Authorization", "Bearer " + self.api_key)
 
+        log("[AI] REASONING REQUEST START")
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read().decode("utf-8")
@@ -180,6 +212,7 @@ Use only JSON-safe values in actions. Do not put executable code in args.
                 "error": str(error),
             }
 
+        log("[AI] REASONING REQUEST HTTP RESPONSE RECEIVED")
         try:
             provider_response = json.loads(raw)
         except Exception as error:
