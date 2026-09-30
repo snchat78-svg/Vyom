@@ -491,21 +491,23 @@ class ReasoningEngine:
             or len(sub_goals) > 1
         )
 
-        if contextual_plan and contextual_complete:
-            # A complete deterministic contextual plan is already resolved
-            # against the current session/world context. Do not let an
-            # external model replace that safe plan merely because a provider
-            # is available in CI or at runtime.
-            deep = {
-                "suggested_intents": suggested_intents,
-                "sub_goals": sub_goals,
-                "generic_actions": [],
-                "route": None,
-                "data": None,
-                "generic_action_plan": False,
-                "generic_actions_unsupported": False,
-            }
-        elif goal_is_non_trivial:
+        contextual_generic_actions = [
+            action for action in contextual_plan
+            if isinstance(action, dict) and action.get("type") == "action"
+        ]
+        contextual_resolutions = [
+            self.capability_resolver.resolve(action)
+            for action in contextual_generic_actions
+        ]
+        contextual_actions_resolved = bool(contextual_generic_actions) and all(
+            item.get("resolved", False)
+            for item in contextual_resolutions
+        )
+
+        if goal_is_non_trivial:
+            # Compound goals stay connected to DeepReasoner. When no external
+            # model is available, _deep_reason() returns the deterministic
+            # contextual/compiled fallback without blocking execution.
             deep = self._deep_reason(
                 goal=goal,
                 intent=intent,
@@ -516,6 +518,19 @@ class ReasoningEngine:
                 sub_goals=sub_goals,
                 force=True,
             )
+        elif contextual_plan and contextual_complete and contextual_actions_resolved:
+            # A simple contextual action is already fully resolved by Vyom's
+            # local context + capability registry. Keep this deterministic
+            # path and avoid an unnecessary model round-trip.
+            deep = {
+                "suggested_intents": suggested_intents,
+                "sub_goals": sub_goals,
+                "generic_actions": [],
+                "route": None,
+                "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
+            }
         elif suggested_intents:
             deep = {
                 "suggested_intents": suggested_intents,
@@ -551,15 +566,6 @@ class ReasoningEngine:
         generic_actions = deep.get("generic_actions", [])
         if not isinstance(generic_actions, list):
             generic_actions = []
-
-        contextual_generic_actions = [
-            action for action in contextual_plan
-            if isinstance(action, dict) and action.get("type") == "action"
-        ]
-        contextual_resolutions = [
-            self.capability_resolver.resolve(action)
-            for action in contextual_generic_actions
-        ]
 
         capability_resolutions = [
             self.capability_resolver.resolve(action)
