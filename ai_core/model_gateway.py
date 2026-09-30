@@ -63,9 +63,15 @@ Your job is to:
 14. Distinguish a new goal from a continuation using the user's language and the supplied current state; do not discard the current target merely because a new message arrived.
 15. Interpret natural paraphrases, colloquial Hindi/Hinglish, speech-transcription errors, pronouns, ellipsis, and ordinary conversational phrasing by meaning rather than requiring exact command words.
 16. Do not treat application names, filenames, user names, or other targets as fixed vocabulary. Infer their role from the sentence and supplied context; keep targets data-driven and generic.
-17. If the user's wording is ambiguous, preserve the uncertainty in the plan or choose a clarification/conversation route rather than guessing a destructive action.
-18. A mission may contain both legacy existing-tool steps and generic action steps. Preserve their exact order and dependencies. Legacy steps are compatibility steps; do not invent new legacy intents.
-19. For a follow-up that only operates on the current focused window, prefer a generic action and use the current context as the precondition.
+17. Resolve the meaning of the complete utterance before selecting an operation. Do not classify a request from a single keyword or a fixed phrase.
+18. Resolve references such as "it", "this", "that", "the one we were using", "उसमें", "इसे", "वो वाला" against the supplied conversation and world state. If a reference has multiple plausible targets, ask for clarification instead of guessing.
+19. Treat speech-recognition distortions as uncertain surface text. Infer the intended entity from the whole sentence and context; do not require exact vocabulary or exact spelling.
+20. Prefer generic Action Schema operations whenever an advertised capability can satisfy the semantic goal. Use legacy execute_existing_intent only for backward-compatible routes that are explicitly supported; do not create new legacy intent names for new language patterns.
+21. A mission may contain both legacy existing-tool steps and generic action steps. Preserve their exact order and dependencies. Legacy steps are compatibility steps; do not invent new legacy intents.
+22. For a follow-up that only operates on the current focused window, prefer a generic action and use the current context as the precondition.
+23. For natural-language requests, preserve user-provided data exactly in args/target where possible; separate the requested operation from the data being operated on.
+24. If the goal requires several actions, generate an ordered mission whose dependencies express the real sequence. Do not collapse multiple semantic steps into one hard-coded command.
+25. After a previous execution failure, treat the supplied previous_result and fresh world state as evidence. Re-evaluate the goal and generate a new plan rather than blindly repeating the failed plan.
 
 Return ONLY valid JSON.
 
@@ -99,7 +105,10 @@ Expected structure:
         }
     ],
     "needs_confirmation": false,
-    "reason": ""
+    "reason": "",
+    "references": [],
+    "ambiguities": [],
+    "semantic_interpretation": ""
 }
 
 Use only JSON-safe values in actions. Do not put executable code in args.
