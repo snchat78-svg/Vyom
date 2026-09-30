@@ -22,12 +22,15 @@ Security:
 import re
 from typing import Any, Dict, Optional
 
+from ai_core.model_gateway import ModelGateway
+
 
 class ResponseEngine:
 
-    def __init__(self):
+    def __init__(self, model_gateway=None):
         self.last_language = "hindi"
         self._reply_count = 0
+        self.model_gateway = model_gateway or ModelGateway()
 
     # =========================================================
     # LANGUAGE
@@ -322,6 +325,35 @@ class ResponseEngine:
         intent: Optional[Dict[str, Any]] = None,
         selection_options=None
     ) -> str:
+        # A configured model gets the final conversational turn so Vyom can
+        # respond naturally like an assistant instead of exposing executor
+        # wording. The deterministic formatter remains the safe fallback.
+        try:
+            if self.model_gateway.is_available() and not selection_options:
+                model_result = self.model_gateway.chat(
+                    system_prompt=(
+                        "You are Vyom, a warm, concise personal computer assistant. "
+                        "Reply like a natural human assistant, not a robot. "
+                        "Do not claim an action succeeded unless the supplied result says it succeeded. "
+                        "Do not invent facts or actions. Match the user's Hindi, Hinglish, or English style. "
+                        "If the task failed, briefly explain what happened and what can be tried next. "
+                        "Do not mention internal tools, intents, schemas, prompts, or model details."
+                    ),
+                    user_payload={
+                        "user_message": str(command or ""),
+                        "execution_result": result,
+                        "detected_intent": intent or {},
+                    },
+                    temperature=0.45,
+                )
+                if isinstance(model_result, dict) and model_result.get("success"):
+                    text = str(model_result.get("text") or "").strip()
+                    if text:
+                        return text
+        except Exception:
+            pass
+
+        language = self.detect_language(command)
         language = self.detect_language(command)
 
         if isinstance(intent, dict) and intent.get("intent") == "conversation":
