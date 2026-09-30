@@ -499,9 +499,48 @@ class ReasoningEngine:
             self.capability_resolver.resolve(action)
             for action in contextual_generic_actions
         ]
-        contextual_actions_resolved = bool(contextual_generic_actions) and all(
-            item.get("resolved", False)
-            for item in contextual_resolutions
+        contextual_actions_resolved = (
+            bool(contextual_generic_actions)
+            and all(item.get("resolved", False) for item in contextual_resolutions)
+        )
+
+        # A complete contextual plan produced by Vyom's own compiler is an
+        # already-understood execution candidate. Treat the local plan as the
+        # canonical execution contract when every generic action has a
+        # registered provider and every legacy step is on the existing safe
+        # execution boundary. A model may still be consulted for non-trivial
+        # goals, but its advisory output must not replace a safe local plan
+        # with an unsupported or unnecessary capability request.
+        contextual_plan_executable = bool(
+            contextual_plan
+            and contextual_complete
+            and not contextual_clarification
+            and all(
+                isinstance(step, dict)
+                and (
+                    (
+                        step.get("type") == "execute_existing_intent"
+                        and isinstance(step.get("intent"), dict)
+                        and self._normalize(
+                            step["intent"].get("intent")
+                        ).lower() in self.SAFE_EXECUTABLE_INTENTS
+                        and self._normalize(step["intent"].get("target"))
+                    )
+                    or (
+                        step.get("type") == "action"
+                        and (
+                            step.get("id")
+                            in {
+                                item.get("action", {}).get("id")
+                                for item in contextual_resolutions
+                                if item.get("resolved", False)
+                                and isinstance(item.get("action"), dict)
+                            }
+                        )
+                    )
+                )
+                for step in contextual_plan
+            )
         )
 
         if goal_is_non_trivial:
@@ -557,6 +596,14 @@ class ReasoningEngine:
         deep_data = deep.get("data")
         deep_route = deep.get("route")
         model_ordered_plan = deep.get("ordered_plan", [])
+
+        # DeepReasoner is advisory. When Vyom already has a complete local
+        # contextual plan that is independently executable, keep that plan
+        # authoritative for execution while retaining the model result for
+        # diagnostics/context. This prevents an available model from turning
+        # a known task into "request_new_capability".
+        if contextual_plan_executable:
+            model_ordered_plan = []
         if not isinstance(model_ordered_plan, list):
             model_ordered_plan = []
         generic_action_plan = bool(deep.get("generic_action_plan", False))
