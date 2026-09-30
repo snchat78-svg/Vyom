@@ -457,12 +457,11 @@ def execute(
                 str(error)
             )
 
-        message = _result_to_message(result)
         _sync_pending_selection_context(command)
 
         return _natural_response(
             command,
-            message,
+            result,
             None
         )
 
@@ -525,12 +524,11 @@ def execute(
                 str(error)
             )
 
-        message = _result_to_message(result)
         _sync_pending_selection_context(command)
 
         return _natural_response(
             command,
-            message,
+            result,
             None
         )
 
