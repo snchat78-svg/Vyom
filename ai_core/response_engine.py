@@ -150,6 +150,30 @@ class ResponseEngine:
         return "I found more than one option. Just say the number or name you want."
 
     # =========================================================
+    # STRUCTURED RESULT HELPERS
+    # =========================================================
+
+    def _extract_result_text(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+
+        if not isinstance(value, dict):
+            return ""
+
+        for key in ("message", "text"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        nested = value.get("result")
+        if isinstance(nested, (str, dict)):
+            text = self._extract_result_text(nested)
+            if text:
+                return text
+
+        return ""
+
+    # =========================================================
     # SUCCESS
     # =========================================================
 
@@ -161,8 +185,22 @@ class ResponseEngine:
         language: Optional[str] = None
     ) -> str:
         language = language or self.detect_language(command)
-        text = str(raw_result or "").strip()
+
+        structured_success = (
+            isinstance(raw_result, dict)
+            and bool(raw_result.get("success", False))
+        )
+        extracted = self._extract_result_text(raw_result)
+        text = extracted or (str(raw_result or "").strip() if not isinstance(raw_result, dict) else "")
         lowered = text.lower()
+
+        if structured_success and not text:
+            self._reply_count += 1
+            if language == "hindi":
+                return "हाँ, काम हो गया।"
+            if language == "hinglish":
+                return "Haan, kaam ho gaya."
+            return "Done — the task is complete."
 
         target = ""
         if isinstance(intent, dict):
@@ -355,7 +393,6 @@ class ResponseEngine:
         except Exception:
             pass
 
-        language = self.detect_language(command)
         language = self.detect_language(command)
 
         if isinstance(intent, dict) and intent.get("intent") == "conversation":
