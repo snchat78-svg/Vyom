@@ -11,6 +11,10 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      VYOM_AI_ENABLED: "true"
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: "gemini-2.5-flash-lite"
 
     steps:
 
