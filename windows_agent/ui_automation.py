@@ -50,6 +50,7 @@ from windows_agent.ui_grounder import UIElementGrounder
 from windows_agent import ui_patterns
 from windows_agent.ui_state_observer import UIStateObserver
 from windows_agent.ui_verifier import UIVerificationEngine
+from tools.universal_app_launcher import UniversalAppLauncher
 
 
 class WindowsUICapability:
@@ -72,9 +73,13 @@ class WindowsUICapability:
         self.ui_grounder = ui_grounder or UIElementGrounder()
         self.ui_observer = UIStateObserver()
         self.ui_verifier = UIVerificationEngine(observer=self.ui_observer)
+        self.app_launcher = UniversalAppLauncher()
 
         self._handlers = {
             "focus_window": self._focus_window,
+            "open_application": self._open_application,
+            "open_file": self._open_file,
+            "close_application": self._close_application,
             "move_mouse": self._move_mouse,
             "click": self._click,
             "double_click": self._double_click,
@@ -241,6 +246,102 @@ class WindowsUICapability:
     def _args(action: Dict[str, Any]) -> Dict[str, Any]:
         value = action.get("args")
         return dict(value) if isinstance(value, dict) else {}
+
+    def _open_application(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        target = str(action.get("target") or "").strip()
+        if not target:
+            return {"success": False, "stage": "missing_target", "message": "No application target was supplied."}
+
+        before = self.window_manager.get_foreground() or {}
+        result = self.app_launcher.open(target)
+        if not isinstance(result, dict) or not result.get("success"):
+            return {
+                "success": False,
+                "stage": "application_launch_failed",
+                "message": (result or {}).get("message", "Application could not be opened."),
+                "target": target,
+                "launcher_result": result,
+            }
+
+        after = self.window_manager.get_foreground() or {}
+        selected = ""
+        results = result.get("results") if isinstance(result, dict) else None
+        if isinstance(results, list) and results and isinstance(results[0], dict):
+            selected = str(results[0].get("name") or "").strip()
+
+        before_hwnd = before.get("hwnd")
+        after_hwnd = after.get("hwnd")
+        title = str(after.get("title") or "").strip().lower()
+        target_words = [w for w in target.lower().split() if len(w) > 1]
+        identity_match = bool(selected and selected.lower() in title)
+        if not identity_match and target_words:
+            identity_match = all(word in title for word in target_words[:3])
+
+        verified = bool(after and (after_hwnd != before_hwnd or identity_match))
+        return {
+            "success": verified,
+            "stage": "verified" if verified else "launch_not_verified",
+            "message": result.get("message", "Application launch requested."),
+            "target": target,
+            "window_before": before,
+            "window_after": after,
+            "verification": {
+                "verified": verified,
+                "verification_level": "state",
+                "method": "foreground_window_after_launch",
+            },
+        }
+
+    def _open_file(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        target = str(action.get("target") or "").strip()
+        if not target:
+            return {"success": False, "stage": "missing_target", "message": "No file target was supplied."}
+        before = self.window_manager.get_foreground() or {}
+        result = self.app_launcher.open(target)
+        after = self.window_manager.get_foreground() or {}
+        verified = bool(isinstance(result, dict) and result.get("success") and after)
+        return {
+            "success": verified,
+            "stage": "verified" if verified else "file_open_not_verified",
+            "message": result.get("message", "File open requested.") if isinstance(result, dict) else str(result),
+            "target": target,
+            "window_before": before,
+            "window_after": after,
+            "verification": {
+                "verified": verified,
+                "verification_level": "state",
+                "method": "foreground_window_after_open",
+            },
+        }
+
+    def _close_application(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        target = str(action.get("target") or "").strip()
+        if not target:
+            return {"success": False, "stage": "missing_target", "message": "No application target was supplied."}
+        matches = self.window_manager.find(target=target, max_results=5)
+        if not matches:
+            return {"success": False, "stage": "application_not_found", "message": "No matching application window was observed.", "target": target}
+        # Closing is intentionally not guessed through process termination.
+        # Use the observed window handle and a normal close message.
+        hwnd = matches[0].get("hwnd")
+        try:
+            WM_CLOSE = 0x0010
+            self.window_manager._user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+        except Exception as error:
+            return {"success": False, "stage": "close_failed", "message": str(error), "target": target}
+        time.sleep(0.2)
+        remaining = self.window_manager.find(target=target, max_results=1)
+        verified = not remaining
+        return {
+            "success": verified,
+            "stage": "verified" if verified else "close_not_verified",
+            "target": target,
+            "verification": {
+                "verified": verified,
+                "verification_level": "state",
+                "method": "window_absence_after_close",
+            },
+        }
 
     def _focus_window(self, action: Dict[str, Any]) -> Dict[str, Any]:
         args = self._args(action)
