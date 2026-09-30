@@ -161,7 +161,7 @@ class VoiceController:
             else:
                 success = True
                 message = str(result)
-            self._log("EXECUTION COMPLETE")
+            self._log("COMMAND RESULT: success=%s" % success)
             return {"success": success, "text": command, "message": str(message or ""), "result": result}
         except Exception as error:
             self._log("Execution error: " + str(error))
