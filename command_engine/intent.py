@@ -75,13 +75,18 @@ class IntentEngine:
             return self.CONVERSATION_PHRASES[text]
 
         patterns = [
-            (r"^(?:hi|hello|hey)\b.*", "greeting"),
+            # Conversation recognition must also work after the voice boundary
+            # has normalized Hindi speech into Roman/Hinglish text.
+            (r"^(?:hi|hello|hey|helo|namaste|namaskar|pranam)\b.*", "greeting"),
             (r"^(?:good morning|good afternoon|good evening)\b.*", "greeting"),
             (r"^(?:कैसे हो|क्या हाल है|कैसा चल रहा है)\b.*", "status"),
+            (r"^(?:tum|aap)\s+(?:kaise ho|kaise|kya haal|sab thik|theek ho).*", "status"),
             (r"^(?:तुम|आप)\s+(?:कैसे|क्या हाल).*", "status"),
             (r"^(?:what|tell me)\s+(?:can|could)\s+you\s+do.*", "capabilities"),
+            (r"^(?:tum|aap)\s+(?:kya kar sakte ho|kya karte ho|kya kar sakte).*", "capabilities"),
             (r"^(?:तुम|आप)\s+क्या\s+कर\s+सकते.*", "capabilities"),
             (r"^(?:who are you|what are you).*", "identity"),
+            (r"^(?:tum|aap)\s+(?:kaun ho|kaun hain).*", "identity"),
             (r"^(?:तुम कौन हो|आप कौन हैं).*", "identity"),
         ]
         for pattern, kind in patterns:
