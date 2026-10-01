@@ -505,24 +505,6 @@ def execute(
 
     # Intent has already been detected above.
 
-    except Exception as error:
-
-        return (
-            "Intent detection error: "
-            +
-            str(error)
-        )
-
-    if not isinstance(
-        intent,
-        dict
-    ):
-
-        intent = {
-            "intent": "unknown",
-            "target": command
-        }
-
     intent_type = str(
         intent.get(
             "intent",
