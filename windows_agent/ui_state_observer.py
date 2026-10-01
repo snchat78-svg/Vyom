@@ -20,7 +20,7 @@ class UIStateObserver:
     def __init__(
         self,
         finder: Optional[UIElementFinder] = None,
-        max_tree_elements: int = 100,
+        max_tree_elements: int = 40,
     ):
         self.finder = finder or UIElementFinder()
         self.max_tree_elements = max(1, int(max_tree_elements))
@@ -164,20 +164,22 @@ class UIStateObserver:
         if active is None:
             return {"exists": False}
 
+        # UIA descendant traversal can be expensive on large application
+        # trees. Prefer the active element itself; only scan a bounded subset
+        # when the direct element does not expose focus state.
+        active_state = self.element_state(active)
+        if active_state.get("focused") is True:
+            return active_state
+
         try:
-            focused = active.descendants(
-                control_type=None,
-            )
-            for element in focused:
+            focused = active.descendants(control_type=None)
+            for element in focused[: self.max_tree_elements]:
                 state = self.element_state(element)
                 if state.get("focused") is True:
                     return state
         except Exception:
             pass
 
-        active_state = self.element_state(active)
-        if active_state.get("focused") is True:
-            return active_state
         return {"exists": False}
 
     def selected_element_state(self):
@@ -188,7 +190,7 @@ class UIStateObserver:
         if active is None:
             return {"exists": False}
         try:
-            for element in active.descendants():
+            for element in active.descendants()[: self.max_tree_elements]:
                 state = self.element_state(element)
                 if state.get("selected") is True:
                     return state
