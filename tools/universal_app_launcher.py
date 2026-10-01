@@ -1325,6 +1325,15 @@ catch {
         if exact:
             return exact[:self.max_results]
 
+        # Avoid a full Windows application inventory when a strong quick
+        # candidate already exists. This is important on low-resource
+        # machines: Start Apps/AppX/AppsFolder discovery can spawn large
+        # PowerShell processes and enumerate hundreds of entries.
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        strong = [item for score, item in scored if score >= 0.90]
+        if strong and not force_refresh:
+            return strong[:self.max_results]
+
         database = self.build_database(force=force_refresh)
         for app in database:
             if not isinstance(app, dict):
@@ -1338,7 +1347,7 @@ catch {
             )
             add_candidate(app, score)
 
-        if not exact:
+        if not exact and not scored:
             try:
                 for variant in target_variants:
                     for item in self.scan_program_files(variant):
