@@ -161,7 +161,10 @@ class VoiceController:
             else:
                 success = True
                 message = str(result)
-            self._log("COMMAND RESULT: success=%s" % success)
+            stage = ""
+            if isinstance(result, dict):
+                stage = str(result.get("stage") or result.get("status") or "").strip()
+            self._log("COMMAND RESULT: success=%s stage=%s" % (success, stage or "unknown"))
             return {"success": success, "text": command, "message": str(message or ""), "result": result}
         except Exception as error:
             self._log("Execution error: " + str(error))
