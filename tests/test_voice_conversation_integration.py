@@ -169,6 +169,13 @@ def test_exit_stops_voice_only_after_prior_command_executes():
     assert "ठीक है। मैं सुनना बंद कर रहा हूँ।" in tts.spoken
 
 
+def test_intent_engine_recognizes_romanized_hindi_conversation():
+    engine = IntentEngine()
+    assert engine.detect("namaste bhaiya kaise ho")["intent"] == "conversation"
+    assert engine.detect("tum kaun ho")["intent"] == "conversation"
+    assert engine.detect("kaise ho")["intent"] == "conversation"
+
+
 def test_intent_engine_characterizes_english_hindi_hinglish_and_close():
     engine = IntentEngine()
     assert engine.detect("open Notepad")["intent"] == "open"
