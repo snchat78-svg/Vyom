@@ -191,10 +191,11 @@ class VoiceController:
         roman_text = normalize_voice_text(str(result.get("text") or raw_text).strip())
         result["raw_text"] = raw_text
         result["roman_text"] = roman_text
-        # Preserve the original STT language/script for semantic reasoning and
-        # Hindi response generation. Romanized text remains available as a
-        # diagnostic/phonetic surface instead of replacing the user's words.
-        result["text"] = raw_text or roman_text
+        # Keep the voice boundary contract stable: downstream receives the
+        # normalized Roman/Latin command in "text". The original STT wording
+        # remains available in "raw_text" for diagnostics and language-aware
+        # consumers that need it.
+        result["text"] = roman_text
 
         self.last_listen_status = str(result.get("status", ""))
         self._log("STT listen_once returned: status=%s success=%s text_length=%d" % (
