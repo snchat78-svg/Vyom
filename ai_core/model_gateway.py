@@ -25,7 +25,7 @@ from ai_core.logger import log
 
 class ModelGateway:
 
-    def __init__(self, api_key=None, api_url=None, model=None, timeout=60):
+    def __init__(self, api_key=None, api_url=None, model=None, timeout=20):
         self.api_key = api_key or os.environ.get("VYOM_AI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
         self.api_url = api_url or os.environ.get("VYOM_AI_API_URL", "")
         self.model = model or os.environ.get("VYOM_AI_MODEL", "")
@@ -38,7 +38,9 @@ class ModelGateway:
             self.api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         if not self.model and os.environ.get("GEMINI_API_KEY", ""):
             self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
-        self.timeout = max(5, int(timeout))
+        # Keep network reasoning bounded so a stalled provider cannot freeze
+        # the voice/executor session on low-resource machines.
+        self.timeout = min(20, max(5, int(timeout)))
 
     def provider_status(self):
         url = str(self.api_url or "").lower()
