@@ -80,6 +80,7 @@ class IntentEngine:
             (r"^(?:hi|hello|hey|helo|namaste|namaskar|pranam)\b.*", "greeting"),
             (r"^(?:good morning|good afternoon|good evening)\b.*", "greeting"),
             (r"^(?:कैसे हो|क्या हाल है|कैसा चल रहा है)\b.*", "status"),
+            (r"^(?:kaise ho|kaise hain|kya haal|sab thik|sab theek)$", "status"),
             (r"^(?:tum|aap)\s+(?:kaise ho|kaise|kya haal|sab thik|theek ho).*", "status"),
             (r"^(?:तुम|आप)\s+(?:कैसे|क्या हाल).*", "status"),
             (r"^(?:what|tell me)\s+(?:can|could)\s+you\s+do.*", "capabilities"),
