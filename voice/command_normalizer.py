@@ -131,7 +131,7 @@ class VoiceCommandNormalizer:
         i = 0
         while i < len(tokens):
             matched = False
-            for width in (3, 2):
+            for width in (3, 2, 1):
                 if i + width <= len(tokens):
                     phrase = " ".join(tokens[i:i + width])
                     canonical = self.HINDI_ACTIONS.get(phrase)
