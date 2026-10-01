@@ -21,6 +21,7 @@ import re
 
 from tools.tool_manager import ToolManager
 from ai_core.response_engine import ResponseEngine
+from ai_core.logger import log
 
 
 # =============================================================
@@ -460,6 +461,8 @@ def execute(
             "target": command
         }
 
+    log("[PIPELINE] INPUT -> INTENT: %s -> %s" % (command.encode("unicode_escape", errors="backslashreplace").decode("ascii"), str(intent.get("intent", "unknown"))))
+
     # =========================================================
     # GOAL / COMMAND ROUTING
     # =========================================================
@@ -478,6 +481,8 @@ def execute(
             "reason": "router_error",
             "goal": False,
         }
+
+    log("[PIPELINE] ROUTE PREVIEW: %s reason=%s" % (str(route_preview.get("route", "unknown")), str(route_preview.get("reason", ""))))
 
     if route_preview.get("route") == "goal":
 
@@ -537,6 +542,8 @@ def execute(
             )
 
         _sync_pending_selection_context(command)
+
+        log("[PIPELINE] SEMANTIC RESULT: stage=%s success=%s" % (str(result.get("stage", "")) if isinstance(result, dict) else "", str(result.get("success", "")) if isinstance(result, dict) else ""))
 
         return _natural_response(
             command,
