@@ -429,9 +429,47 @@ def execute(
     # GOAL / COMMAND ROUTING
     # =========================================================
 
+    # =========================================================
+    # INTENT
+    #
+    # Detect after voice normalization so the goal router receives the
+    # semantic command metadata instead of a raw pre-normalization surface.
+    # =========================================================
+
     try:
 
-        route_preview = goal_router.route(command)
+        intent = intent_engine.detect(
+            command
+        )
+
+    except Exception as error:
+
+        return (
+            "Intent detection error: "
+            +
+            str(error)
+        )
+
+    if not isinstance(
+        intent,
+        dict
+    ):
+
+        intent = {
+            "intent": "unknown",
+            "target": command
+        }
+
+    # =========================================================
+    # GOAL / COMMAND ROUTING
+    # =========================================================
+
+    try:
+
+        route_preview = goal_router.route(
+            command,
+            intent=intent,
+        )
 
     except Exception:
 
@@ -447,7 +485,7 @@ def execute(
 
             result = autonomous_agent.run(
                 goal=command,
-                intent=None
+                intent=intent,
             )
 
         except Exception as error:
@@ -462,18 +500,10 @@ def execute(
         return _natural_response(
             command,
             result,
-            None
+            intent,
         )
 
-    # =========================================================
-    # INTENT
-    # =========================================================
-
-    try:
-
-        intent = intent_engine.detect(
-            command
-        )
+    # Intent has already been detected above.
 
     except Exception as error:
 
