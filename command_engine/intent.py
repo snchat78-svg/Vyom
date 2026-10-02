@@ -389,6 +389,13 @@ class IntentEngine:
                     target = re.sub(r"^(?:फाइल|फ़ाइल|file)\s+", "", target, flags=re.IGNORECASE).strip()
                     return {"intent": "search_file", "target": target, "voice": voice_meta}
 
+                if re.search(r"\b(?:search|find)\s+(?:file|document)\b", text, flags=re.IGNORECASE):
+                    return {
+                        "intent": "search_file",
+                        "target": self._strip_polite_suffix(target),
+                        "voice": voice_meta,
+                    }
+
                 # General search requests are not file-search requests.
                 # Preserve the complete utterance for semantic reasoning.
                 return {
