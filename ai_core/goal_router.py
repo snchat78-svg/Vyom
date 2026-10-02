@@ -20,7 +20,7 @@ class GoalRouter:
 
     COMPOUND_SEPARATORS = (
         "और", "फिर", "उसके बाद", "और फिर",
-        "and", "then", "after that",
+        "and", "then", "after that", "aur", "phir", "fir",
     )
 
     TASK_MARKERS = (
