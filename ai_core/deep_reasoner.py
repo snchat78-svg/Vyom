@@ -49,6 +49,29 @@ class DeepReasoner:
         )
         self.last_result = None
 
+    @staticmethod
+    def _looks_like_information_question(goal: str) -> bool:
+        value = " ".join(str(goal or "").strip().lower().split())
+        if not value:
+            return False
+
+        if "?" in value:
+            return True
+
+        # Language structure only: this does not encode facts, commands, or
+        # application aliases. It separates a natural question from a task
+        # that should enter the capability planner.
+        return bool(
+            __import__("re").search(
+                r"^(?:what|who|why|when|where|how|which|is|are|can|could|would|kya|kaun|kyu(?:n)?|kab|kahan|kaise|kitna|kitni|kitne)\b",
+                value,
+            )
+            or __import__("re").search(
+                r"^(?:tum|aap)\b.*\b(?:kya|kaise|kaun|kyu(?:n)?|kab|kahan|kitna|kitni|kitne)\b",
+                value,
+            )
+        )
+
     def _local_reason(
         self,
         goal: str,
@@ -83,6 +106,18 @@ class DeepReasoner:
                     ),
                     "intent": item,
                 })
+        elif self._looks_like_information_question(goal):
+            route = "conversation"
+            plan = [{
+                "step": 1,
+                "type": "conversation",
+                "description": (
+                    "Answer the user's natural-language question from the "
+                    "configured conversational knowledge provider when available."
+                ),
+                "capability": None,
+                "intent": None,
+            }]
         else:
             route = "missing_capability"
             plan = [{
