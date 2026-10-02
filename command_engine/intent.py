@@ -322,6 +322,21 @@ class IntentEngine:
         if text in ("exit", "quit", "stop"):
             return {"intent": "close_app", "target": "", "voice": voice_meta}
 
+        # Explicit file-search language remains on the proven
+        # file-search fast path. General searches continue to semantic
+        # reasoning instead.
+        file_search_match = re.match(
+            r"^(?:search|find)\s+(?:file|document)\s+(.+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if file_search_match:
+            return {
+                "intent": "search_file",
+                "target": self._strip_polite_suffix(file_search_match.group(1)),
+                "voice": voice_meta,
+            }
+
         # A bare open command is still a known command. Return a missing
         # target so the executor can ask what should be opened instead of
         # sending the input down the unknown-goal path.
