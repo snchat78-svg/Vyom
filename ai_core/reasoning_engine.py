@@ -587,6 +587,18 @@ class ReasoningEngine:
         deep_route = deep.get("route")
         model_ordered_plan = deep.get("ordered_plan", [])
 
+        # A conversational route is a terminal semantic decision. Keep it
+        # ahead of executable-plan heuristics so a natural question cannot be
+        # reclassified as a mission merely because auxiliary plan metadata is
+        # present.
+        deep_conversation = (
+            isinstance(deep_route, str)
+            and deep_route.strip().lower() == "conversation"
+        )
+        if deep_conversation:
+            model_ordered_plan = []
+            suggested_intents = []
+
         # DeepReasoner is advisory. When Vyom already has a complete local
         # contextual plan that is independently executable, keep that plan
         # authoritative for execution while retaining the model result for
