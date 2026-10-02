@@ -231,6 +231,23 @@ class UIStateObserver:
         return result
 
     def _find_target(self, action: Dict[str, Any]):
+        # Some action targets are data, not UI elements. Never search the
+        # desktop UI tree for text that is about to be typed, pasted, or
+        # copied; doing so is both semantically wrong and expensive.
+        if isinstance(action, dict) and str(action.get("action") or "").strip().lower() in {
+            "type_text",
+            "keypress",
+            "hotkey",
+            "scroll",
+            "wait",
+            "clipboard_set",
+            "clipboard_get",
+            "screenshot",
+            "read_active_window",
+            "read_windows",
+        }:
+            return None
+
         args = action.get("args")
         args = dict(args) if isinstance(args, dict) else {}
 
