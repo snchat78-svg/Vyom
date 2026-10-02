@@ -82,6 +82,14 @@ class UIElementFinder:
             query["class_name"] = class_name
 
         root = desktop
+        if hwnd is None and not window_title:
+            # Semantic UI commands normally target the currently active
+            # application. Search that window first instead of traversing the
+            # entire desktop UI tree.
+            try:
+                root = desktop.get_active()
+            except Exception:
+                root = desktop
         if hwnd is not None:
             try:
                 root = desktop.window(handle=int(hwnd))
