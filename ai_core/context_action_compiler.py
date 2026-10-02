@@ -145,7 +145,7 @@ class ContextActionCompiler:
             return None
         return result if isinstance(result, dict) else None
 
-    def _generic_action(self, text: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def _generic_action(self, text: str, context: Dict[str, Any], planned_context: bool = False) -> Dict[str, Any]:
         value = self._normalize(text)
         lower = value.lower()
         current_target = self._context_target(context)
@@ -171,7 +171,7 @@ class ContextActionCompiler:
             flags=re.IGNORECASE,
         )
         if match:
-            if not self._has_execution_context(context):
+            if not (self._has_execution_context(context) or planned_context):
                 return {
                     "kind": "clarification",
                     "message": "किस active application या input target में text लिखना है? पहले उसे खोलें या focus करें।",
@@ -210,7 +210,7 @@ class ContextActionCompiler:
             flags=re.IGNORECASE,
         )
         if match:
-            if not current_target:
+            if not (current_target or planned_context):
                 return {
                     "kind": "clarification",
                     "message": "किस active application या input target में text लिखना है? पहले उसे खोलें या focus करें।",
@@ -464,7 +464,32 @@ class ContextActionCompiler:
                 previous_id = step_id
                 continue
 
-            generic = self._generic_action(part, ctx)
+            # A previous step in the same mission can establish the
+            # execution context (for example "open X" before "type Y").
+            # This does not guess an application; it only permits the next
+            # generic action to depend on the already-planned preceding step.
+            planned_context = any(
+                isinstance(previous, dict)
+                and (
+                    (
+                        previous.get("type") == "execute_existing_intent"
+                        and isinstance(previous.get("intent"), dict)
+                        and str(previous["intent"].get("intent", "")).strip().lower()
+                        in {"open", "open_file"}
+                    )
+                    or (
+                        previous.get("type") == "action"
+                        and str(previous.get("action", "")).strip().lower()
+                        in {"open_application", "open_file"}
+                    )
+                )
+                for previous in steps
+            )
+            generic = self._generic_action(
+                part,
+                ctx,
+                planned_context=planned_context,
+            )
             if generic.get("kind") == "action":
                 action = dict(generic["action"])
                 action_id = f"context_{index}"
