@@ -82,8 +82,6 @@ from ai_core.mission_runtime import MissionRuntime
 from tools.tool_manager import ToolManager
 
 from ai_core.skill_builder import SkillBuilder
-from ai_core.capability_executor import CapabilityExecutor
-from windows_agent.ui_automation import WindowsUICapability
 
 from memory.session_memory import SessionMemory
 
@@ -124,17 +122,6 @@ class AutonomousAgent:
             reasoning_engine
             if reasoning_engine is not None
             else ReasoningEngine()
-        )
-
-        # The reasoning registry and runtime executor must share the
-        # same provider registry. Otherwise a generic action can be
-        # "resolved" during planning but have no executable provider.
-        self.capability_executor = CapabilityExecutor(
-            registry=self.reasoning_engine.capability_registry
-        )
-        self.windows_ui_capability = WindowsUICapability()
-        self.capability_executor.register(
-            self.windows_ui_capability
         )
 
         # =========================================================
