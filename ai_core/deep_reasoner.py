@@ -61,13 +61,27 @@ class DeepReasoner:
         # Language structure only: this does not encode facts, commands, or
         # application aliases. It separates a natural question from a task
         # that should enter the capability planner.
+        question_markers = (
+            "what", "who", "why", "when", "where", "how", "which",
+            "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
+            "kitna", "kitni", "kitne",
+        )
+        pattern = r"\\b(?:" + "|".join(
+            __import__("re").escape(item)
+            for item in question_markers
+        ) + r")\\b"
+
         return bool(
             __import__("re").search(
-                r"^(?:what|who|why|when|where|how|which|is|are|can|could|would|kya|kaun|kyu(?:n)?|kab|kahan|kaise|kitna|kitni|kitne)\b",
+                r"^(?:what|who|why|when|where|how|which|is|are|can|could|would|kya|kaun|kyu(?:n)?|kab|kahan|kaise|kitna|kitni|kitne)\\b",
                 value,
             )
             or __import__("re").search(
-                r"^(?:tum|aap)\b.*\b(?:kya|kaise|kaun|kyu(?:n)?|kab|kahan|kitna|kitni|kitne)\b",
+                r"^(?:tum|aap)\\b.*\\b(?:kya|kaise|kaun|kyu(?:n)?|kab|kahan|kitna|kitni|kitne)\\b",
+                value,
+            )
+            or __import__("re").search(
+                pattern + r"\\s*(?:hai|hain|tha|thi|the|hoga|hogi|honge)?$",
                 value,
             )
         )
