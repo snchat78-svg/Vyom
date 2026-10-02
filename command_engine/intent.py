@@ -386,8 +386,16 @@ class IntentEngine:
                 )
                 if match:
                     target = match.group(1)
-                target = re.sub(r"^(?:फाइल|फ़ाइल|file)\s+", "", target, flags=re.IGNORECASE).strip()
-                return {"intent": "search_file", "target": target, "voice": voice_meta}
+                    target = re.sub(r"^(?:फाइल|फ़ाइल|file)\s+", "", target, flags=re.IGNORECASE).strip()
+                    return {"intent": "search_file", "target": target, "voice": voice_meta}
+
+                # General search requests are not file-search requests.
+                # Preserve the complete utterance for semantic reasoning.
+                return {
+                    "intent": "unknown",
+                    "target": original,
+                    "voice": voice_meta,
+                }
 
         file_extensions = (
             ".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv",
