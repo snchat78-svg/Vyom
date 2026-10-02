@@ -82,6 +82,8 @@ from ai_core.mission_runtime import MissionRuntime
 from tools.tool_manager import ToolManager
 
 from ai_core.skill_builder import SkillBuilder
+from ai_core.capability_executor import CapabilityExecutor
+from windows_agent.ui_automation import WindowsUICapability
 
 from memory.session_memory import SessionMemory
 
@@ -122,6 +124,17 @@ class AutonomousAgent:
             reasoning_engine
             if reasoning_engine is not None
             else ReasoningEngine()
+        )
+
+        # The reasoning registry and runtime executor must share the
+        # same provider registry. Otherwise a generic action can be
+        # "resolved" during planning but have no executable provider.
+        self.capability_executor = CapabilityExecutor(
+            registry=self.reasoning_engine.capability_registry
+        )
+        self.windows_ui_capability = WindowsUICapability()
+        self.capability_executor.register(
+            self.windows_ui_capability
         )
 
         # =========================================================
@@ -579,6 +592,103 @@ class AutonomousAgent:
             }
 
         self.step_count += 1
+
+        current_intent = step.get(
+            "intent"
+        )
+
+        step_type = step.get(
+            "type",
+            ""
+        )
+
+        # Generic Action Schema steps execute only through the registered
+        # capability provider. They are never converted into legacy intents.
+        if step_type == "action":
+            self.context.record_action(
+                {
+                    "type": "action",
+                    "action": step,
+                    "step": step,
+                }
+            )
+            try:
+                result = self.capability_executor.execute(step)
+            except Exception as error:
+                result = {
+                    "success": False,
+                    "stage": "capability_execution_error",
+                    "error": str(error),
+                }
+
+            verification = (
+                result.get("verification", {})
+                if isinstance(result, dict)
+                else {}
+            )
+            verified = bool(
+                isinstance(verification, dict)
+                and verification.get("verified", False)
+            )
+            if isinstance(result, dict) and result.get("success") and not verified:
+                # Provider-level verification is part of the generic
+                # capability contract; do not claim success without it.
+                result = dict(result)
+                result["success"] = False
+                result["stage"] = "verification_failed"
+                verification = dict(verification)
+                verification.setdefault(
+                    "reason",
+                    "Generic capability returned success without verification."
+                )
+
+            successful = bool(
+                isinstance(result, dict)
+                and result.get("success")
+                and verified
+            )
+            self.context.record_result(result, successful)
+            self.world_state.record_execution(
+                action={"type": "action", "action": step, "step": step},
+                result=result,
+                verification=verification,
+            )
+            self.task_history.append({
+                "step": self.step_count,
+                "type": "action",
+                "action": step,
+                "result": result,
+                "verified": verified,
+                "verification": verification,
+                "result_success": bool(
+                    result.get("success")
+                ) if isinstance(result, dict) else False,
+            })
+
+            if successful:
+                action_name = str(step.get("action") or "").strip().lower()
+                target = str(step.get("target") or "").strip()
+                if action_name in {"open_application", "open_file"} and target:
+                    self.context.set_current_target(target)
+                    if action_name == "open_application":
+                        self.context.set_current_app(target)
+                    else:
+                        self.context.set_current_file(target)
+                return {
+                    "success": True,
+                    "stage": "verified",
+                    "result": result,
+                    "verification": verification,
+                    "step": self.step_count,
+                }
+
+            return {
+                "success": False,
+                "stage": "verification_failed" if result.get("stage") == "verification_failed" else "execution_failed",
+                "result": result,
+                "verification": verification,
+                "step": self.step_count,
+            }
 
         current_intent = step.get(
             "intent"
