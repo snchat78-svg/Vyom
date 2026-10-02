@@ -310,6 +310,7 @@ class IntentEngine:
                 "intent": "conversation",
                 "target": conversation,
                 "conversation_type": conversation,
+                "voice": voice_meta,
             }
 
         if text in (
