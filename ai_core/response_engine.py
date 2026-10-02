@@ -23,6 +23,7 @@ import re
 from typing import Any, Dict, Optional
 
 from ai_core.model_gateway import ModelGateway
+from ai_core.logger import log
 
 
 class ResponseEngine:
@@ -379,7 +380,9 @@ class ResponseEngine:
         # respond naturally like an assistant instead of exposing executor
         # wording. The deterministic formatter remains the safe fallback.
         try:
-            if self.model_gateway.is_available() and not selection_options:
+            model_available = bool(self.model_gateway.is_available())
+            log("[AI] RESPONSE MODEL AVAILABLE: %s" % model_available)
+            if model_available and not selection_options:
                 model_result = self.model_gateway.chat(
                     system_prompt=(
                         "You are Vyom, a natural personal computer assistant. "
