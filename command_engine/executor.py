@@ -142,6 +142,39 @@ def _sync_pending_selection_context(target=None):
 # NATURAL RESPONSE
 # =============================================================
 
+def _structured_response(
+    message,
+    *,
+    success,
+    stage,
+    status=None,
+    result=None,
+    error=None,
+):
+    payload = {
+        "success": bool(success),
+        "status": status or ("success" if success else "failed"),
+        "stage": str(stage or ("completed" if success else "failed")),
+        "message": str(message or ""),
+        "response": str(message or ""),
+        "result": result,
+    }
+    if error is not None:
+        payload["error"] = str(error)
+    return payload
+
+
+def _failure_response(command, raw_result, stage="failed"):
+    message = response_engine.failure_response(command, raw_result)
+    return _structured_response(
+        message,
+        success=False,
+        stage=stage,
+        status="failed",
+        result=raw_result,
+    )
+
+
 def _natural_response(
     command,
     result,
@@ -170,7 +203,7 @@ def _natural_response(
                     )
                 )
 
-        return response_engine.format(
+        message = response_engine.format(
             command=command,
             result=result,
             intent=intent,
@@ -182,9 +215,37 @@ def _natural_response(
             ),
         )
 
-    except Exception:
+        if isinstance(result, dict):
+            payload = dict(result)
+            success = bool(payload.get("success", False))
+            payload["success"] = success
+            payload["status"] = str(
+                payload.get("status")
+                or ("success" if success else "failed")
+            )
+            payload["stage"] = str(
+                payload.get("stage")
+                or ("completed" if success else "failed")
+            )
+            payload["message"] = str(message or "")
+            payload["response"] = str(message or "")
+            return payload
 
-        return str(result)
+        return _structured_response(
+            message,
+            success=True,
+            stage="legacy_completed",
+            status="success",
+            result=result,
+        )
+
+    except Exception as error:
+
+        return _failure_response(
+            command,
+            error,
+            stage="response_formatting_error",
+        )
 
 
 # =============================================================
@@ -395,8 +456,11 @@ def execute(
 
     if command is None:
 
-        return (
-            "Please tell me what you want me to do."
+        return _structured_response(
+            "Please tell me what you want me to do.",
+            success=False,
+            stage="needs_clarification",
+            status="needs_clarification",
         )
 
     command = str(
@@ -422,8 +486,11 @@ def execute(
 
         autonomous_agent.reset()
 
-        return (
-            "Vyom session stopped."
+        return _structured_response(
+            "Vyom session stopped.",
+            success=True,
+            stage="exit_session",
+            status="exit_session",
         )
 
     # =========================================================
@@ -445,10 +512,10 @@ def execute(
 
     except Exception as error:
 
-        return (
-            "Intent detection error: "
-            +
-            str(error)
+        return _failure_response(
+            command,
+            "Intent detection error: " + str(error),
+            stage="intent_detection_error",
         )
 
     if not isinstance(
@@ -495,10 +562,7 @@ def execute(
 
         except Exception as error:
 
-            return response_engine.failure_response(
-                command,
-                str(error)
-            )
+            return _failure_response(command, str(error), stage="executor_error")
 
         _sync_pending_selection_context(command)
 
@@ -733,14 +797,20 @@ def execute(
 
             if intent_type == "open":
 
-                return (
-                    "ज़रूर। बताइए, क्या खोलना है?"
+                return _structured_response(
+                    "ज़रूर। बताइए, क्या खोलना है?",
+                    success=False,
+                    stage="needs_clarification",
+                    status="needs_clarification",
                 )
 
             if intent_type == "search_file":
 
-                return (
-                    "ज़रूर। बताइए, कौन-सी फ़ाइल खोजनी है?"
+                return _structured_response(
+                    "ज़रूर। बताइए, कौन-सी फ़ाइल खोजनी है?",
+                    success=False,
+                    stage="needs_clarification",
+                    status="needs_clarification",
                 )
 
             if intent_type == "close_app":
@@ -762,10 +832,7 @@ def execute(
 
                 else:
 
-                    return response_engine.failure_response(
-                        command,
-                        "No application was specified to close."
-                    )
+                    return _failure_response(command, "No application was specified to close.", stage="needs_clarification")
 
         try:
 
@@ -845,14 +912,6 @@ def execute(
         )
 
     # =========================================================
-    # EXTRACT MESSAGE
-    # =========================================================
-
-    message = _result_to_message(
-        result
-    )
-
-    # =========================================================
     # SYNC SELECTION
     # =========================================================
 
@@ -874,9 +933,11 @@ def execute(
     # =========================================================
     # NATURAL RESPONSE
     # =========================================================
-
+    # Preserve the complete structured autonomous result so ConversationManager
+    # can report the real execution status instead of treating its human
+    # response text as a new successful command.
     return _natural_response(
         command,
-        message,
+        result,
         intent
     )
