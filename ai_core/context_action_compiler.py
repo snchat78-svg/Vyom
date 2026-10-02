@@ -166,7 +166,7 @@ class ContextActionCompiler:
         # not identify an application and therefore must not become part of
         # the text that gets typed.
         match = re.match(
-            r"^(?:please\s+)?(?:(?:उसमें|इसमें|उसके\s+अंदर|इसके\s+अंदर|उसने|इसने|यहाँ|वहाँ|usme|isme|uske\s+andar|iske\s+andar|in\s+it|in\s+that|there|here)\s+)?(?:type|write|enter|paste|टाइप\s+कर(?:ो|ें|ना)?|टाइप|लिखो|लिखें|लिख|डालो|डालें|डाल)\s+(.+)$",
+            r"^(?:please\s+)?(?:(?:उसमें|इसमें|उसके\s+अंदर|इसके\s+अंदर|उसने|इसने|यहाँ|वहाँ|(?:is|us)(?:me|men|mein|mai|amen|aman)|uske\s+andar|iske\s+andar|in\s+it|in\s+that|there|here)\s+)?(?:type|write|enter|paste|टाइप\s+कर(?:ो|ें|ना)?|टाइप|लिखो|लिखें|लिख|डालो|डालें|डाल)\s+(.+)$",
             value,
             flags=re.IGNORECASE,
         )
