@@ -55,36 +55,43 @@ class DeepReasoner:
         if not value:
             return False
 
+        # This classifier only identifies interrogative language structure.
+        # It does not contain factual answers, application aliases, or a
+        # command dictionary. The actual answer remains open-ended.
         if "?" in value:
             return True
 
-        # Language structure only: this does not encode facts, commands, or
-        # application aliases. It separates a natural question from a task
-        # that should enter the capability planner.
-        question_markers = (
+        tokens = value.replace("-", " ").split()
+        if not tokens:
+            return False
+
+        question_words = {
             "what", "who", "why", "when", "where", "how", "which",
             "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
             "kitna", "kitni", "kitne",
-        )
-        pattern = r"\\b(?:" + "|".join(
-            __import__("re").escape(item)
-            for item in question_markers
-        ) + r")\\b"
+        }
 
-        return bool(
-            __import__("re").search(
-                r"^(?:what|who|why|when|where|how|which|is|are|can|could|would|kya|kaun|kyu(?:n)?|kab|kahan|kaise|kitna|kitni|kitne)\b",
-                value,
-            )
-            or __import__("re").search(
-                r"^(?:tum|aap)\b.*\b(?:kya|kaise|kaun|kyu(?:n)?|kab|kahan|kitna|kitni|kitne)\b",
-                value,
-            )
-            or __import__("re").search(
-                pattern + r"\\s*(?:hai|hain|tha|thi|the|hoga|hogi|honge)?$",
-                value,
-            )
-        )
+        if tokens[0] in question_words:
+            return True
+
+        if tokens[0] in {"tum", "aap", "you"} and any(
+            token in question_words for token in tokens[1:]
+        ):
+            return True
+
+        # Hindi/Hinglish and colloquial English often place the interrogative
+        # before a copular/auxiliary ending:
+        #   "... kya hai", "... kaise ho", "... what is"
+        auxiliaries = {
+            "is", "are", "am", "was", "were",
+            "hai", "hain", "tha", "thi", "the",
+            "hoga", "hogi", "honge", "ho",
+        }
+        if len(tokens) >= 2 and tokens[-1] in auxiliaries:
+            if any(token in question_words for token in tokens[:-1]):
+                return True
+
+        return False
 
     def _local_reason(
         self,
