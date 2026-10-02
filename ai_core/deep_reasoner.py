@@ -73,11 +73,11 @@ class DeepReasoner:
 
         return bool(
             __import__("re").search(
-                r"^(?:what|who|why|when|where|how|which|is|are|can|could|would|kya|kaun|kyu(?:n)?|kab|kahan|kaise|kitna|kitni|kitne)\\b",
+                r"^(?:what|who|why|when|where|how|which|is|are|can|could|would|kya|kaun|kyu(?:n)?|kab|kahan|kaise|kitna|kitni|kitne)\b",
                 value,
             )
             or __import__("re").search(
-                r"^(?:tum|aap)\\b.*\\b(?:kya|kaise|kaun|kyu(?:n)?|kab|kahan|kitna|kitni|kitne)\\b",
+                r"^(?:tum|aap)\b.*\b(?:kya|kaise|kaun|kyu(?:n)?|kab|kahan|kitna|kitni|kitne)\b",
                 value,
             )
             or __import__("re").search(
