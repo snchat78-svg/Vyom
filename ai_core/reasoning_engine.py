@@ -767,7 +767,7 @@ class ReasoningEngine:
         # A natural information question must never become a computer mission
         # merely because another planner emitted auxiliary metadata. Keep this
         # boundary semantic and generic; the answer itself remains open-ended.
-        if analysis.get("information_question") and not suggested:
+        if analysis.get("information_question"):
             route = {
                 "route": "conversation",
                 "reason": "The user's language expresses an information question."
