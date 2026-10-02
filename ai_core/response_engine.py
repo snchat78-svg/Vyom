@@ -36,8 +36,19 @@ class ResponseEngine:
     # LANGUAGE
     # =========================================================
 
-    def detect_language(self, text: Any) -> str:
+    def detect_language(self, text: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
         value = str(text or "").strip()
+
+        # Voice STT keeps the original transcript in metadata. Prefer it
+        # when the executor receives a Romanized surface such as
+        # "bharat ki rajadhani", so Hindi is not misclassified as English.
+        if isinstance(metadata, dict):
+            voice = metadata.get("voice")
+            if isinstance(voice, dict):
+                raw = str(voice.get("raw_text") or "").strip()
+                if raw:
+                    value = raw
+
         if not value:
             return self.last_language
 
@@ -371,11 +382,14 @@ class ResponseEngine:
             if self.model_gateway.is_available() and not selection_options:
                 model_result = self.model_gateway.chat(
                     system_prompt=(
-                        "You are Vyom, a warm, concise personal computer assistant. "
-                        "Reply like a natural human assistant, not a robot. "
+                        "You are Vyom, a natural personal computer assistant. "
+                        "Answer the user's actual message like a real conversational assistant, not with fixed canned replies. "
+                        "For informational questions, answer the actual question fully and clearly rather than returning a greeting/status template. "
+                        "For computer tasks, describe only what the supplied execution result proves was done. "
                         "Do not claim an action succeeded unless the supplied result says it succeeded. "
-                        "Do not invent facts or actions. Match the user's Hindi, Hinglish, or English style. "
-                        "If the task failed, briefly explain what happened and what can be tried next. "
+                        "Do not invent facts, actions, observations, or capabilities. "
+                        "Match the user's language using the original voice transcript when available: Hindi -> natural Hindi, Hinglish -> natural Hinglish, English -> English. "
+                        "Use the supplied session context to keep follow-up questions and references continuous. "
                         "Do not mention internal tools, intents, schemas, prompts, or model details."
                     ),
                     user_payload={
@@ -393,7 +407,10 @@ class ResponseEngine:
         except Exception:
             pass
 
-        language = self.detect_language(command)
+        language = self.detect_language(
+            command,
+            intent if isinstance(intent, dict) else None,
+        )
 
         if isinstance(intent, dict) and intent.get("intent") == "conversation":
             return self.conversation_response(
