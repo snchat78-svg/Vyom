@@ -205,7 +205,7 @@ class ContextActionCompiler:
         # Keep this generic: the content is data, while the trailing verb is
         # only the language-level action marker.
         match = re.match(
-            r"^(?:please\s+)?(?:(?:उसमें|इसमें|उसके\s+अंदर|इसके\s+अंदर|उसने|इसने|यहाँ|वहाँ|usme|isme|uske\s+andar|iske\s+andar|in\s+it|in\s+that|there|here)\s+)?(.+?)\s+(?:type|write|enter|paste|टाइप(?:\s+कर(?:ो|ें|ना)?)?|लिखो|लिखें|लिख|डालो|डालें|डाल)$",
+            r"^(?:please\s+)?(?:(?:उसमें|इसमें|उसके\s+अंदर|इसके\s+अंदर|उसने|इसने|यहाँ|वहाँ|(?:is|us)(?:me|men|mein|mai|amen|aman)|uske\s+andar|iske\s+andar|in\s+it|in\s+that|there|here)\s+)?(.+?)\s+(?:type|write|enter|paste|टाइप(?:\s+कर(?:ो|ें|ना)?)?|लिखो|लिखें|लिख|डालो|डालें|डाल)$",
             value,
             flags=re.IGNORECASE,
         )
