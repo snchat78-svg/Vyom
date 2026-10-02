@@ -548,7 +548,7 @@ def execute(
         return _natural_response(
             command,
             result,
-            None
+            intent
         )
 
     # =========================================================
@@ -608,16 +608,16 @@ def execute(
 
     if intent_type == "conversation":
 
-        return response_engine.format(
-            command=command,
-            result={
+        return _natural_response(
+            command,
+            {
                 "success": True,
                 "conversation_type": intent.get(
                     "conversation_type",
-                    "acknowledge"
+                    "conversation"
                 )
             },
-            intent=intent
+            intent,
         )
 
     # =========================================================
