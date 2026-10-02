@@ -24,7 +24,7 @@ class GoalRouter:
     )
 
     TASK_MARKERS = (
-        "create", "make", "build", "write", "type", "enter", "save", "search", "find",
+        "create", "make", "build", "write", "type", "enter", "save",
         "edit", "modify", "rename", "move", "copy", "delete", "fill",
         "बनाओ", "बनाना", "बनाएं", "बनाएँ", "बना दो", "बनाकर",
         "लिखो", "लिखना", "लिखें", "टाइप", "डालो", "डालना", "सेव",
