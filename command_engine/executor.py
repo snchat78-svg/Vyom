@@ -754,19 +754,22 @@ def execute(
             )
 
     # =========================================================
-    # UNKNOWN SELECTION WITHOUT A PENDING LIST
+    # SELECTION IS CONTEXTUAL, NOT A GLOBAL COMMAND CLASS
     # =========================================================
-
+    # Numbers are only selections when a selection list is actually pending.
+    # Otherwise the complete utterance must remain available to semantic
+    # reasoning (for example arithmetic or another natural-language task).
     if (
         intent_type == "selection"
         and
         not _has_pending_selection()
     ):
-
-        return response_engine.failure_response(
-            command,
-            "There is no pending selection to choose from."
-        )
+        intent = {
+            "intent": "unknown",
+            "target": command,
+            "voice": intent.get("voice", {}) if isinstance(intent, dict) else {},
+        }
+        intent_type = "unknown"
 
     # =========================================================
     # FAST LANE
