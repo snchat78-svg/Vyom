@@ -2454,11 +2454,10 @@ class AutonomousAgent:
                 dict
             ):
 
+                # A capability/skill plan is preparation only. It must
+                # never be reported as successful task execution.
                 return {
-                    "success": skill_result.get(
-                        "success",
-                        False
-                    ),
+                    "success": False,
                     "stage": skill_result.get(
                         "stage",
                         "skill_planned"
