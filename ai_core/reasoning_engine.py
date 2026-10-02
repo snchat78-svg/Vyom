@@ -415,6 +415,18 @@ class ReasoningEngine:
 
         ctx = context if isinstance(context, dict) else {}
 
+        # Natural-language questions are a semantic conversation class, not a
+        # missing computer capability. This is deliberately language-based:
+        # it does not contain facts, application names, aliases, or command
+        # phrases. The actual answer is produced later by the conversational
+        # model/fallback layer.
+        try:
+            information_question = bool(
+                self.deep_reasoner._looks_like_information_question(goal)
+            )
+        except Exception:
+            information_question = False
+
         try:
             compiled = self.goal_compiler.compile(
                 goal=goal,
@@ -727,6 +739,7 @@ class ReasoningEngine:
             "generic_actions_unsupported": generic_actions_unsupported,
             "capability_resolutions": capability_resolutions,
             "deep_capability": deep_capability,
+            "information_question": information_question,
         }
 
         self.last_analysis = analysis
@@ -750,6 +763,17 @@ class ReasoningEngine:
         suggested = analysis.get("suggested_intents", [])
         capabilities = analysis.get("capabilities", [])
         deep = analysis.get("deep_reasoning")
+
+        # A natural information question must never become a computer mission
+        # merely because another planner emitted auxiliary metadata. Keep this
+        # boundary semantic and generic; the answer itself remains open-ended.
+        if analysis.get("information_question") and not suggested:
+            route = {
+                "route": "conversation",
+                "reason": "The user's language expresses an information question."
+            }
+            self.last_route = route
+            return route
 
         model_ordered_plan = analysis.get("model_ordered_plan", [])
         if isinstance(model_ordered_plan, list) and model_ordered_plan:
