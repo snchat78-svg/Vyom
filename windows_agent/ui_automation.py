@@ -124,7 +124,6 @@ class WindowsUICapability:
             "find_ui_element", "focus_ui_element", "click_ui_element",
             "invoke_ui_element", "set_ui_value", "select_ui_element",
             "toggle_ui_element", "expand_ui_element", "collapse_ui_element",
-            "type_text",
         }
         metadata = action.get("metadata")
         explicit_verification = (
