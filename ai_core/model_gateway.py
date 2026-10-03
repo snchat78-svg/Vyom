@@ -108,7 +108,10 @@ Your job is to:
 Return ONLY valid JSON.
 
 For multi-step executable goals, use route="mission".
-A mission can mix existing-tool compatibility steps and generic capability actions when both are required. Preserve the sequence.
+A mission can mix existing-tool compatibility steps and generic capability actions when both are required. Preserve the sequence exactly.
+Never collapse a multi-step request to only the first recognizable action. Every requested stage must remain represented in the ordered plan.
+Resolve references such as "it", "this", "that", "usme", "isme", "there", and similar phrases from the supplied context when the reference is unambiguous. Do not invent a target when it is ambiguous.
+For natural-language information questions, use route="conversation". Do not turn an information question into a missing capability request.
 For a single action that an available capability can support, use route="existing_tools" or "capability" according to the supplied capability information.
 The plan describes intended actions only; it must never claim that an action already happened.
 
