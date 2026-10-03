@@ -555,9 +555,13 @@ def execute(
 
         try:
 
+            # A goal must be interpreted from the complete utterance.
+            # The deterministic IntentEngine result is parser metadata only;
+            # passing a partial "open" intent here could collapse a compound
+            # mission into its first action.
             result = autonomous_agent.run(
                 goal=command,
-                intent=intent,
+                intent=None,
             )
 
         except Exception as error:
