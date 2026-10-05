@@ -9,6 +9,7 @@ class FakeUIObserver:
             "available": True,
             "active_window": {"name": "Test Window"},
             "focused_element": {"name": "SearchBox", "control_type": "Edit"},
+            "selected_element": {"name": "Search", "control_type": "ListItem"},
             "ui_tree_signature": [
                 {"name": "Search", "control_type": "Button"}
             ],
@@ -58,6 +59,7 @@ class Phase4WorldStateTests(unittest.TestCase):
         self.assertEqual(state["current_file"], "test.txt")
         self.assertEqual(state["current_window"]["name"], "Test Window")
         self.assertEqual(state["focused_control"]["name"], "SearchBox")
+        self.assertEqual(state["selected_control"]["name"], "Search")
         self.assertEqual(state["visible_ui_elements"][0]["name"], "Search")
         self.assertEqual(state["clipboard"]["text"], "copied text")
         self.assertEqual(state["screen"]["size"]["width"], 1920)
