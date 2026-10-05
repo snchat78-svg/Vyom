@@ -370,8 +370,7 @@ Use only JSON-safe values in actions. Do not put executable code in args.
         if text.startswith("```"):
             lines = text.splitlines()
             if len(lines) >= 3:
-                cleaned = "
-".join(lines[1:-1]).strip()
+                cleaned = "\n".join(lines[1:-1]).strip()
                 try:
                     return json.loads(cleaned)
                 except Exception:
