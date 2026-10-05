@@ -167,7 +167,28 @@ class WindowsUICapability:
             # observer. Keep their successful capability contract intact, but
             # never weaken real Windows verification: when UIA observation is
             # available, the verifier above remains authoritative.
-            observer_unavailable = not bool((after or {}).get("available"))
+            def _has_observable_ui(state):
+                if not isinstance(state, dict):
+                    return False
+                if not bool(state.get("available")):
+                    return False
+                for key in ("active_window", "focused_element", "selected_element", "target_element"):
+                    value = state.get(key)
+                    if isinstance(value, dict) and value.get("exists") is True:
+                        return True
+                return bool(state.get("ui_tree_signature"))
+
+            # pywinauto can be importable while the current environment has no
+            # usable desktop/UIA observation (for example CI/test hosts).
+            # Treat that state as observer-unavailable only when neither the
+            # before nor after snapshot contains any observable UI state.
+            observer_unavailable = (
+                not bool((after or {}).get("available"))
+                or (
+                    not _has_observable_ui(before or {})
+                    and not _has_observable_ui(after or {})
+                )
+            )
             if (
                 not verification.get("verified", False)
                 and observer_unavailable
