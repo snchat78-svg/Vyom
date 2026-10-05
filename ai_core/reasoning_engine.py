@@ -100,6 +100,39 @@ class ReasoningEngine:
         self.last_deep_reasoning: Optional[Dict[str, Any]] = None
 
     # =========================================================
+    # LANGUAGE QUESTION CLASSIFICATION
+    # =========================================================
+
+    @staticmethod
+    def _looks_like_information_question(goal: str) -> bool:
+        value = " ".join(str(goal or "").strip().lower().split())
+        if not value:
+            return False
+        if "?" in value:
+            return True
+
+        tokens = value.replace("-", " ").split()
+        question_words = {
+            "what", "who", "why", "when", "where", "how", "which",
+            "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
+            "kitna", "kitni", "kitne", "kitane", "kitney",
+        }
+        if tokens and tokens[0] in question_words:
+            return True
+        if tokens and tokens[0] in {"tum", "aap", "you"}:
+            if any(token in question_words for token in tokens[1:]):
+                return True
+
+        auxiliaries = {
+            "is", "are", "am", "was", "were",
+            "hai", "hain", "tha", "thi", "the",
+            "hoga", "hogi", "honge", "ho",
+        }
+        if len(tokens) >= 2 and tokens[-1] in auxiliaries:
+            return any(token in question_words for token in tokens[:-1])
+        return False
+
+    # =========================================================
     # NORMALIZE
     # =========================================================
 
@@ -420,12 +453,7 @@ class ReasoningEngine:
         # it does not contain facts, application names, aliases, or command
         # phrases. The actual answer is produced later by the conversational
         # model/fallback layer.
-        try:
-            information_question = bool(
-                self.deep_reasoner._looks_like_information_question(goal)
-            )
-        except Exception:
-            information_question = False
+        information_question = self._looks_like_information_question(goal)
 
         try:
             compiled = self.goal_compiler.compile(
