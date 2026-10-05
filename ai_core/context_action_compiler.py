@@ -185,18 +185,6 @@ class ContextActionCompiler:
                 "args": {"text": resolved["value"]},
                 "preconditions": ["an active input target is available"],
                 "postconditions": ["the requested text has been dispatched to the active input target"],
-                "metadata": {
-                    "verification": {
-                        "mode": "all",
-                        "checks": [{
-                            "kind": "property",
-                            "source": "focused_element",
-                            "field": "value",
-                            "operator": "contains",
-                            "value": resolved["value"],
-                        }],
-                    }
-                },
             })
             return {"kind": "action", "action": base}
 
