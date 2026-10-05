@@ -461,10 +461,27 @@ class ReasoningEngine:
         # follow-up such as "type my name" continue in the current session
         # without creating a new application-specific intent. It also builds
         # a complete mixed plan for goals such as "open X and type Y".
-        contextual = self.context_action_compiler.compile(
-            goal=goal,
-            context=ctx,
-        )
+        if (
+            information_question
+            and not suggested_intents
+            and len(sub_goals) <= 1
+        ):
+            # Pure information questions belong to conversation, not the
+            # contextual action compiler. This prevents ordinary question
+            # wording from being misread as an executable follow-up.
+            contextual = {
+                "plan": [],
+                "complete": False,
+                "continuation": False,
+                "context_target": "",
+                "clarification": None,
+                "reason": "Information question bypassed action compilation.",
+            }
+        else:
+            contextual = self.context_action_compiler.compile(
+                goal=goal,
+                context=ctx,
+            )
         contextual_plan = contextual.get("plan", [])
         if not isinstance(contextual_plan, list):
             contextual_plan = []
