@@ -14,7 +14,7 @@ jobs:
     env:
       VYOM_AI_ENABLED: "true"
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GEMINI_MODEL: "gemini-2.5-flash-lite"
+      GEMINI_MODEL: "gemini-3.6-flash"
 
     steps:
 
@@ -46,7 +46,7 @@ jobs:
         shell: powershell
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: "gemini-2.5-flash-lite"
+          GEMINI_MODEL: "gemini-3.6-flash"
         run: |
           if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
               Write-Host "GEMINI API SMOKE TEST: SKIPPED - GEMINI_API_KEY secret is not configured."
