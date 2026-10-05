@@ -46,6 +46,8 @@ Important:
     - Runtime preserves mission history.
 """
 
+import json
+
 from typing import Any, Dict, List, Optional
 
 
