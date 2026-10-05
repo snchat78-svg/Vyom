@@ -37,6 +37,13 @@ class GoalCompiler:
         "क्लोज", "क्लोज करो"
     )
 
+    _ACTION_MARKERS = (
+        "type", "write", "enter", "paste", "press", "click",
+        "double click", "hotkey", "shortcut", "scroll", "focus",
+        "wait", "copy", "cut", "undo", "redo", "select all",
+        "टाइप", "लिख", "डाल", "दबाओ", "क्लिक", "फोकस",
+    )
+
     _SEARCH_WORDS = (
         "search", "find", "look for", "dhundo", "dhundho",
         "खोज", "खोजो", "ढूंढ", "ढूंढो", "ढूंढना"
@@ -130,7 +137,11 @@ class GoalCompiler:
     def _targets_are_clean(self, targets: List[str]) -> bool:
         """Reject target fragments that secretly contain another action/clause."""
 
-        action_words = list(self._OPEN_WORDS) + list(self._CLOSE_WORDS)
+        action_words = (
+            list(self._OPEN_WORDS)
+            + list(self._CLOSE_WORDS)
+            + list(self._ACTION_MARKERS)
+        )
         normalized_actions = sorted(
             {
                 self.normalize(word).lower()
