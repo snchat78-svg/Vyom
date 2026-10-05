@@ -1,6 +1,7 @@
 import unittest
 
 from ai_core.autonomous_agent import AutonomousAgent
+from ai_core.mission_runtime import MissionRuntime
 
 
 class Phase5ObservationTests(unittest.TestCase):
@@ -39,6 +40,72 @@ class Phase5ObservationTests(unittest.TestCase):
             observation["world_state"]["current_target"],
             "",
         )
+
+
+    def test_replan_reuses_verified_logical_step_with_new_id(self):
+        runtime = MissionRuntime(max_retries=1, max_steps=5)
+        runtime.start(
+            goal="open and type",
+            plan=[
+                {
+                    "step": 1,
+                    "id": "old_open",
+                    "type": "action",
+                    "action": "open_application",
+                    "capability": "windows_ui",
+                    "target": "Notepad",
+                    "args": {},
+                    "depends_on": [],
+                    "status": "pending",
+                },
+                {
+                    "step": 2,
+                    "id": "old_type",
+                    "type": "action",
+                    "action": "type_text",
+                    "capability": "windows_ui",
+                    "target": "Hello",
+                    "args": {"text": "Hello"},
+                    "depends_on": ["old_open"],
+                    "status": "pending",
+                },
+            ],
+        )
+        runtime.get_next_step()
+        runtime.mark_completed(
+            "old_open",
+            result={"success": True},
+            verification={"verified": True},
+        )
+
+        self.assertTrue(
+            runtime.apply_replan([
+                {
+                    "step": 10,
+                    "id": "new_open",
+                    "type": "action",
+                    "action": "open_application",
+                    "capability": "windows_ui",
+                    "target": "Notepad",
+                    "args": {},
+                    "depends_on": [],
+                },
+                {
+                    "step": 11,
+                    "id": "new_type",
+                    "type": "action",
+                    "action": "type_text",
+                    "capability": "windows_ui",
+                    "target": "Hello",
+                    "args": {"text": "Hello"},
+                    "depends_on": ["new_open"],
+                },
+            ])
+        )
+
+        self.assertEqual(runtime.plan[0]["status"], "completed")
+        self.assertEqual(runtime.plan[0]["reused_verified_step_id"], "old_open")
+        self.assertEqual(runtime.get_next_step()["id"], "new_type")
 
 
 if __name__ == "__main__":
