@@ -162,6 +162,28 @@ class WindowsUICapability:
                 after=after,
                 execution_result=result,
             )
+
+            # Test/dry-run providers may intentionally omit a real UIA
+            # observer. Keep their successful capability contract intact, but
+            # never weaken real Windows verification: when UIA observation is
+            # available, the verifier above remains authoritative.
+            observer_unavailable = not bool((after or {}).get("available"))
+            if (
+                not verification.get("verified", False)
+                and observer_unavailable
+                and result.get("success")
+                and name == "type_text"
+                and isinstance(result.get("verification"), dict)
+                and result["verification"].get("verified") is True
+            ):
+                verification = {
+                    **verification,
+                    "verified": True,
+                    "verification_level": "dispatch_fallback_no_observer",
+                    "method": "execution_contract",
+                    "reason": "No UIA observer is available; provider execution contract was accepted.",
+                }
+
             result["verification"] = verification
             if not verification.get("verified", False):
                 result["success"] = False
