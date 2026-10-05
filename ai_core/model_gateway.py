@@ -197,7 +197,7 @@ Use only JSON-safe values in actions. Do not put executable code in args.
             "capabilities": capabilities if isinstance(capabilities, list) else [],
             "previous_result": previous_result,
         }
-        return {
+        request = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": self._system_prompt()},
@@ -206,7 +206,14 @@ Use only JSON-safe values in actions. Do not put executable code in args.
             "temperature": 0.2,
         }
 
-    def complete(self, goal, context=None, capabilities=None, previous_result=None):
+        # Gemini's OpenAI-compatible endpoint supports bounded reasoning.
+        # Low reasoning leaves more response budget for Vyom's structured plan.
+        if "generativelanguage.googleapis.com" in str(self.api_url or "").lower():
+            request["reasoning_effort"] = "low"
+
+        return request
+
+    def complete(    def complete(self, goal, context=None, capabilities=None, previous_result=None):
         status = self.provider_status()
         log(
             "[AI] REASONING PROVIDER: provider=%s enabled=%s configured=%s available=%s model=%s"
@@ -288,6 +295,8 @@ Use only JSON-safe values in actions. Do not put executable code in args.
             ],
             "temperature": float(temperature),
         }
+        if "generativelanguage.googleapis.com" in str(self.api_url or "").lower():
+            payload["reasoning_effort"] = "low"
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(self.api_url, data=data, method="POST")
         request.add_header("Content-Type", "application/json")
@@ -361,10 +370,25 @@ Use only JSON-safe values in actions. Do not put executable code in args.
         if text.startswith("```"):
             lines = text.splitlines()
             if len(lines) >= 3:
-                cleaned = "\n".join(lines[1:-1])
+                cleaned = "
+".join(lines[1:-1]).strip()
                 try:
                     return json.loads(cleaned)
                 except Exception:
                     pass
+
+        # Tolerate a brief provider preamble/trailing note around a JSON
+        # object. The Reasoning Gateway still performs authoritative schema
+        # validation after parsing.
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                value, _ = decoder.raw_decode(text[index:])
+                if isinstance(value, dict):
+                    return value
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
 
         return None
