@@ -111,22 +111,60 @@ class WorldStateModel:
             "text": str(result.get("text", "")) if result.get("success") else "",
         }
 
-    def _screen_state(self) -> Dict[str, Any]:
+    def _screen_state(self, include_snapshot: bool = False) -> Dict[str, Any]:
         observer = self.screen_observer
         if observer is None:
-            return {"available": False}
+            return {
+                "available": False,
+                "snapshot": {"available": False, "captured": False},
+            }
 
         try:
             available = bool(observer.is_available())
         except Exception:
             available = False
 
-        state = {"available": available}
+        state = {
+            "available": available,
+            "snapshot": {
+                "available": available,
+                "captured": False,
+            },
+        }
         if available:
             try:
                 state["size"] = dict(observer.get_size())
             except Exception:
                 state["size"] = {"width": 0, "height": 0}
+
+            # Screen pixels are captured only when explicitly requested.
+            # Normal autonomous observations stay lightweight on low-resource
+            # machines while Phase 4 still exposes a real snapshot contract.
+            if include_snapshot:
+                capture = getattr(observer, "capture", None)
+                if callable(capture):
+                    try:
+                        result = capture()
+                        if isinstance(result, dict):
+                            safe = {
+                                key: result.get(key)
+                                for key in (
+                                    "success", "stage", "path",
+                                    "width", "height", "verification"
+                                )
+                                if key in result
+                            }
+                            state["snapshot"].update(safe)
+                            state["snapshot"]["captured"] = bool(
+                                result.get("success", False)
+                            )
+                        else:
+                            state["snapshot"]["error"] = (
+                                "Screen observer returned an invalid capture result."
+                            )
+                    except Exception as error:
+                        state["snapshot"]["error"] = str(error)
+
         return state
 
     def record_observation(self, observation: Dict[str, Any]) -> None:
@@ -157,6 +195,7 @@ class WorldStateModel:
         mission_state: Optional[Dict[str, Any]] = None,
         include_ui: bool = True,
         include_clipboard: bool = True,
+        include_screen_snapshot: bool = False,
     ):
         ctx = session_context if isinstance(session_context, dict) else {}
 
@@ -181,7 +220,7 @@ class WorldStateModel:
 
             # Computer state.
             "running_processes": self._running_processes(),
-            "screen": self._screen_state(),
+            "screen": self._screen_state(include_screen_snapshot),
 
             # Mission state belongs here as an observation, not a second owner.
             "mission_state": (
