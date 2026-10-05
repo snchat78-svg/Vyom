@@ -189,7 +189,7 @@ class ContextActionCompiler:
                 "target": resolved["value"],
                 "args": {"text": resolved["value"]},
                 "preconditions": ["an active input target is available"],
-                "postconditions": ["the requested text has been dispatched to the active input target"],
+                "postconditions": ["the requested text is observable in the focused input target"],
             })
             return {"kind": "action", "action": base}
 
