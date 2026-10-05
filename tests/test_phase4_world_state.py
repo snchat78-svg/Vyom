@@ -31,6 +31,16 @@ class FakeScreen:
     def get_size(self):
         return {"width": 1920, "height": 1080}
 
+    def capture(self):
+        return {
+            "success": True,
+            "stage": "screen_captured",
+            "path": "C:/temp/test.bmp",
+            "width": 1920,
+            "height": 1080,
+            "verification": {"verified": True},
+        }
+
 
 class Phase4WorldStateTests(unittest.TestCase):
     def test_world_state_contains_canonical_computer_and_mission_state(self):
@@ -63,6 +73,15 @@ class Phase4WorldStateTests(unittest.TestCase):
         self.assertEqual(state["visible_ui_elements"][0]["name"], "Search")
         self.assertEqual(state["clipboard"]["text"], "copied text")
         self.assertEqual(state["screen"]["size"]["width"], 1920)
+        self.assertTrue(state["screen"]["snapshot"]["available"])
+        self.assertFalse(state["screen"]["snapshot"]["captured"])
+
+        captured = world.snapshot(
+            {"current_app": "Test App"},
+            include_screen_snapshot=True,
+        )
+        self.assertTrue(captured["screen"]["snapshot"]["captured"])
+        self.assertEqual(captured["screen"]["snapshot"]["path"], "C:/temp/test.bmp")
         self.assertEqual(state["mission_state"]["current_step"], "a1")
         self.assertTrue(state["last_verification"]["verified"])
 
