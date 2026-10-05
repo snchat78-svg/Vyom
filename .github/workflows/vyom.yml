@@ -363,7 +363,7 @@ jobs:
       # 13. VERIFY EXE
       # ======================================================
 
-      - name: Verify Vyom EXE
+      - name: Verify Vyom EXE and Prepare Runtime AI Configuration
         shell: powershell
         run: |
 
@@ -381,18 +381,37 @@ jobs:
               exit 1
           }
 
+          # The EXE is one-file/portable, so provider credentials are NOT
+          # compiled into Python source. ModelGateway already loads vyom.env
+          # from the EXE directory at runtime. Create that runtime file from
+          # the GitHub secret so the downloaded EXE actually has Gemini
+          # available instead of reporting "RESPONSE MODEL AVAILABLE: False".
+          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+              Write-Error "GEMINI_API_KEY is required to build the AI-enabled Vyom artifact."
+              exit 1
+          }
+
+          @(
+              "VYOM_AI_ENABLED=true"
+              "GEMINI_API_KEY=$env:GEMINI_API_KEY"
+              "GEMINI_MODEL=$env:GEMINI_MODEL"
+          ) | Set-Content -Path "dist/vyom.env" -Encoding UTF8
+
+          Write-Host "Runtime AI configuration created beside Vyom.exe (secret value not printed)."
           Write-Host "VYOM EXE VERIFIED."
 
 
       # ======================================================
-      # 14. UPLOAD ONLY ONE EXE ARTIFACT
+      # 14. UPLOAD VYOM EXE + RUNTIME AI CONFIG
       # ======================================================
 
-      - name: Upload Vyom EXE
+      - name: Upload Vyom EXE Package
         uses: actions/upload-artifact@v4
         with:
           name: Vyom_EXE
-          path: dist/Vyom.exe
+          path: |
+            dist/Vyom.exe
+            dist/vyom.env
           if-no-files-found: error
           retention-days: 7
 
