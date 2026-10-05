@@ -545,7 +545,34 @@ class ReasoningEngine:
             )
         )
 
-        if goal_is_non_trivial:
+        if (
+            information_question
+            and not suggested_intents
+            and not contextual_plan
+            and len(sub_goals) <= 1
+        ):
+            # Pure conversational questions do not require an action plan.
+            # Route them directly to the response model, avoiding a redundant
+            # reasoning request that would otherwise consume provider quota.
+            deep = {
+                "suggested_intents": [],
+                "sub_goals": sub_goals,
+                "generic_actions": [],
+                "route": "conversation",
+                "data": {
+                    "understood": True,
+                    "goal": goal,
+                    "language": "hinglish"
+                    if any(ch.isascii() and ch.isalpha() for ch in goal)
+                    else "hindi",
+                    "complexity": "simple",
+                    "reason": "Language-only information question.",
+                },
+                "ordered_plan": [],
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
+            }
+        elif goal_is_non_trivial:
             # Compound goals stay connected to DeepReasoner. When no external
             # model is available, _deep_reason() returns the deterministic
             # contextual/compiled fallback without blocking execution.
