@@ -22,6 +22,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from ai_core.goal_compiler import GoalCompiler
+
 
 class ContextActionCompiler:
     """Compile contextual follow-ups into an ordered generic/legacy plan."""
@@ -40,7 +42,10 @@ class ContextActionCompiler:
     )
 
     def __init__(self, goal_compiler: Optional[Any] = None):
-        self.goal_compiler = goal_compiler
+        # Phase 1: use the canonical GoalCompiler when this component is
+        # instantiated directly. ReasoningEngine may still inject the same
+        # shared compiler instance explicitly.
+        self.goal_compiler = goal_compiler if goal_compiler is not None else GoalCompiler()
 
     @staticmethod
     def _normalize(value: Any) -> str:
