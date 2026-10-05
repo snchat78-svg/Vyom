@@ -84,8 +84,14 @@ jobs:
               Write-Host "Gemini model: $env:GEMINI_MODEL"
           }
           catch {
-              Write-Error "GEMINI API SMOKE TEST: FAIL - API request was rejected or unreachable."
-              Write-Error $_.Exception.Message
+              $message = [string]$_.Exception.Message
+              Write-Host "GEMINI API SMOKE TEST: FAIL - API request was rejected or unreachable."
+              Write-Host ("Gemini error: " + $message)
+              if ($_.Exception.Response) {
+                  try {
+                      Write-Host ("HTTP status: " + [int]$_.Exception.Response.StatusCode)
+                  } catch {}
+              }
               exit 1
           }
 
