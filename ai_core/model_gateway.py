@@ -78,7 +78,7 @@ class ModelGateway:
         if not self.api_url and os.environ.get("GEMINI_API_KEY", ""):
             self.api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         if not self.model and os.environ.get("GEMINI_API_KEY", ""):
-            self.model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+            self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
         # Keep network reasoning bounded so a stalled provider cannot freeze
         # the voice/executor session on low-resource machines.
         self.timeout = min(20, max(5, int(timeout)))
