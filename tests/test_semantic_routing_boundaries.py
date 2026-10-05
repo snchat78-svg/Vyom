@@ -94,4 +94,5 @@ def test_deep_reasoner_question_classifier_is_language_only():
     assert reasoner._looks_like_information_question("what is this")
     assert reasoner._looks_like_information_question("bharat ki rajadhani kya hai")
     assert reasoner._looks_like_information_question("tumhara naam kya hai")
+    assert reasoner._looks_like_information_question("bharat men kitane rajy hain")
     assert not reasoner._looks_like_information_question("number 1 open karo")
