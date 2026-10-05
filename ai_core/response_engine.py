@@ -382,7 +382,26 @@ class ResponseEngine:
         try:
             model_available = bool(self.model_gateway.is_available())
             log("[AI] RESPONSE MODEL AVAILABLE: %s" % model_available)
-            if model_available and not selection_options:
+
+            # Do not spend a second model request on deterministic computer
+            # actions. Model-generated response wording is reserved for actual
+            # conversational turns and semantic information answers.
+            intent_type = (
+                str(intent.get("intent") or "").strip().lower()
+                if isinstance(intent, dict)
+                else ""
+            )
+            result_stage = (
+                str(result.get("stage") or "").strip().lower()
+                if isinstance(result, dict)
+                else ""
+            )
+            needs_model_response = (
+                intent_type == "conversation"
+                or result_stage == "conversation"
+            )
+
+            if model_available and not selection_options and needs_model_response:
                 model_result = self.model_gateway.chat(
                     system_prompt=(
                         "You are Vyom, a natural personal computer assistant. "
