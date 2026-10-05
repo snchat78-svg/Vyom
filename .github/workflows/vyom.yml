@@ -85,12 +85,23 @@ jobs:
           }
           catch {
               $message = [string]$_.Exception.Message
-              Write-Host "GEMINI API SMOKE TEST: FAIL - API request was rejected or unreachable."
-              Write-Host ("Gemini error: " + $message)
+              $statusCode = $null
               if ($_.Exception.Response) {
                   try {
-                      Write-Host ("HTTP status: " + [int]$_.Exception.Response.StatusCode)
+                      $statusCode = [int]$_.Exception.Response.StatusCode
                   } catch {}
+              }
+
+              if ($statusCode -eq 429) {
+                  Write-Host "GEMINI API SMOKE TEST: PASS-WARN - Gemini endpoint is reachable but currently rate-limited (HTTP 429)."
+                  Write-Host "Gemini smoke test will not block the build on provider throttling."
+                  exit 0
+              }
+
+              Write-Host "GEMINI API SMOKE TEST: FAIL - API request was rejected or unreachable."
+              Write-Host ("Gemini error: " + $message)
+              if ($statusCode) {
+                  Write-Host ("HTTP status: " + $statusCode)
               }
               exit 1
           }
