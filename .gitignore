@@ -1,0 +1,11 @@
+# Local AI credentials — never commit
+vyom.env
+.env
+
+# Python/build artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.spec
