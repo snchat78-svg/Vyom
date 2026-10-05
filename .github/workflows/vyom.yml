@@ -32,6 +32,16 @@ jobs:
       # 2. VERIFY EXACT BUILD SOURCE
       # ======================================================
 
+      - name: Verify AI Runtime Configuration
+        shell: powershell
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+              Write-Host "GEMINI_API_KEY is not available in CI; EXE will use user-local vyom.env at runtime."
+          } else {
+              Write-Host "GEMINI_API_KEY is available to the build environment (secret value is never printed)."
+          }
+
+
       - name: Verify Exact Build Source
         shell: powershell
         run: |
