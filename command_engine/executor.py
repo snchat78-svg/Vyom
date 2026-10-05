@@ -22,6 +22,7 @@ import re
 from tools.tool_manager import ToolManager
 from ai_core.response_engine import ResponseEngine
 from ai_core.logger import log
+from ai_core.result_schema import normalize_result
 
 
 # =============================================================
@@ -161,7 +162,11 @@ def _structured_response(
     }
     if error is not None:
         payload["error"] = str(error)
-    return payload
+    return normalize_result(
+        payload,
+        default_stage=payload["stage"],
+        status_hint=payload["status"],
+    )
 
 
 def _failure_response(command, raw_result, stage="failed"):
@@ -229,7 +234,11 @@ def _natural_response(
             )
             payload["message"] = str(message or "")
             payload["response"] = str(message or "")
-            return payload
+            return normalize_result(
+                payload,
+                default_stage=payload["stage"],
+                status_hint=payload["status"],
+            )
 
         return _structured_response(
             message,
