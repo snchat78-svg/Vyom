@@ -42,6 +42,54 @@ jobs:
           }
 
 
+      - name: Verify Gemini API Connectivity
+        shell: powershell
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: "gemini-2.5-flash-lite"
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+              Write-Host "GEMINI API SMOKE TEST: SKIPPED - GEMINI_API_KEY secret is not configured."
+              exit 0
+          }
+
+          $uri = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+          $headers = @{
+              "Authorization" = "Bearer $env:GEMINI_API_KEY"
+              "Content-Type" = "application/json"
+              "x-goog-api-client" = "vyom-ai/1.0"
+          }
+
+          $body = @{
+              model = $env:GEMINI_MODEL
+              messages = @(
+                  @{
+                      role = "user"
+                      content = "Reply with the single word OK."
+                  }
+              )
+              temperature = 0
+          } | ConvertTo-Json -Depth 6
+
+          try {
+              $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Post -Body $body -TimeoutSec 30
+              $content = $response.choices[0].message.content
+
+              if ([string]::IsNullOrWhiteSpace([string]$content)) {
+                  Write-Error "GEMINI API SMOKE TEST: FAIL - API returned no message content."
+                  exit 1
+              }
+
+              Write-Host "GEMINI API SMOKE TEST: PASS - secure GitHub key authenticated successfully."
+              Write-Host "Gemini model: $env:GEMINI_MODEL"
+          }
+          catch {
+              Write-Error "GEMINI API SMOKE TEST: FAIL - API request was rejected or unreachable."
+              Write-Error $_.Exception.Message
+              exit 1
+          }
+
+
       - name: Verify Exact Build Source
         shell: powershell
         run: |
