@@ -213,7 +213,7 @@ Use only JSON-safe values in actions. Do not put executable code in args.
 
         return request
 
-    def complete(    def complete(self, goal, context=None, capabilities=None, previous_result=None):
+    def complete(self, goal, context=None, capabilities=None, previous_result=None):
         status = self.provider_status()
         log(
             "[AI] REASONING PROVIDER: provider=%s enabled=%s configured=%s available=%s model=%s"
