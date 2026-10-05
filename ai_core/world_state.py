@@ -197,6 +197,7 @@ class WorldStateModel:
             state["ui"] = ui
             state["current_window"] = ui.get("active_window", {})
             state["focused_control"] = ui.get("focused_element", {})
+            state["selected_control"] = ui.get("selected_element", {})
             state["visible_ui_elements"] = ui.get("ui_tree_signature", [])
         else:
             state["ui"] = {"available": False, "skipped": True}
