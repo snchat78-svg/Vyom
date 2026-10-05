@@ -68,7 +68,7 @@ class DeepReasoner:
         question_words = {
             "what", "who", "why", "when", "where", "how", "which",
             "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
-            "kitna", "kitni", "kitne",
+            "kitna", "kitni", "kitne", "kitane", "kitney",
         }
 
         if tokens[0] in question_words:
@@ -205,6 +205,17 @@ class DeepReasoner:
                 self.last_result = result
                 log("[AI] DEEP REASONER SOURCE: model")
                 return result
+
+            # If the real model is configured but its response fails validation,
+            # do not execute an unvalidated model decision. Record a bounded
+            # diagnostic so runtime logs show why the model path was abandoned.
+            if isinstance(result, dict):
+                stage = str(result.get("stage") or "model_request_failed")
+                reason = str(result.get("error") or result.get("reason") or "").strip()[:240]
+                log(
+                    "[AI] DEEP REASONER MODEL FALLBACK: stage=%s reason=%s"
+                    % (stage, reason)
+                )
 
             # If the real model is configured but its response fails validation,
             # do not execute an unvalidated model decision. Fall back to the
