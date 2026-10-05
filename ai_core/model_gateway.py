@@ -17,6 +17,7 @@ IMPORTANT:
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 
@@ -25,7 +26,47 @@ from ai_core.logger import log
 
 class ModelGateway:
 
+    @staticmethod
+    def _load_runtime_env():
+        """Load optional user-local AI settings without shipping secrets in the EXE."""
+        candidates = []
+        explicit = os.environ.get("VYOM_ENV_FILE", "").strip()
+        if explicit:
+            candidates.append(explicit)
+        executable_dir = os.path.dirname(os.path.abspath(sys.executable))
+        module_dir = os.path.dirname(os.path.abspath(__file__))
+        candidates.extend([
+            os.path.join(executable_dir, "vyom.env"),
+            os.path.join(module_dir, "vyom.env"),
+            os.path.join(os.getcwd(), "vyom.env"),
+            os.path.join(executable_dir, ".env"),
+            os.path.join(os.getcwd(), ".env"),
+        ])
+        seen = set()
+        for path in candidates:
+            path = os.path.abspath(path)
+            if path in seen or not os.path.isfile(path):
+                continue
+            seen.add(path)
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    for line in handle:
+                        value = line.strip()
+                        if not value or value.startswith("#") or "=" not in value:
+                            continue
+                        key, raw = value.split("=", 1)
+                        key = key.strip()
+                        raw = raw.strip()
+                        if not key or key in os.environ:
+                            continue
+                        if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in {chr(34), chr(39)}:
+                            raw = raw[1:-1]
+                        os.environ[key] = raw
+            except Exception:
+                continue
+
     def __init__(self, api_key=None, api_url=None, model=None, timeout=20):
+        self._load_runtime_env()
         self.api_key = api_key or os.environ.get("VYOM_AI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
         self.api_url = api_url or os.environ.get("VYOM_AI_API_URL", "")
         self.model = model or os.environ.get("VYOM_AI_MODEL", "")
@@ -37,7 +78,7 @@ class ModelGateway:
         if not self.api_url and os.environ.get("GEMINI_API_KEY", ""):
             self.api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         if not self.model and os.environ.get("GEMINI_API_KEY", ""):
-            self.model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+            self.model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
         # Keep network reasoning bounded so a stalled provider cannot freeze
         # the voice/executor session on low-resource machines.
         self.timeout = min(20, max(5, int(timeout)))
