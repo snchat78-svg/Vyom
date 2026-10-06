@@ -33,6 +33,9 @@ class IntentEngine:
         "पाँचवा": "5", "छह": "6", "छः": "6", "सात": "7", "आठ": "8",
         "नौ": "9", "दस": "10",
         # Romanized Hindi number words commonly produced by speech recognition.
+        "ek": "1", "one": "1", "do": "2", "teen": "3", "char": "4", "chaar": "4",
+        "paanch": "5", "panch": "5", "che": "6", "chhe": "6", "chhah": "6",
+        "saat": "7", "aath": "8", "nau": "9", "das": "10", "dus": "10",
         "pahla": "1", "pehla": "1", "pehli": "1", "pehle": "1",
         "dusra": "2", "doosra": "2", "dusri": "2", "doosri": "2",
         "teesra": "3", "tisra": "3", "teesri": "3",
@@ -292,9 +295,21 @@ class IntentEngine:
 
         return None
 
-    def detect(self, command: Any) -> Dict[str, Any]:
+    def detect(self, command: Any, metadata: Any = None) -> Dict[str, Any]:
         original = str(command or "").strip()
         voice_meta = self.voice_normalizer.normalize(original)
+
+        # Preserve voice-origin information that is not present in the
+        # normalized Romanized command. This lets downstream response
+        # generation choose the user's actual spoken language.
+        if isinstance(metadata, dict):
+            external_voice = metadata.get("voice")
+            if isinstance(external_voice, dict):
+                voice_meta = dict(voice_meta)
+                for key in ("raw_text", "recognized_language", "language", "roman_text"):
+                    value = external_voice.get(key)
+                    if value not in (None, ""):
+                        voice_meta[key] = value
         normalized_input = str(voice_meta.get("text") or original).strip()
         text = self._normalize(normalized_input)
         if not text:
