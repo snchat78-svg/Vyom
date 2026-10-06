@@ -385,14 +385,33 @@ class WindowsUICapability:
             WM_CLOSE = 0x0010
             self.window_manager._user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
         except Exception as error:
-            return {"success": False, "stage": "close_failed", "message": str(error), "target": target}
-        time.sleep(0.2)
-        remaining = self.window_manager.find(target=target, max_results=1)
-        verified = not remaining
+            return {
+                "success": False,
+                "stage": "close_failed",
+                "message": str(error),
+                "target": target,
+                "hwnd": hwnd,
+            }
+
+        # Some document viewers need more than one scheduler tick to destroy
+        # the top-level window. Poll the exact HWND instead of checking only a
+        # title string, which may remain ambiguous across viewer instances.
+        verified = False
+        for _ in range(10):
+            time.sleep(0.15)
+            remaining = self.window_manager.find(
+                hwnd=hwnd,
+                max_results=1,
+            )
+            if not remaining:
+                verified = True
+                break
+
         return {
             "success": verified,
             "stage": "verified" if verified else "close_not_verified",
             "target": target,
+            "hwnd": hwnd,
             "verification": {
                 "verified": verified,
                 "verification_level": "state",
