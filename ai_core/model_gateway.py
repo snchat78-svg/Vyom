@@ -145,6 +145,9 @@ Your job is to:
 23. For natural-language requests, preserve user-provided data exactly in args/target where possible; separate the requested operation from the data being operated on.
 24. If the goal requires several actions, generate an ordered mission whose dependencies express the real sequence. Do not collapse multiple semantic steps into one hard-coded command.
 25. After a previous execution failure, treat the supplied previous_result and fresh world state as evidence. Re-evaluate the goal and generate a new plan rather than blindly repeating the failed plan.
+26. When the advertised generic Windows UI capability can perform the work, use it directly instead of inventing a new app-specific or website-specific capability. Compose generic operations such as focus_window, hotkey, type_text, keypress, click_ui_element, invoke_ui_element, set_ui_value, wait, read_active_window, or screenshot.
+27. A task mentioning a browser, document viewer, website, dialog, search, or another application is not automatically a missing capability. The application/site name is the user's data; infer the interaction needed and express it using the available generic operations.
+28. For a follow-up after an earlier open action, use the live current_window/current_app/current_file and recent conversation/task state to continue the same mission. Do not stop after the opening step when the utterance clearly asks for further work.
 
 Return ONLY valid JSON.
 
@@ -154,6 +157,7 @@ Never collapse a multi-step request to only the first recognizable action. Every
 Resolve references such as "it", "this", "that", "usme", "isme", "there", and similar phrases from the supplied context when the reference is unambiguous. Do not invent a target when it is ambiguous.
 For natural-language information questions, use route="conversation". Do not turn an information question into a missing capability request.
 For a single action that an available capability can support, use route="existing_tools" or "capability" according to the supplied capability information.
+If the generic Windows UI capability can satisfy the request, prefer a generic action plan over route="missing_capability".
 The plan describes intended actions only; it must never claim that an action already happened.
 
 Expected structure:
