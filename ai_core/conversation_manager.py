@@ -74,10 +74,20 @@ class ConversationManager:
         self.history.append(turn)
         del self.history[:-self.max_history]
 
-    def process(self, message: Any, source: str = "text") -> Dict[str, Any]:
+    def process(
+        self,
+        message: Any,
+        source: str = "text",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Execute exactly one turn and return a stable, serializable result."""
         text = str(message or "").strip()
-        language = self.detect_language(text)
+        language_text = text
+        if isinstance(metadata, dict):
+            voice = metadata.get("voice")
+            if isinstance(voice, dict) and voice.get("raw_text"):
+                language_text = str(voice.get("raw_text"))
+        language = self.detect_language(language_text)
         started = time.monotonic()
         timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -95,7 +105,18 @@ class ConversationManager:
         self.last_user_message = text
 
         try:
-            raw_result = self._executor(text)
+            if metadata is not None:
+                try:
+                    raw_result = self._executor(text, metadata=metadata)
+                except TypeError as error:
+                    # Preserve compatibility with injected legacy test
+                    # executors that still accept only one positional argument.
+                    try:
+                        raw_result = self._executor(text)
+                    except TypeError:
+                        raise error
+            else:
+                raw_result = self._executor(text)
             # Exit is an explicit command-level outcome, not a response-text
             # heuristic.  All other legacy string responses are kept intact.
             status_hint = (
@@ -137,11 +158,19 @@ class ConversationManager:
             "history_size": len(self.history),
         }
 
-    def process_text(self, text: Any) -> Dict[str, Any]:
-        return self.process(text, source="text")
+    def process_text(
+        self,
+        text: Any,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return self.process(text, source="text", metadata=metadata)
 
-    def process_voice(self, text: Any) -> Dict[str, Any]:
-        return self.process(text, source="voice")
+    def process_voice(
+        self,
+        text: Any,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return self.process(text, source="voice", metadata=metadata)
 
     def get_history(self) -> List[Dict[str, Any]]:
         return [asdict(turn) for turn in self.history]
