@@ -166,10 +166,18 @@ class VoiceController:
                     }
                 }
             if voice_metadata is not None:
-                result = self.conversation_manager.process_voice(
-                    command,
-                    metadata=voice_metadata,
-                )
+                try:
+                    result = self.conversation_manager.process_voice(
+                        command,
+                        metadata=voice_metadata,
+                    )
+                except TypeError as error:
+                    # Compatibility with injected/legacy conversation
+                    # managers that still accept only the command text.
+                    try:
+                        result = self.conversation_manager.process_voice(command)
+                    except TypeError:
+                        raise error
             else:
                 result = self.conversation_manager.process_voice(command)
             if isinstance(result, dict):
