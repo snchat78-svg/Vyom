@@ -31,6 +31,8 @@ class VoiceController:
         self.activated = False
         self.continuous_conversation = True
         self.last_listen_status = ""
+        self.last_raw_text = ""
+        self.last_voice_language = ""
 
         self.wake_words = (
             "hey vyom", "हे व्योम", "हे वियोम", "vyom ji", "व्योम जी",
@@ -154,7 +156,22 @@ class VoiceController:
         try:
             self.state = "executing"
             self._log("STATE -> EXECUTING")
-            result = self.conversation_manager.process_voice(command)
+            voice_metadata = None
+            if self.last_raw_text or self.last_voice_language:
+                voice_metadata = {
+                    "voice": {
+                        "raw_text": self.last_raw_text,
+                        "recognized_language": self.last_voice_language,
+                        "roman_text": command,
+                    }
+                }
+            if voice_metadata is not None:
+                result = self.conversation_manager.process_voice(
+                    command,
+                    metadata=voice_metadata,
+                )
+            else:
+                result = self.conversation_manager.process_voice(command)
             if isinstance(result, dict):
                 success = bool(result.get("success", False))
                 message = result.get("response", result.get("message", ""))
@@ -198,6 +215,8 @@ class VoiceController:
         result["text"] = roman_text
 
         self.last_listen_status = str(result.get("status", ""))
+        self.last_raw_text = str(result.get("raw_text") or "").strip()
+        self.last_voice_language = str(result.get("language") or "").strip()
         self._log("STT listen_once returned: status=%s success=%s text_length=%d" % (
             self.last_listen_status, bool(result.get("success")), len(str(result.get("text", "") or ""))
         ))
