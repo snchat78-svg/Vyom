@@ -516,10 +516,13 @@ def execute(
 
     try:
 
-        intent = intent_engine.detect(
-            command,
-            metadata=metadata,
-        )
+        if metadata is not None:
+            intent = intent_engine.detect(
+                command,
+                metadata=metadata,
+            )
+        else:
+            intent = intent_engine.detect(command)
 
     except Exception as error:
 
