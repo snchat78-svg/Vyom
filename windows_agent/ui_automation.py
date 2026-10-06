@@ -361,11 +361,25 @@ class WindowsUICapability:
         target = str(action.get("target") or "").strip()
         if not target:
             return {"success": False, "stage": "missing_target", "message": "No application target was supplied."}
-        matches = self.window_manager.find(target=target, max_results=5)
+        args = self._args(action)
+        observed_hwnd = args.get("hwnd")
+
+        if observed_hwnd:
+            matches = self.window_manager.find(hwnd=observed_hwnd, max_results=5)
+        else:
+            matches = self.window_manager.find(target=target, max_results=5)
+
         if not matches:
-            return {"success": False, "stage": "application_not_found", "message": "No matching application window was observed.", "target": target}
+            return {
+                "success": False,
+                "stage": "application_not_found",
+                "message": "No matching application window was observed.",
+                "target": target,
+                "hwnd": observed_hwnd,
+            }
+
         # Closing is intentionally not guessed through process termination.
-        # Use the observed window handle and a normal close message.
+        # Use the observed window handle and a normal WM_CLOSE message.
         hwnd = matches[0].get("hwnd")
         try:
             WM_CLOSE = 0x0010
