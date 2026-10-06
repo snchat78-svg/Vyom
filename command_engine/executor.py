@@ -970,9 +970,60 @@ def execute(
                     )
                 )
 
-            raw_result = tool_manager.execute(
-                intent
-            )
+            raw_result = None
+
+            # For an explicit close target, prefer the live generic UI
+            # capability when the target resolves to an observed window.
+            # This avoids treating document-viewer processes (for example a
+            # PDF opened by an associated application) as if the document
+            # filename itself were a Windows process name.
+            if intent_type == "close_app":
+                try:
+                    capability_executor = getattr(
+                        autonomous_agent,
+                        "capability_executor",
+                        None,
+                    )
+                    execute_capability = getattr(
+                        capability_executor,
+                        "execute",
+                        None,
+                    )
+                    if callable(execute_capability):
+                        ui_snapshot = autonomous_agent.world_state.snapshot(
+                            autonomous_agent.context.snapshot(),
+                            mission_state=autonomous_agent.mission_runtime.snapshot(),
+                            include_ui=True,
+                            include_clipboard=False,
+                        )
+                        active_window = ui_snapshot.get("current_window") or {}
+                        active_title = str(active_window.get("title") or "").strip()
+                        target_text = str(intent.get("target") or "").strip()
+                        live_match = bool(
+                            active_window.get("hwnd")
+                            and target_text
+                            and (
+                                target_text.lower() in active_title.lower()
+                                or active_title.lower() in target_text.lower()
+                            )
+                        )
+                        if live_match:
+                            close_action = {
+                                "action": "close_application",
+                                "capability": "windows_ui",
+                                "target": active_title or target_text,
+                                "args": {"hwnd": active_window.get("hwnd")},
+                            }
+                            candidate = execute_capability(close_action)
+                            if isinstance(candidate, dict) and candidate.get("success"):
+                                raw_result = candidate
+                except Exception:
+                    raw_result = None
+
+            if raw_result is None:
+                raw_result = tool_manager.execute(
+                    intent
+                )
 
             # -------------------------------------------------
             # Sync selection state immediately.
