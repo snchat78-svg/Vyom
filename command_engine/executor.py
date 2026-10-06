@@ -456,7 +456,8 @@ def _result_to_message(
 # =============================================================
 
 def execute(
-    command
+    command,
+    metadata=None,
 ):
 
     # =========================================================
@@ -516,7 +517,8 @@ def execute(
     try:
 
         intent = intent_engine.detect(
-            command
+            command,
+            metadata=metadata,
         )
 
     except Exception as error:
@@ -538,6 +540,33 @@ def execute(
         }
 
     log("[PIPELINE] INPUT -> INTENT: %s -> %s" % (command.encode("unicode_escape", errors="backslashreplace").decode("ascii"), str(intent.get("intent", "unknown"))))
+
+    # =========================================================
+    # PENDING SELECTION HAS ABSOLUTE PRIORITY
+    # =========================================================
+    # A pending result list is active working state. A spoken "ek", "one",
+    # "number 1", etc. must select from that list, never become a fresh
+    # semantic goal.
+    selection_number = _get_selection_number(command, intent)
+    if selection_number is not None and _has_pending_selection():
+        try:
+            selection_intent = {
+                "intent": "unknown",
+                "target": str(selection_number),
+                "voice": intent.get("voice", {}) if isinstance(intent, dict) else {},
+            }
+            result = tool_manager.execute(selection_intent)
+            _sync_pending_selection_context()
+            return _natural_response(
+                command,
+                result,
+                selection_intent,
+            )
+        except Exception as error:
+            return response_engine.failure_response(
+                command,
+                str(error),
+            )
 
     # =========================================================
     # GOAL / COMMAND ROUTING
@@ -634,37 +663,91 @@ def execute(
 
     if intent_type == "close_current":
 
+        # Prefer the actual foreground window over stale remembered app/file
+        # names. This is what lets "PDF khol diya -> close" close the window
+        # that is actually on screen, even when the opened file is not a
+        # process name.
+        active_window = {}
+        try:
+            snapshot = autonomous_agent.world_state.snapshot(
+                autonomous_agent.context.snapshot(),
+                mission_state=autonomous_agent.mission_runtime.snapshot(),
+                include_ui=True,
+                include_clipboard=False,
+            )
+            active_window = snapshot.get("current_window") or {}
+            if not active_window:
+                active_window = (
+                    snapshot.get("ui", {}).get("active_window", {})
+                    if isinstance(snapshot.get("ui"), dict)
+                    else {}
+                )
+        except Exception:
+            active_window = {}
+
         current_app = getattr(
             autonomous_agent.context,
             "current_app",
             None
         )
+        current_file = getattr(
+            autonomous_agent.context,
+            "current_file",
+            None
+        )
 
-        if not current_app:
+        target = str(
+            active_window.get("title")
+            or current_app
+            or current_file
+            or ""
+        ).strip()
+        hwnd = active_window.get("hwnd")
+
+        if not target and not hwnd:
 
             return response_engine.failure_response(
                 command,
-                "No current application is available to close."
+                "No current window is available to close."
             )
 
         close_intent = {
             "intent": "close_app",
-            "target": str(
-                current_app
-            )
+            "target": target,
         }
 
         try:
-
-            raw = tool_manager.execute(
-                close_intent
+            capability_executor = getattr(
+                autonomous_agent,
+                "capability_executor",
+                None,
             )
 
-            # Clear the application context only after an
-            # actual close attempt.
-            autonomous_agent.context.set_current_target(
-                current_app
+            execute_capability = getattr(
+                capability_executor,
+                "execute",
+                None,
             )
+
+            if callable(execute_capability):
+                close_action = {
+                    "action": "close_application",
+                    "capability": "windows_ui",
+                    "target": target,
+                    "args": {},
+                }
+                if hwnd:
+                    close_action["args"]["hwnd"] = hwnd
+                raw = execute_capability(close_action)
+            else:
+                raw = tool_manager.execute(close_intent)
+
+            if isinstance(raw, dict) and raw.get("success"):
+                try:
+                    autonomous_agent.context.last_success = True
+                    autonomous_agent.context.last_result = raw
+                except Exception:
+                    pass
 
             return _natural_response(
                 command,
@@ -727,7 +810,9 @@ def execute(
                 selection_intent
             )
 
-            autonomous_agent.context.clear_pending_selection()
+            # Keep the pending list alive when a number was invalid;
+            # successful selection clears it inside ToolManager.
+            _sync_pending_selection_context()
 
             # Keep the successful selection in current context.
             if isinstance(
