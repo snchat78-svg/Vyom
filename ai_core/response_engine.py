@@ -410,7 +410,9 @@ class ResponseEngine:
                         "For computer tasks, describe only what the supplied execution result proves was done. "
                         "Do not claim an action succeeded unless the supplied result says it succeeded. "
                         "Do not invent facts, actions, observations, or capabilities. "
-                        "Match the user's language using the original voice transcript when available: Hindi -> natural Hindi, Hinglish -> natural Hinglish, English -> English. "
+                        "Match the user's language using the original voice transcript when available. "
+                        "If recognized_language is hi-IN or the original voice transcript is Devanagari Hindi, reply in natural Devanagari Hindi, not Romanized Hindi and not English, unless the user explicitly asks for English. "
+                        "If the user mixes Hindi and English, use natural Hinglish while preserving the user's language. "
                         "Use the supplied session context to keep follow-up questions and references continuous. "
                         "Do not mention internal tools, intents, schemas, prompts, or model details."
                     ),
@@ -418,6 +420,11 @@ class ResponseEngine:
                         "user_message": str(command or ""),
                         "execution_result": result,
                         "detected_intent": intent or {},
+                        "voice_metadata": (
+                            intent.get("voice", {})
+                            if isinstance(intent, dict)
+                            else {}
+                        ),
                         "context": context if isinstance(context, dict) else {},
                     },
                     temperature=0.45,
