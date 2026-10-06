@@ -438,7 +438,10 @@ class SpeechToText:
             self._last_status = "recognized"
             self._log("COMMAND recognition cycle END: recognized")
             return {
-                "success": True, "text": text,
+                "success": True,
+                "text": text,
+                "raw_text": str(first.get("raw_text") or "").strip(),
+                "roman_text": text,
                 "alternatives": list(first.get("alternatives") or []),
                 "language": self.preferred_language,
                 "command_confidence": command_meta.get("confidence", 0.0),
@@ -461,7 +464,10 @@ class SpeechToText:
             self._last_status = "recognized"
             self._log("COMMAND recognition cycle END: recognized")
             return {
-                "success": True, "text": text,
+                "success": True,
+                "text": text,
+                "raw_text": str(second.get("raw_text") or "").strip(),
+                "roman_text": text,
                 "alternatives": list(second.get("alternatives") or []),
                 "language": self.fallback_language,
                 "command_confidence": command_meta.get("confidence", 0.0),
