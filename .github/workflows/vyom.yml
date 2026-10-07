@@ -8,6 +8,13 @@ on:
     branches:
       - updated
 
+# Only the newest commit on the branch needs a build. This prevents a
+# sequence of targeted architecture fixes from leaving several stale EXEs
+# running simultaneously.
+concurrency:
+  group: vyom-\${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
