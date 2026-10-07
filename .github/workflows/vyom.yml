@@ -472,7 +472,7 @@ jobs:
 
 
       # ======================================================
-      # 12. BUILD ONE COMPLETE VYOM EXE
+      # 14. BUILD ONE COMPLETE VYOM EXE
       #
       # ENTRY POINT:
       # ai_core/main.py
@@ -508,7 +508,7 @@ jobs:
 
 
       # ======================================================
-      # 13. VERIFY EXE
+      # 15. VERIFY EXE
       # ======================================================
 
       - name: Verify Vyom EXE
@@ -534,7 +534,7 @@ jobs:
 
 
       # ======================================================
-      # 14. UPLOAD ONLY ONE EXE ARTIFACT
+      # 16. UPLOAD ONLY ONE EXE ARTIFACT
       # ======================================================
 
       - name: Upload Vyom EXE
@@ -547,7 +547,7 @@ jobs:
 
 
       # ======================================================
-      # 15. FINAL BUILD SUMMARY
+      # 17. FINAL BUILD SUMMARY
       # ======================================================
 
       - name: Build Summary
