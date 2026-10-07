@@ -56,11 +56,29 @@ class CapabilityResolver:
                     "capability": capability,
                 }
             if action_name not in set(provider.get("actions", [])):
+                # Models may preserve a legacy or semantically related
+                # capability label while still selecting a valid generic
+                # action. If exactly one enabled provider advertises that
+                # action, correct the provider at the resolver boundary rather
+                # than turning a safe executable action into a false
+                # "missing capability" result.
+                alternatives = self.registry.providers_for_action(action_name)
+                if len(alternatives) == 1:
+                    corrected = alternatives[0]
+                    return {
+                        "resolved": True,
+                        "stage": "capability_resolved_with_correction",
+                        "action": action_name,
+                        "capability": corrected["name"],
+                        "requested_capability": capability,
+                        "provider": corrected,
+                    }
                 return {
                     "resolved": False,
                     "stage": "unsupported_action",
                     "reason": (
-                        f"Capability '{capability}' does not advertise action '{action_name}'."
+                        f"Capability '{capability}' does not advertise action '{action_name}', "
+                        "and no unique enabled provider can safely correct it."
                     ),
                     "action": action_name,
                     "capability": capability,
