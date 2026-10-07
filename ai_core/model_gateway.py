@@ -431,7 +431,12 @@ Use only JSON-safe values in actions. Do not put executable code in args.
             % provider["provider"]
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            request_timeout = (
+                max(self.timeout, 60)
+                if provider.get("provider") == "local_qwen"
+                else self.timeout
+            )
+            with urllib.request.urlopen(request, timeout=request_timeout) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as error:
             try:
@@ -516,7 +521,12 @@ Use only JSON-safe values in actions. Do not put executable code in args.
                 )
 
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                request_timeout = (
+                    max(self.timeout, 60)
+                    if provider.get("provider") == "local_qwen"
+                    else self.timeout
+                )
+                with urllib.request.urlopen(request, timeout=request_timeout) as response:
                     raw = response.read().decode("utf-8")
                 provider_response = json.loads(raw)
                 choices = provider_response.get("choices", [])
