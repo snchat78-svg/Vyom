@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import time
 from typing import Any, Dict, List, Optional
-
-from windows_agent.ui_state_observer import UIStateObserver
 
 
 class UIVerificationEngine:
@@ -13,11 +10,11 @@ class UIVerificationEngine:
 
     def __init__(
         self,
-        observer: Optional[UIStateObserver] = None,
+        observer: Optional[Any] = None,
         default_timeout: float = 2.0,
         poll_interval: float = 0.10,
     ):
-        self.observer = observer or UIStateObserver()
+        self.observer = observer
         self.default_timeout = min(5.0, max(0.0, float(default_timeout)))
         self.poll_interval = min(0.5, max(0.02, float(poll_interval)))
 
@@ -54,8 +51,16 @@ class UIVerificationEngine:
     def _window_changed(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
         b = before.get("active_window", {}) or {}
         a = after.get("active_window", {}) or {}
-        keys = ("name", "automation_id", "class_name", "control_type")
+        keys = ("name", "title", "automation_id", "class_name", "control_type", "hwnd")
         return any(b.get(key) != a.get(key) for key in keys)
+
+    @staticmethod
+    def _focused_changed(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
+        return (
+            before.get("focused_element", {}) or {}
+        ) != (
+            after.get("focused_element", {}) or {}
+        )
 
     @classmethod
     def _property_check(
@@ -69,25 +74,26 @@ class UIVerificationEngine:
         operator = cls._norm(check.get("operator", "equals"))
         expected = check.get("value")
 
-        actual_state = after
-        before_state = before
         if source.endswith("_before"):
             source_base = source[:-7]
-            actual = cls._field(before_state, source_base, field)
+            actual = cls._field(before, source_base, field)
         else:
-            actual = cls._field(actual_state, source, field)
+            actual = cls._field(after, source, field)
 
         if operator in ("equals", "eq", "is"):
             return actual == expected
         if operator in ("not_equals", "ne", "is_not"):
             return actual != expected
-        if operator == "contains":
+        if operator in ("contains", "includes"):
             return str(expected) in str(actual or "")
         if operator == "not_contains":
             return str(expected) not in str(actual or "")
         if operator == "changed":
-            before_value = cls._field(before_state, source.replace("_after", ""), field)
-            return before_value != actual
+            source_base = source.replace("_after", "")
+            return (
+                cls._field(before, source_base, field)
+                != cls._field(after, source_base, field)
+            )
         if operator == "in":
             return actual in (expected if isinstance(expected, list) else [])
         if operator == "truthy":
@@ -107,23 +113,29 @@ class UIVerificationEngine:
             return False
 
         kind = cls._norm(check.get("kind", "property"))
+
         if kind == "property":
             return cls._property_check(check, before, after)
 
         if kind == "element_exists":
             source = str(check.get("source", "target_element"))
-            state = cls._get(after, source)
-            return bool(state.get("exists", False))
+            return bool(cls._get(after, source).get("exists", False))
 
         if kind == "element_not_exists":
             source = str(check.get("source", "target_element"))
-            state = cls._get(after, source)
-            return not bool(state.get("exists", False))
+            return not bool(cls._get(after, source).get("exists", False))
 
         if kind in ("state_changed", "target_changed"):
-            before_target = before.get("target_element", {}) or {}
-            after_target = after.get("target_element", {}) or {}
-            return before_target != after_target
+            source = str(check.get("source", "target_element"))
+            return cls._get(before, source) != cls._get(after, source)
+
+        if kind == "value_changed":
+            source = str(check.get("source", "focused_element"))
+            return cls._field(before, source, "value") != cls._field(after, source, "value")
+
+        if kind == "text_changed":
+            source = str(check.get("source", "focused_element"))
+            return cls._field(before, source, "text") != cls._field(after, source, "text")
 
         if kind == "ui_tree_changed":
             return cls._tree_changed(before, after)
@@ -132,18 +144,26 @@ class UIVerificationEngine:
             return cls._window_changed(before, after)
 
         if kind == "focused_changed":
-            return (
-                before.get("focused_element", {}) or {}
-            ) != (
-                after.get("focused_element", {}) or {}
-            )
+            return cls._focused_changed(before, after)
+
+        if kind == "target_focused":
+            return bool(cls._get(after, "target_element").get("focused", False))
+
+        if kind == "target_selected":
+            return bool(cls._get(after, "target_element").get("selected", False))
 
         return False
 
-    def _default_checks(self, action: Dict[str, Any]) -> List[Dict[str, Any]]:
-        name = self._norm(action.get("action"))
+    @classmethod
+    def _default_checks(
+        cls,
+        action: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        name = cls._norm(action.get("action"))
+
         if name == "find_ui_element":
             return [{"kind": "element_exists", "source": "target_element"}]
+
         if name == "focus_ui_element":
             return [{
                 "kind": "property",
@@ -152,16 +172,18 @@ class UIVerificationEngine:
                 "operator": "equals",
                 "value": True,
             }]
-        if name in ("set_ui_value",):
+
+        if name == "set_ui_value":
             args = action.get("args")
             args = dict(args) if isinstance(args, dict) else {}
             return [{
                 "kind": "property",
                 "source": "target_element",
                 "field": "value",
-                "operator": "equals",
+                "operator": "contains",
                 "value": args.get("value", ""),
             }]
+
         if name == "select_ui_element":
             return [{
                 "kind": "property",
@@ -170,10 +192,10 @@ class UIVerificationEngine:
                 "operator": "equals",
                 "value": True,
             }]
+
         if name == "toggle_ui_element":
-            return [{
-                "kind": "state_changed",
-            }]
+            return [{"kind": "state_changed", "source": "target_element"}]
+
         if name == "expand_ui_element":
             return [{
                 "kind": "property",
@@ -182,6 +204,7 @@ class UIVerificationEngine:
                 "operator": "equals",
                 "value": True,
             }]
+
         if name == "collapse_ui_element":
             return [{
                 "kind": "property",
@@ -190,13 +213,21 @@ class UIVerificationEngine:
                 "operator": "equals",
                 "value": True,
             }]
+
         if name in ("click_ui_element", "invoke_ui_element"):
+            # A click/invoke is verified only when the observed target/window
+            # state changes in a way attributable to the interaction, or the
+            # target disappears. Pure dispatch is not accepted as state proof.
             return [
-                {"kind": "state_changed"},
+                {"kind": "state_changed", "source": "target_element"},
+                {"kind": "target_focused"},
+                {"kind": "target_selected"},
                 {"kind": "element_not_exists", "source": "target_element"},
                 {"kind": "ui_tree_changed"},
                 {"kind": "window_changed"},
+                {"kind": "focused_changed"},
             ]
+
         if name == "type_text":
             args = action.get("args")
             args = dict(args) if isinstance(args, dict) else {}
@@ -208,6 +239,7 @@ class UIVerificationEngine:
                 "operator": "contains",
                 "value": value,
             }]
+
         return []
 
     def verify(
@@ -230,13 +262,23 @@ class UIVerificationEngine:
             }
 
         metadata = action.get("metadata")
-        verification_spec = metadata.get("verification") if isinstance(metadata, dict) else None
+        verification_spec = (
+            metadata.get("verification")
+            if isinstance(metadata, dict)
+            else None
+        )
+
         if isinstance(verification_spec, dict):
             checks = verification_spec.get("checks", [])
             mode = self._norm(verification_spec.get("mode", "all"))
         else:
             checks = self._default_checks(action)
-            mode = "any" if self._norm(action.get("action")) in ("click_ui_element", "invoke_ui_element", "toggle_ui_element") else "all"
+            mode = (
+                "any"
+                if self._norm(action.get("action"))
+                in ("click_ui_element", "invoke_ui_element", "toggle_ui_element")
+                else "all"
+            )
 
         if not isinstance(checks, list) or not checks:
             return {
