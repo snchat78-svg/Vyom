@@ -13,6 +13,10 @@ jobs:
     runs-on: windows-latest
     env:
       VYOM_AI_ENABLED: "true"
+      VYOM_AI_PROVIDER: "auto"
+      QWEN_LOCAL_ENABLED: "false"
+      QWEN_LOCAL_API_URL: "http://127.0.0.1:11434/v1/chat/completions"
+      QWEN_LOCAL_MODEL: "qwen3.5:0.8b"
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: "gemini-3.6-flash"
 
@@ -227,6 +231,8 @@ jobs:
               "ai_core/ui_autonomous_agent.py",
               "ai_core/result_schema.py",
               "ai_core/world_state.py",
+              "ai_core/providers/__init__.py",
+              "ai_core/providers/local_qwen.py",
 
               # COMMAND ENGINE
               "command_engine/__init__.py",
@@ -285,7 +291,8 @@ jobs:
               "tests/test_phase1_contracts.py",
               "tests/test_ui_automation_phase2.py",
               "tests/test_phase3_verification.py",
-              "tests/test_windows_ui_capability.py"
+              "tests/test_windows_ui_capability.py",
+              "tests/test_local_qwen_provider.py"
           )
 
           foreach ($file in $requiredFiles) {
@@ -332,7 +339,7 @@ jobs:
         shell: powershell
         run: |
 
-          python -c "import ai_core; import ai_core.main; import ai_core.autonomous_agent; import ai_core.brain; import ai_core.capability_manager; import ai_core.capability_executor; import ai_core.capability_registry; import ai_core.capability_resolver; import ai_core.action_schema; import ai_core.action_validator; import ai_core.context_action_compiler; import ai_core.config; import ai_core.conversation_manager; import ai_core.conversation_result; import ai_core.deep_reasoner; import ai_core.goal_compiler; import ai_core.goal_router; import ai_core.logger; import ai_core.mission_planner; import ai_core.mission_runtime; import ai_core.model_gateway; import ai_core.observation_verifier; import ai_core.reasoning_engine; import ai_core.reasoning_gateway; import ai_core.response_engine; import ai_core.skill_builder; import ai_core.skill_registry; import ai_core.ui_autonomous_agent; import ai_core.world_state; import command_engine.executor; import command_engine.intent; import command_engine.multilingual_command; import command_engine.parser; import tools.tool_manager; import tools.universal_app_launcher; import tools.universal_resolver; import memory.selection_manager; import memory.session_memory; import windows_agent.clipboard_manager; import windows_agent.input_controller; import windows_agent.launcher; import windows_agent.process_manager; import windows_agent.screen_observer; import windows_agent.ui_automation; import windows_agent.ui_element_finder; import windows_agent.ui_grounder; import windows_agent.ui_state_observer; import windows_agent.ui_verifier; import windows_agent.ui_patterns; import windows_agent.window_manager; import ai_core.result_schema; print('VYOM CORE + STEP2 IMPORT TEST PASSED')"
+          python -c "import ai_core; import ai_core.providers; import ai_core.providers.local_qwen; import ai_core.main; import ai_core.autonomous_agent; import ai_core.brain; import ai_core.capability_manager; import ai_core.capability_executor; import ai_core.capability_registry; import ai_core.capability_resolver; import ai_core.action_schema; import ai_core.action_validator; import ai_core.context_action_compiler; import ai_core.config; import ai_core.conversation_manager; import ai_core.conversation_result; import ai_core.deep_reasoner; import ai_core.goal_compiler; import ai_core.goal_router; import ai_core.logger; import ai_core.mission_planner; import ai_core.mission_runtime; import ai_core.model_gateway; import ai_core.observation_verifier; import ai_core.reasoning_engine; import ai_core.reasoning_gateway; import ai_core.response_engine; import ai_core.skill_builder; import ai_core.skill_registry; import ai_core.ui_autonomous_agent; import ai_core.world_state; import command_engine.executor; import command_engine.intent; import command_engine.multilingual_command; import command_engine.parser; import tools.tool_manager; import tools.universal_app_launcher; import tools.universal_resolver; import memory.selection_manager; import memory.session_memory; import windows_agent.clipboard_manager; import windows_agent.input_controller; import windows_agent.launcher; import windows_agent.process_manager; import windows_agent.screen_observer; import windows_agent.ui_automation; import windows_agent.ui_element_finder; import windows_agent.ui_grounder; import windows_agent.ui_state_observer; import windows_agent.ui_verifier; import windows_agent.ui_patterns; import windows_agent.window_manager; import ai_core.result_schema; print('VYOM CORE + STEP2 IMPORT TEST PASSED')"
 
 
       # ======================================================
@@ -368,7 +375,83 @@ jobs:
 
 
       # ======================================================
-      # 11. CLEAN OLD BUILD
+      # 11. LOCAL QWEN PROVIDER INTEGRATION SMOKE TEST
+      #
+      # Ollama hosts Qwen locally. The provider is exercised through
+      # Vyom's ModelGateway; no API key is required for the local endpoint.
+      # This test is CI-only and does not package Ollama/Qwen into Vyom.exe.
+      # ======================================================
+
+      - name: Setup Local Qwen (Ollama)
+        shell: powershell
+        env:
+          QWEN_LOCAL_MODEL: "qwen3.5:0.8b"
+        run: |
+          Write-Host "Installing/refreshing Ollama for CI..."
+          irm https://ollama.com/install.ps1 | iex
+
+          $ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
+          if (-not $ollamaCommand) {
+              $defaultPath = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
+              if (Test-Path $defaultPath) {
+                  $env:Path = ((Split-Path $defaultPath) + ";" + $env:Path)
+                  $ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
+              }
+          }
+
+          if (-not $ollamaCommand) {
+              throw "Ollama executable was not found after installation."
+          }
+
+          $healthy = $false
+          try {
+              Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:11434/api/version" -TimeoutSec 5 | Out-Null
+              $healthy = $true
+          } catch {}
+
+          if (-not $healthy) {
+              Write-Host "Starting Ollama server..."
+              Start-Process -FilePath $ollamaCommand.Source -ArgumentList "serve" -WindowStyle Hidden | Out-Null
+          }
+
+          for ($i = 1; $i -le 30; $i++) {
+              try {
+                  Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:11434/api/version" -TimeoutSec 5 | Out-Null
+                  $healthy = $true
+                  break
+              } catch {
+                  Start-Sleep -Seconds 2
+              }
+          }
+
+          if (-not $healthy) {
+              throw "Ollama server did not become ready on 127.0.0.1:11434."
+          }
+
+          Write-Host "Pulling local Qwen model: $env:QWEN_LOCAL_MODEL"
+          & $ollamaCommand.Source pull $env:QWEN_LOCAL_MODEL
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Ollama failed to pull $env:QWEN_LOCAL_MODEL."
+          }
+
+          Write-Host "LOCAL QWEN MODEL READY."
+
+
+      - name: Verify Local Qwen Through Vyom ModelGateway
+        shell: powershell
+        env:
+          VYOM_AI_ENABLED: "true"
+          VYOM_AI_PROVIDER: "local_qwen"
+          QWEN_LOCAL_ENABLED: "true"
+          QWEN_LOCAL_API_URL: "http://127.0.0.1:11434/v1/chat/completions"
+          QWEN_LOCAL_MODEL: "qwen3.5:0.8b"
+        run: |
+          python -c "from ai_core.model_gateway import ModelGateway; gateway=ModelGateway(); status=gateway.provider_status(); print('LOCAL QWEN STATUS:', status); assert status['provider']=='local_qwen'; assert gateway.is_available(); result=gateway.chat('Reply with exactly LOCAL_QWEN_OK.', {'test':'Vyom local provider smoke test'}, temperature=0); print('LOCAL QWEN RESULT:', result); assert result['success']; assert 'LOCAL_QWEN_OK' in result['text']"
+
+
+      # ======================================================
+      # 13. CLEAN OLD BUILD
       # ======================================================
 
       - name: Clean Build
