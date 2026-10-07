@@ -73,6 +73,44 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertEqual(finder.query["automation_id"], "searchButton")
         self.assertEqual(finder.query["control_type"], "Button")
         self.assertEqual(finder.query["window_title"], "Example")
+    def test_grounder_accepts_semantic_name_variation(self):
+        class RankedFinder:
+            def find_ranked(self, **kwargs):
+                return [{
+                    "element": object(),
+                    "info": {
+                        "name": "Search",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                    },
+                    "score": 0.81,
+                }]
+
+        grounder = UIElementGrounder(finder=RankedFinder())
+        result = grounder.ground("search box")
+        self.assertTrue(result["success"])
+        self.assertGreaterEqual(result["confidence"], 0.80)
+
+    def test_grounder_rejects_ambiguous_semantic_target(self):
+        class RankedFinder:
+            def find_ranked(self, **kwargs):
+                return [
+                    {
+                        "element": object(),
+                        "info": {"name": "Search", "control_type": "Button"},
+                        "score": 0.72,
+                    },
+                    {
+                        "element": object(),
+                        "info": {"name": "Search", "control_type": "Edit"},
+                        "score": 0.70,
+                    },
+                ]
+
+        grounder = UIElementGrounder(finder=RankedFinder())
+        result = grounder.ground("search")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_target_ambiguous")
 
     def test_finder_is_safe_when_uia_is_unavailable(self):
         finder = UIElementFinder()
