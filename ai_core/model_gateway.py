@@ -20,6 +20,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+import time
 
 from ai_core.logger import log
 from ai_core.providers.local_qwen import LocalQwenProvider
@@ -104,6 +105,10 @@ class ModelGateway:
 
         self.local_qwen = LocalQwenProvider()
         self.timeout = min(20, max(5, int(timeout)))
+        # Provider health is process-local. A quota/rate-limit response should
+        # not cause every immediate re-plan or conversational turn to hit the
+        # same exhausted provider again.
+        self._provider_cooldowns = {}
 
     def _provider_candidates(self):
         """Return ordered reasoning providers without changing gateway callers."""
@@ -113,18 +118,27 @@ class ModelGateway:
         mode = self.provider_mode
 
         if mode == "local_qwen":
-            return [self._local_qwen_candidate()] if self.local_qwen.is_configured() else []
+            candidate = self._local_qwen_candidate() if self.local_qwen.is_configured() else None
+            return [candidate] if candidate and usable(candidate) else []
 
         if mode == "gemini":
-            return [self._gemini_candidate()] if self._gemini_configured() else []
+            candidate = self._gemini_candidate() if self._gemini_configured() else None
+            return [candidate] if candidate and usable(candidate) else []
 
         if mode == "custom":
-            return [self._custom_candidate()] if self._custom_configured() else []
+            candidate = self._custom_candidate() if self._custom_configured() else None
+            return [candidate] if candidate and usable(candidate) else []
 
         if mode not in {"auto", "automatic"}:
-            return [self._configured_primary_candidate()] if self._configured_primary() else []
+            candidate = self._configured_primary_candidate() if self._configured_primary() else None
+            return [candidate] if candidate and usable(candidate) else []
 
         candidates = []
+
+        def usable(candidate):
+            provider = candidate.get("provider")
+            cooldown_until = float(self._provider_cooldowns.get(provider, 0.0) or 0.0)
+            return time.monotonic() >= cooldown_until
 
         # An explicitly supplied endpoint remains the primary provider.
         # When it is Gemini, the optional Local Qwen fallback is still allowed;
@@ -132,19 +146,26 @@ class ModelGateway:
         if self._explicit_endpoint:
             if self._configured_primary():
                 primary = self._configured_primary_candidate()
-                candidates.append(primary)
+                if usable(primary):
+                    candidates.append(primary)
                 if (
                     primary["provider"] == "gemini"
                     and self.local_qwen.is_configured()
                 ):
-                    candidates.append(self._local_qwen_candidate())
+                    fallback = self._local_qwen_candidate()
+                    if usable(fallback):
+                        candidates.append(fallback)
             return candidates
 
         if self._gemini_configured():
-            candidates.append(self._gemini_candidate())
+            primary = self._gemini_candidate()
+            if usable(primary):
+                candidates.append(primary)
 
         if self.local_qwen.is_configured():
-            candidates.append(self._local_qwen_candidate())
+            fallback = self._local_qwen_candidate()
+            if usable(fallback):
+                candidates.append(fallback)
 
         return candidates
 
@@ -401,6 +422,15 @@ Use only JSON-safe values in actions. Do not put executable code in args.
             "error": "All configured AI providers failed.",
         }
 
+    def _cool_down_provider(self, provider_name, seconds=60.0):
+        try:
+            seconds = max(5.0, float(seconds))
+        except Exception:
+            seconds = 60.0
+        self._provider_cooldowns[str(provider_name or "").strip().lower()] = (
+            time.monotonic() + seconds
+        )
+
     def _complete_with_provider(
         self,
         provider,
@@ -448,6 +478,8 @@ Use only JSON-safe values in actions. Do not put executable code in args.
                 details = error.read().decode("utf-8")
             except Exception:
                 details = str(error)
+            if int(getattr(error, "code", 0) or 0) == 429:
+                self._cool_down_provider(provider.get("provider"), 60.0)
             return {
                 "success": False,
                 "available": True,
@@ -564,6 +596,8 @@ Use only JSON-safe values in actions. Do not put executable code in args.
                     details = error.read().decode("utf-8")
                 except Exception:
                     details = str(error)
+                if int(getattr(error, "code", 0) or 0) == 429:
+                    self._cool_down_provider(provider.get("provider"), 60.0)
                 last_result = {
                     "success": False,
                     "available": True,
