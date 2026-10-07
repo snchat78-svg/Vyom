@@ -117,6 +117,11 @@ class ModelGateway:
 
         mode = self.provider_mode
 
+        def usable(candidate):
+            provider = candidate.get("provider")
+            cooldown_until = float(self._provider_cooldowns.get(provider, 0.0) or 0.0)
+            return time.monotonic() >= cooldown_until
+
         if mode == "local_qwen":
             candidate = self._local_qwen_candidate() if self.local_qwen.is_configured() else None
             return [candidate] if candidate and usable(candidate) else []
@@ -134,11 +139,6 @@ class ModelGateway:
             return [candidate] if candidate and usable(candidate) else []
 
         candidates = []
-
-        def usable(candidate):
-            provider = candidate.get("provider")
-            cooldown_until = float(self._provider_cooldowns.get(provider, 0.0) or 0.0)
-            return time.monotonic() >= cooldown_until
 
         # An explicitly supplied endpoint remains the primary provider.
         # When it is Gemini, the optional Local Qwen fallback is still allowed;
