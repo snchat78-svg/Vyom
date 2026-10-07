@@ -151,6 +151,24 @@ class ActionCoreTests(unittest.TestCase):
         self.assertEqual(plan[0]["type"], "action")
         self.assertEqual(plan[0]["action"], "click_control")
 
+    def test_resolver_corrects_unique_provider_for_mismatched_capability(self):
+        registry = CapabilityRegistry()
+        registry.register(
+            name="windows_ui",
+            description="Generic Windows UI provider.",
+            actions=["open_application", "type_text"],
+            enabled=True,
+            priority=50,
+        )
+        resolver = CapabilityResolver(registry)
+        result = resolver.resolve({
+            "action": "open_application",
+            "capability": "application_control",
+            "target": "Notepad",
+        })
+        assert result["resolved"] is True
+        assert result["capability"] == "windows_ui"
+        assert result["stage"] == "capability_resolved_with_correction"
 
 if __name__ == "__main__":
     unittest.main()
