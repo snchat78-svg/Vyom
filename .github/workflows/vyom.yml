@@ -96,9 +96,10 @@ jobs:
                   } catch {}
               }
 
-              if ($statusCode -eq 429) {
-                  Write-Host "GEMINI API SMOKE TEST: PASS-WARN - Gemini endpoint is reachable but currently rate-limited (HTTP 429)."
-                  Write-Host "Gemini smoke test will not block the build on provider throttling."
+              if (($statusCode -eq 429) -or ($statusCode -ge 500 -and $statusCode -lt 600) -or ($message -match "\\b(?:429|5\\d\\d)\\b")) {
+                  Write-Host "GEMINI API SMOKE TEST: PASS-WARN - Gemini endpoint is reachable but the provider is temporarily throttled/unavailable."
+                  Write-Host ("Gemini provider status: " + $(if ($statusCode) { $statusCode } else { "transient" }))
+                  Write-Host "Gemini smoke test will not block the build on provider-side throttling or transient outages."
                   exit 0
               }
 
