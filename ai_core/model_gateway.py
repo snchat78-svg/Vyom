@@ -126,12 +126,18 @@ class ModelGateway:
 
         candidates = []
 
-        # An explicitly supplied endpoint preserves the pre-existing
-        # single-provider behavior. Local Qwen fallback is opt-in through
-        # VYOM_AI_PROVIDER=auto only when no explicit endpoint is supplied.
+        # An explicitly supplied endpoint remains the primary provider.
+        # When it is Gemini, the optional Local Qwen fallback is still allowed;
+        # other custom endpoints preserve the previous single-provider behavior.
         if self._explicit_endpoint:
             if self._configured_primary():
-                candidates.append(self._configured_primary_candidate())
+                primary = self._configured_primary_candidate()
+                candidates.append(primary)
+                if (
+                    primary["provider"] == "gemini"
+                    and self.local_qwen.is_configured()
+                ):
+                    candidates.append(self._local_qwen_candidate())
             return candidates
 
         if self._gemini_configured():
