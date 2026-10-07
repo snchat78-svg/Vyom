@@ -1,15 +1,20 @@
 """
 Project : Vyom AI
-Version : 1.0
+Version : 2.0
 Module  : World State Model
 
 Purpose:
-    Provide a lightweight snapshot of the computer/task state to
-    reasoning and planning layers.
+    Provide one canonical, read-only snapshot of the computer and mission
+    state for reasoning, planning, verification and re-planning.
 
-This module observes; it does not execute or modify applications.
-It is intentionally dependency-free for Vyom's low-resource target.
+Design:
+    - Observation only; this module never executes UI actions.
+    - UI Automation is optional and failure-isolated.
+    - Legacy callers can keep using snapshot(session_context).
+    - Runtime state can be recorded without creating a second context owner.
 """
+
+from __future__ import annotations
 
 import os
 import subprocess
@@ -18,10 +23,25 @@ from typing import Any, Dict, Optional
 
 
 class WorldStateModel:
+    """Canonical observable world-state aggregator."""
 
-    def __init__(self, max_processes: int = 30):
+    def __init__(
+        self,
+        max_processes: int = 30,
+        ui_observer: Any = None,
+        clipboard_manager: Any = None,
+        screen_observer: Any = None,
+    ):
         self.max_processes = max(5, int(max_processes))
+        self.ui_observer = ui_observer
+        self.clipboard_manager = clipboard_manager
+        self.screen_observer = screen_observer
         self.last_snapshot: Optional[Dict[str, Any]] = None
+        self.last_action: Optional[Dict[str, Any]] = None
+        self.last_result: Any = None
+        self.last_verification: Optional[Dict[str, Any]] = None
+        self.observation_history: list = []
+        self.max_observation_history = 50
 
     def _running_processes(self):
         if os.name != "nt":
@@ -46,21 +66,188 @@ class WorldStateModel:
         except Exception:
             return []
 
-    def snapshot(self, session_context: Optional[Dict[str, Any]] = None):
+    @staticmethod
+    def _safe_dict(value: Any) -> Dict[str, Any]:
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _ui_state(self, action: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        observer = self.ui_observer
+        if observer is None:
+            return {"available": False}
+
+        try:
+            state = observer.snapshot(action)
+            return self._safe_dict(state)
+        except Exception as error:
+            return {
+                "available": False,
+                "error": str(error),
+            }
+
+    def _clipboard_state(self) -> Dict[str, Any]:
+        manager = self.clipboard_manager
+        if manager is None:
+            return {"available": False}
+
+        try:
+            available = bool(manager.is_available())
+        except Exception:
+            available = False
+
+        if not available:
+            return {"available": False}
+
+        try:
+            result = manager.get_text()
+        except Exception as error:
+            return {"available": True, "read_error": str(error)}
+
+        if not isinstance(result, dict):
+            return {"available": True}
+
+        return {
+            "available": True,
+            "success": bool(result.get("success", False)),
+            "text": str(result.get("text", "")) if result.get("success") else "",
+        }
+
+    def _screen_state(self, include_snapshot: bool = False) -> Dict[str, Any]:
+        observer = self.screen_observer
+        if observer is None:
+            return {
+                "available": False,
+                "snapshot": {"available": False, "captured": False},
+            }
+
+        try:
+            available = bool(observer.is_available())
+        except Exception:
+            available = False
+
+        state = {
+            "available": available,
+            "snapshot": {
+                "available": available,
+                "captured": False,
+            },
+        }
+        if available:
+            try:
+                state["size"] = dict(observer.get_size())
+            except Exception:
+                state["size"] = {"width": 0, "height": 0}
+
+            # Screen pixels are captured only when explicitly requested.
+            # Normal autonomous observations stay lightweight on low-resource
+            # machines while Phase 4 still exposes a real snapshot contract.
+            if include_snapshot:
+                capture = getattr(observer, "capture", None)
+                if callable(capture):
+                    try:
+                        result = capture()
+                        if isinstance(result, dict):
+                            safe = {
+                                key: result.get(key)
+                                for key in (
+                                    "success", "stage", "path",
+                                    "width", "height", "verification"
+                                )
+                                if key in result
+                            }
+                            state["snapshot"].update(safe)
+                            state["snapshot"]["captured"] = bool(
+                                result.get("success", False)
+                            )
+                        else:
+                            state["snapshot"]["error"] = (
+                                "Screen observer returned an invalid capture result."
+                            )
+                    except Exception as error:
+                        state["snapshot"]["error"] = str(error)
+
+        return state
+
+    def record_observation(self, observation: Dict[str, Any]) -> None:
+        """Store bounded observation history without polluting execution history."""
+        if not isinstance(observation, dict):
+            return
+        self.observation_history.append(dict(observation))
+        del self.observation_history[:-self.max_observation_history]
+
+    def record_execution(
+        self,
+        action: Optional[Dict[str, Any]],
+        result: Any,
+        verification: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.last_action = dict(action) if isinstance(action, dict) else action
+        self.last_result = result
+        self.last_verification = (
+            dict(verification)
+            if isinstance(verification, dict)
+            else verification
+        )
+
+    def snapshot(
+        self,
+        session_context: Optional[Dict[str, Any]] = None,
+        *,
+        mission_state: Optional[Dict[str, Any]] = None,
+        include_ui: bool = True,
+        include_clipboard: bool = True,
+        include_screen_snapshot: bool = False,
+    ):
         ctx = session_context if isinstance(session_context, dict) else {}
 
         state = {
             "timestamp": time.time(),
             "platform": os.name,
             "cwd": os.getcwd(),
-            "current_app": ctx.get("current_app"),
-            "current_file": ctx.get("current_file"),
-            "current_target": ctx.get("current_target"),
-            "task_state": ctx.get("task_state"),
+
+            # Session/context owner data.
+            "current_app": ctx.get("current_app") or "",
+            "current_file": ctx.get("current_file") or "",
+            "current_target": ctx.get("current_target") or "",
+            "task_state": ctx.get("task_state") or "",
             "last_success": ctx.get("last_success"),
             "pending_selection": ctx.get("pending_selection", False),
             "awaiting_confirmation": ctx.get("awaiting_confirmation", False),
+
+            # Execution/verification state.
+            "last_action": self.last_action,
+            "last_result": self.last_result,
+            "last_verification": self.last_verification,
+
+            # Computer state.
             "running_processes": self._running_processes(),
+            "screen": self._screen_state(include_screen_snapshot),
+
+            # Mission state belongs here as an observation, not a second owner.
+            "mission_state": (
+                dict(mission_state)
+                if isinstance(mission_state, dict)
+                else {}
+            ),
+            "observation_history": [dict(item) for item in self.observation_history],
         }
+
+        if include_ui:
+            ui = self._ui_state(self.last_action)
+            state["ui"] = ui
+            state["current_window"] = ui.get("active_window", {})
+            state["focused_control"] = ui.get("focused_element", {})
+            state["selected_control"] = ui.get("selected_element", {})
+            state["visible_ui_elements"] = ui.get("ui_tree_signature", [])
+        else:
+            state["ui"] = {"available": False, "skipped": True}
+
+        if include_clipboard:
+            state["clipboard"] = self._clipboard_state()
+        else:
+            state["clipboard"] = {"available": False, "skipped": True}
+
         self.last_snapshot = state
         return state
+
+
+__all__ = ["WorldStateModel"]

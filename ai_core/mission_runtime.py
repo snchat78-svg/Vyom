@@ -46,6 +46,8 @@ Important:
     - Runtime preserves mission history.
 """
 
+import json
+
 from typing import Any, Dict, List, Optional
 
 
@@ -691,6 +693,35 @@ class MissionRuntime:
     # APPLY NEW PLAN
     # =========================================================
 
+    @staticmethod
+    def _step_fingerprint(step: Dict[str, Any]):
+        """Return a stable logical identity for a mission step.
+
+        Execution IDs, status, retries and dependencies are intentionally
+        excluded so a semantically identical step with a new model-generated
+        id can inherit a previously verified completion.
+        """
+        if not isinstance(step, dict):
+            return None
+
+        payload = {
+            "type": str(step.get("type") or "").strip().lower(),
+            "action": str(step.get("action") or "").strip().lower(),
+            "capability": str(step.get("capability") or "").strip().lower(),
+            "target": str(step.get("target") or "").strip(),
+            "args": step.get("args", {}),
+            "intent": step.get("intent"),
+        }
+        try:
+            return json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError):
+            return None
+
     def apply_replan(
         self,
         plan: List[
@@ -704,6 +735,18 @@ class MissionRuntime:
         ):
 
             return False
+
+        # Preserve already verified logical steps across a re-plan even
+        # when the model gives them a different step id. Matching is one-to-one
+        # so an intentional repeated action is not collapsed into one step.
+        verified_by_fingerprint = {}
+        for previous_step in self.plan:
+            if previous_step.get("status") != "completed":
+                continue
+            fingerprint = self._step_fingerprint(previous_step)
+            if fingerprint is None:
+                continue
+            verified_by_fingerprint.setdefault(fingerprint, []).append(previous_step)
 
         new_plan = []
 
@@ -720,8 +763,8 @@ class MissionRuntime:
             )
 
             # -------------------------------------------------
-            # New plan starts pending unless explicitly marked
-            # completed.
+            # Reuse a prior verified logical step when the
+            # replanned step is semantically identical.
             # -------------------------------------------------
 
             if new_step.get(
@@ -730,8 +773,14 @@ class MissionRuntime:
                 "completed",
                 "failed"
             ):
-
-                new_step["status"] = "pending"
+                fingerprint = self._step_fingerprint(new_step)
+                matches = verified_by_fingerprint.get(fingerprint, [])
+                if fingerprint is not None and matches:
+                    previous = matches.pop(0)
+                    new_step["status"] = "completed"
+                    new_step.setdefault("result", previous.get("result"))
+                    new_step.setdefault("verification", previous.get("verification", {}))
+                    new_step["reused_verified_step_id"] = previous.get("id")
 
             new_plan.append(
                 new_step
@@ -748,6 +797,16 @@ class MissionRuntime:
             return False
 
         self.plan = new_plan
+
+        # Recompute plan-derived counters after verified-step carry-forward.
+        self.completed_steps = sum(
+            1 for item in self.plan
+            if item.get("status") == "completed"
+        )
+        self.failed_steps = sum(
+            1 for item in self.plan
+            if item.get("status") == "failed"
+        )
 
         self.current_step = None
 

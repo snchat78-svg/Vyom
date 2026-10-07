@@ -67,20 +67,30 @@ class AIReasoningGateway:
     def _capability_descriptions(self, capabilities: Any) -> List[Any]:
         if not isinstance(capabilities, list):
             return []
+
         # Do not pass executable Python objects/callables to the model.
-        safe: List[Any] = []
-        for item in capabilities:
-            if isinstance(item, (str, int, float, bool)) or item is None:
-                safe.append(item)
-            elif isinstance(item, dict):
-                safe.append({
-                    str(k): v
-                    for k, v in item.items()
-                    if isinstance(v, (str, int, float, bool)) or v is None
-                })
-            else:
-                safe.append(str(item))
-        return safe
+        # Keep the advertised generic action surface visible. Previously the
+        # serializer dropped list-valued "actions", so Gemini could see that
+        # a provider existed but could not see which generic operations it
+        # actually supported.
+        def safe_value(value):
+            if value is None or isinstance(value, (str, int, float, bool)):
+                return value
+            if isinstance(value, (list, tuple)):
+                return [
+                    safe_value(item)
+                    for item in value
+                    if item is None or isinstance(item, (str, int, float, bool, list, tuple, dict))
+                ]
+            if isinstance(value, dict):
+                return {
+                    str(key): safe_value(child)
+                    for key, child in value.items()
+                    if child is None or isinstance(child, (str, int, float, bool, list, tuple, dict))
+                }
+            return str(value)
+
+        return [safe_value(item) for item in capabilities]
 
     def reason(
         self,

@@ -106,6 +106,11 @@ class UIAutonomousAgent(AutonomousAgent):
         successful = result_successful and verified
 
         self.context.record_result(result, successful)
+        self.world_state.record_execution(
+            action=action,
+            result=result,
+            verification=verification,
+        )
         self.task_history.append({
             "step": self.step_count,
             "type": "action",
@@ -117,6 +122,15 @@ class UIAutonomousAgent(AutonomousAgent):
         })
 
         if successful:
+            action_name = str(action.get("action") or "").strip().lower()
+            target = str(action.get("target") or "").strip()
+            if target:
+                self.context.set_current_target(target)
+            if action_name == "open_application" and target:
+                self.context.set_current_app(target)
+            elif action_name == "open_file" and target:
+                self.context.set_current_file(target)
+
             return {
                 "success": True,
                 "stage": "verified",

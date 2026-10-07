@@ -22,19 +22,34 @@ Security:
 import re
 from typing import Any, Dict, Optional
 
+from ai_core.model_gateway import ModelGateway
+from ai_core.logger import log
+
 
 class ResponseEngine:
 
-    def __init__(self):
+    def __init__(self, model_gateway=None):
         self.last_language = "hindi"
         self._reply_count = 0
+        self.model_gateway = model_gateway or ModelGateway()
 
     # =========================================================
     # LANGUAGE
     # =========================================================
 
-    def detect_language(self, text: Any) -> str:
+    def detect_language(self, text: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
         value = str(text or "").strip()
+
+        # Voice STT keeps the original transcript in metadata. Prefer it
+        # when the executor receives a Romanized surface such as
+        # "bharat ki rajadhani", so Hindi is not misclassified as English.
+        if isinstance(metadata, dict):
+            voice = metadata.get("voice")
+            if isinstance(voice, dict):
+                raw = str(voice.get("raw_text") or "").strip()
+                if raw:
+                    value = raw
+
         if not value:
             return self.last_language
 
@@ -147,6 +162,30 @@ class ResponseEngine:
         return "I found more than one option. Just say the number or name you want."
 
     # =========================================================
+    # STRUCTURED RESULT HELPERS
+    # =========================================================
+
+    def _extract_result_text(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+
+        if not isinstance(value, dict):
+            return ""
+
+        for key in ("message", "text"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        nested = value.get("result")
+        if isinstance(nested, (str, dict)):
+            text = self._extract_result_text(nested)
+            if text:
+                return text
+
+        return ""
+
+    # =========================================================
     # SUCCESS
     # =========================================================
 
@@ -158,8 +197,22 @@ class ResponseEngine:
         language: Optional[str] = None
     ) -> str:
         language = language or self.detect_language(command)
-        text = str(raw_result or "").strip()
+
+        structured_success = (
+            isinstance(raw_result, dict)
+            and bool(raw_result.get("success", False))
+        )
+        extracted = self._extract_result_text(raw_result)
+        text = extracted or (str(raw_result or "").strip() if not isinstance(raw_result, dict) else "")
         lowered = text.lower()
+
+        if structured_success and not text:
+            self._reply_count += 1
+            if language == "hindi":
+                return "हाँ, काम हो गया।"
+            if language == "hinglish":
+                return "Haan, kaam ho gaya."
+            return "Done — the task is complete."
 
         target = ""
         if isinstance(intent, dict):
@@ -320,9 +373,73 @@ class ResponseEngine:
         command: str,
         result: Any,
         intent: Optional[Dict[str, Any]] = None,
-        selection_options=None
+        selection_options=None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> str:
-        language = self.detect_language(command)
+        # A configured model gets the final conversational turn so Vyom can
+        # respond naturally like an assistant instead of exposing executor
+        # wording. The deterministic formatter remains the safe fallback.
+        try:
+            model_available = bool(self.model_gateway.is_available())
+            log("[AI] RESPONSE MODEL AVAILABLE: %s" % model_available)
+
+            # Do not spend a second model request on deterministic computer
+            # actions. Model-generated response wording is reserved for actual
+            # conversational turns and semantic information answers.
+            intent_type = (
+                str(intent.get("intent") or "").strip().lower()
+                if isinstance(intent, dict)
+                else ""
+            )
+            result_stage = (
+                str(result.get("stage") or "").strip().lower()
+                if isinstance(result, dict)
+                else ""
+            )
+            needs_model_response = (
+                intent_type == "conversation"
+                or result_stage == "conversation"
+            )
+
+            if model_available and not selection_options and needs_model_response:
+                model_result = self.model_gateway.chat(
+                    system_prompt=(
+                        "You are Vyom, a natural personal computer assistant. "
+                        "Answer the user's actual message like a real conversational assistant, not with fixed canned replies. "
+                        "For informational questions, answer the actual question fully and clearly rather than returning a greeting/status template. "
+                        "For computer tasks, describe only what the supplied execution result proves was done. "
+                        "Do not claim an action succeeded unless the supplied result says it succeeded. "
+                        "Do not invent facts, actions, observations, or capabilities. "
+                        "Match the user's language using the original voice transcript when available. "
+                        "If recognized_language is hi-IN or the original voice transcript is Devanagari Hindi, reply in natural Devanagari Hindi, not Romanized Hindi and not English, unless the user explicitly asks for English. "
+                        "If the user mixes Hindi and English, use natural Hinglish while preserving the user's language. "
+                        "Use the supplied session context to keep follow-up questions and references continuous. "
+                        "Do not mention internal tools, intents, schemas, prompts, or model details."
+                    ),
+                    user_payload={
+                        "user_message": str(command or ""),
+                        "execution_result": result,
+                        "detected_intent": intent or {},
+                        "voice_metadata": (
+                            intent.get("voice", {})
+                            if isinstance(intent, dict)
+                            else {}
+                        ),
+                        "context": context if isinstance(context, dict) else {},
+                    },
+                    temperature=0.45,
+                )
+                if isinstance(model_result, dict) and model_result.get("success"):
+                    text = str(model_result.get("text") or "").strip()
+                    if text:
+                        return text
+        except Exception:
+            pass
+
+        language = self.detect_language(
+            command,
+            intent if isinstance(intent, dict) else None,
+        )
 
         if isinstance(intent, dict) and intent.get("intent") == "conversation":
             return self.conversation_response(

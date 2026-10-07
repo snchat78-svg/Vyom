@@ -10,6 +10,7 @@ import re
 import sys
 import time
 
+from .romanizer import normalize_voice_text
 from .speech_to_text import SpeechToText
 from .text_to_speech import TextToSpeech
 from ai_core.conversation_manager import ConversationManager
@@ -30,6 +31,8 @@ class VoiceController:
         self.activated = False
         self.continuous_conversation = True
         self.last_listen_status = ""
+        self.last_raw_text = ""
+        self.last_voice_language = ""
 
         self.wake_words = (
             "hey vyom", "हे व्योम", "हे वियोम", "vyom ji", "व्योम जी",
@@ -153,14 +156,40 @@ class VoiceController:
         try:
             self.state = "executing"
             self._log("STATE -> EXECUTING")
-            result = self.conversation_manager.process_voice(command)
+            voice_metadata = None
+            if self.last_raw_text or self.last_voice_language:
+                voice_metadata = {
+                    "voice": {
+                        "raw_text": self.last_raw_text,
+                        "recognized_language": self.last_voice_language,
+                        "roman_text": command,
+                    }
+                }
+            if voice_metadata is not None:
+                try:
+                    result = self.conversation_manager.process_voice(
+                        command,
+                        metadata=voice_metadata,
+                    )
+                except TypeError as error:
+                    # Compatibility with injected/legacy conversation
+                    # managers that still accept only the command text.
+                    try:
+                        result = self.conversation_manager.process_voice(command)
+                    except TypeError:
+                        raise error
+            else:
+                result = self.conversation_manager.process_voice(command)
             if isinstance(result, dict):
                 success = bool(result.get("success", False))
                 message = result.get("response", result.get("message", ""))
             else:
                 success = True
                 message = str(result)
-            self._log("EXECUTION COMPLETE")
+            stage = ""
+            if isinstance(result, dict):
+                stage = str(result.get("stage") or result.get("status") or "").strip()
+            self._log("COMMAND RESULT: success=%s stage=%s" % (success, stage or "unknown"))
             return {"success": success, "text": command, "message": str(message or ""), "result": result}
         except Exception as error:
             self._log("Execution error: " + str(error))
@@ -179,7 +208,23 @@ class VoiceController:
             return {"success": False, "status": "error", "text": "", "message": str(error)}
         if not isinstance(result, dict):
             result = {"success": bool(result), "status": "unknown", "text": ""}
+
+        # Voice boundary contract: downstream receives Roman/Latin text.
+        # Keep the original STT transcript separately for diagnostics.
+        result = dict(result)
+        raw_text = str(result.get("raw_text") or result.get("text") or "").strip()
+        roman_text = normalize_voice_text(str(result.get("text") or raw_text).strip())
+        result["raw_text"] = raw_text
+        result["roman_text"] = roman_text
+        # Keep the voice boundary contract stable: downstream receives the
+        # normalized Roman/Latin command in "text". The original STT wording
+        # remains available in "raw_text" for diagnostics and language-aware
+        # consumers that need it.
+        result["text"] = roman_text
+
         self.last_listen_status = str(result.get("status", ""))
+        self.last_raw_text = str(result.get("raw_text") or "").strip()
+        self.last_voice_language = str(result.get("language") or "").strip()
         self._log("STT listen_once returned: status=%s success=%s text_length=%d" % (
             self.last_listen_status, bool(result.get("success")), len(str(result.get("text", "") or ""))
         ))

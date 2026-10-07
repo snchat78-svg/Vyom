@@ -21,6 +21,8 @@ import re
 
 from tools.tool_manager import ToolManager
 from ai_core.response_engine import ResponseEngine
+from ai_core.logger import log
+from ai_core.result_schema import normalize_result
 
 
 # =============================================================
@@ -141,6 +143,43 @@ def _sync_pending_selection_context(target=None):
 # NATURAL RESPONSE
 # =============================================================
 
+def _structured_response(
+    message,
+    *,
+    success,
+    stage,
+    status=None,
+    result=None,
+    error=None,
+):
+    payload = {
+        "success": bool(success),
+        "status": status or ("success" if success else "failed"),
+        "stage": str(stage or ("completed" if success else "failed")),
+        "message": str(message or ""),
+        "response": str(message or ""),
+        "result": result,
+    }
+    if error is not None:
+        payload["error"] = str(error)
+    return normalize_result(
+        payload,
+        default_stage=payload["stage"],
+        status_hint=payload["status"],
+    )
+
+
+def _failure_response(command, raw_result, stage="failed"):
+    message = response_engine.failure_response(command, raw_result)
+    return _structured_response(
+        message,
+        success=False,
+        stage=stage,
+        status="failed",
+        result=raw_result,
+    )
+
+
 def _natural_response(
     command,
     result,
@@ -169,16 +208,53 @@ def _natural_response(
                     )
                 )
 
-        return response_engine.format(
+        message = response_engine.format(
             command=command,
             result=result,
             intent=intent,
-            selection_options=options
+            selection_options=options,
+            context=(
+                autonomous_agent.context.snapshot()
+                if hasattr(autonomous_agent, "context")
+                else {}
+            ),
         )
 
-    except Exception:
+        if isinstance(result, dict):
+            payload = dict(result)
+            success = bool(payload.get("success", False))
+            payload["success"] = success
+            payload["status"] = str(
+                payload.get("status")
+                or ("success" if success else "failed")
+            )
+            payload["stage"] = str(
+                payload.get("stage")
+                or ("completed" if success else "failed")
+            )
+            payload["message"] = str(message or "")
+            payload["response"] = str(message or "")
+            return normalize_result(
+                payload,
+                default_stage=payload["stage"],
+                status_hint=payload["status"],
+            )
 
-        return str(result)
+        return _structured_response(
+            message,
+            success=True,
+            stage="legacy_completed",
+            status="success",
+            result=result,
+        )
+
+    except Exception as error:
+
+        return _failure_response(
+            command,
+            error,
+            stage="response_formatting_error",
+        )
 
 
 # =============================================================
@@ -190,201 +266,31 @@ def _get_selection_number(
     intent
 ):
 
-    # ---------------------------------------------------------
-    # IntentEngine selection
-    # ---------------------------------------------------------
-
-    if isinstance(
-        intent,
-        dict
-    ):
-
-        selection = intent.get(
-            "selection"
-        )
-
+    # The IntentEngine is the single source of truth for selection parsing.
+    # This prevents the voice path and normal command path from interpreting
+    # "number 1 kholo", "1 open", etc. differently.
+    if isinstance(intent, dict):
+        selection = intent.get("selection")
         if selection is not None:
-
-            return str(
-                selection
-            )
-
-    text = str(
-        command or ""
-    ).strip().lower()
-
-    # ---------------------------------------------------------
-    # Direct number
-    # ---------------------------------------------------------
-
-    if text.isdigit():
-
-        return text
-
-    # ---------------------------------------------------------
-    # English number words
-    # ---------------------------------------------------------
-
-    numbers = {
-
-        "zero": "0",
-
-        "one": "1",
-        "first": "1",
-
-        "two": "2",
-        "second": "2",
-
-        "three": "3",
-        "third": "3",
-
-        "four": "4",
-        "fourth": "4",
-
-        "five": "5",
-        "fifth": "5",
-
-        "six": "6",
-
-        "seven": "7",
-
-        "eight": "8",
-
-        "nine": "9",
-
-        "ten": "10"
-    }
-
-    if text in numbers:
-
-        return numbers[text]
-
-    # ---------------------------------------------------------
-    # Prefix forms
-    # ---------------------------------------------------------
-
-    prefixes = [
-        "number ",
-        "option ",
-        "item ",
-        "choice ",
-        "no "
-    ]
-
-    for prefix in prefixes:
-
-        if text.startswith(
-            prefix
-        ):
-
-            value = text[
-                len(prefix):
-            ].strip()
-
-            if value.isdigit():
-
+            value = str(selection).strip()
+            if value:
                 return value
 
-            if value in numbers:
+    try:
+        detected = intent_engine._detect_selection(
+            str(command or "")
+        )
+    except Exception:
+        detected = None
 
-                return numbers[value]
+    if detected is not None:
+        value = str(detected).strip()
+        if value:
+            return value
 
-    # ---------------------------------------------------------
-    # Hindi
-    # ---------------------------------------------------------
+    text = str(command or "").strip()
+    return text if text.isdigit() else None
 
-    hindi_numbers = {
-
-        "शून्य": "0",
-
-        "एक": "1",
-        "पहला": "1",
-        "पहली": "1",
-
-        "दो": "2",
-        "दूसरा": "2",
-        "दूसरी": "2",
-
-        "तीन": "3",
-        "तीसरा": "3",
-        "तीसरी": "3",
-
-        "चार": "4",
-        "चौथा": "4",
-        "चौथी": "4",
-
-        "पांच": "5",
-        "पाँच": "5"
-    }
-
-    if text in hindi_numbers:
-
-        return hindi_numbers[text]
-
-    # ---------------------------------------------------------
-    # Natural selection phrases
-    # ---------------------------------------------------------
-
-    selection_phrases = {
-
-        "पहला वाला": "1",
-        "पहली वाली": "1",
-        "पहले वाला": "1",
-        "पहले वाली": "1",
-        "पहला खोलो": "1",
-        "पहला खोल दो": "1",
-
-        "दूसरा वाला": "2",
-        "दूसरी वाली": "2",
-        "दूसरा खोलो": "2",
-        "दूसरा खोल दो": "2",
-
-        "तीसरा वाला": "3",
-        "तीसरी वाली": "3",
-        "तीसरा खोलो": "3",
-        "तीसरा खोल दो": "3",
-
-        "चौथा वाला": "4",
-        "चौथी वाली": "4",
-
-        "पांचवां वाला": "5",
-        "पाँचवाँ वाला": "5",
-
-        "first one": "1",
-        "first one open": "1",
-        "open the first": "1",
-        "open the first one": "1",
-        "first one please": "1",
-
-        "second one": "2",
-        "open the second": "2",
-        "open the second one": "2",
-
-        "third one": "3",
-        "open the third": "3"
-    }
-
-    if text in selection_phrases:
-
-        return selection_phrases[text]
-
-    # Natural prefixes such as:
-    # "open the first one", "पहला वाला खोल दो"
-    normalized = re.sub(
-        r"[^a-zA-Z0-9ऀ-ॿ ]+",
-        " ",
-        text
-    )
-
-    normalized = " ".join(
-        normalized.split()
-    )
-
-    if normalized in selection_phrases:
-
-        return selection_phrases[normalized]
-
-    return None
 
 
 # =============================================================
@@ -550,7 +456,8 @@ def _result_to_message(
 # =============================================================
 
 def execute(
-    command
+    command,
+    metadata=None,
 ):
 
     # =========================================================
@@ -559,8 +466,11 @@ def execute(
 
     if command is None:
 
-        return (
-            "Please tell me what you want me to do."
+        return _structured_response(
+            "Please tell me what you want me to do.",
+            success=False,
+            stage="needs_clarification",
+            status="needs_clarification",
         )
 
     command = str(
@@ -586,67 +496,40 @@ def execute(
 
         autonomous_agent.reset()
 
-        return (
-            "Vyom session stopped."
+        return _structured_response(
+            "Vyom session stopped.",
+            success=True,
+            stage="exit_session",
+            status="exit_session",
         )
 
     # =========================================================
     # GOAL / COMMAND ROUTING
     # =========================================================
 
-    try:
-
-        route_preview = goal_router.route(command)
-
-    except Exception:
-
-        route_preview = {
-            "route": "command",
-            "reason": "router_error",
-            "goal": False,
-        }
-
-    if route_preview.get("route") == "goal":
-
-        try:
-
-            result = autonomous_agent.run(
-                goal=command,
-                intent=None
-            )
-
-        except Exception as error:
-
-            return response_engine.failure_response(
-                command,
-                str(error)
-            )
-
-        message = _result_to_message(result)
-        _sync_pending_selection_context(command)
-
-        return _natural_response(
-            command,
-            message,
-            None
-        )
-
     # =========================================================
     # INTENT
+    #
+    # Detect after voice normalization so the goal router receives the
+    # semantic command metadata instead of a raw pre-normalization surface.
     # =========================================================
 
     try:
 
-        intent = intent_engine.detect(
-            command
-        )
+        if metadata is not None:
+            intent = intent_engine.detect(
+                command,
+                metadata=metadata,
+            )
+        else:
+            intent = intent_engine.detect(command)
 
     except Exception as error:
 
-        return (
-            "Intent detection error: "
-            +
-            str(error)
+        return _failure_response(
+            command,
+            "Intent detection error: " + str(error),
+            stage="intent_detection_error",
         )
 
     if not isinstance(
@@ -659,6 +542,83 @@ def execute(
             "target": command
         }
 
+    log("[PIPELINE] INPUT -> INTENT: %s -> %s" % (command.encode("unicode_escape", errors="backslashreplace").decode("ascii"), str(intent.get("intent", "unknown"))))
+
+    # =========================================================
+    # PENDING SELECTION HAS ABSOLUTE PRIORITY
+    # =========================================================
+    # A pending result list is active working state. A spoken "ek", "one",
+    # "number 1", etc. must select from that list, never become a fresh
+    # semantic goal.
+    selection_number = _get_selection_number(command, intent)
+    if selection_number is not None and _has_pending_selection():
+        try:
+            selection_intent = {
+                "intent": "unknown",
+                "target": str(selection_number),
+                "voice": intent.get("voice", {}) if isinstance(intent, dict) else {},
+            }
+            result = tool_manager.execute(selection_intent)
+            _sync_pending_selection_context()
+            return _natural_response(
+                command,
+                result,
+                selection_intent,
+            )
+        except Exception as error:
+            return response_engine.failure_response(
+                command,
+                str(error),
+            )
+
+    # =========================================================
+    # GOAL / COMMAND ROUTING
+    # =========================================================
+
+    try:
+
+        route_preview = goal_router.route(
+            command,
+            intent=intent,
+        )
+
+    except Exception:
+
+        route_preview = {
+            "route": "command",
+            "reason": "router_error",
+            "goal": False,
+        }
+
+    log("[PIPELINE] ROUTE PREVIEW: %s reason=%s" % (str(route_preview.get("route", "unknown")), str(route_preview.get("reason", ""))))
+
+    if route_preview.get("route") == "goal":
+
+        try:
+
+            # A goal must be interpreted from the complete utterance.
+            # The deterministic IntentEngine result is parser metadata only;
+            # passing a partial "open" intent here could collapse a compound
+            # mission into its first action.
+            result = autonomous_agent.run(
+                goal=command,
+                intent=None,
+            )
+
+        except Exception as error:
+
+            return _failure_response(command, str(error), stage="executor_error")
+
+        _sync_pending_selection_context(command)
+
+        return _natural_response(
+            command,
+            result,
+            intent,
+        )
+
+    # Intent has already been detected above.
+
     intent_type = str(
         intent.get(
             "intent",
@@ -667,42 +627,130 @@ def execute(
     ).strip().lower()
 
     # =========================================================
+    # UNKNOWN -> SEMANTIC GOAL PATH
+    #
+    # "unknown" is not a failed command. It means the deterministic
+    # parser did not decide the meaning. Give the complete utterance
+    # to the semantic reasoning layer instead of returning a robot-like
+    # unknown result or trying to add another phrase rule.
+    # =========================================================
+
+    if intent_type == "unknown":
+        try:
+            # Preserve the parser's unknown classification as metadata only.
+            # AutonomousAgent/semantic reasoning must decide the actual
+            # meaning; no legacy intent is created from it.
+            result = autonomous_agent.run(
+                goal=command,
+                intent=intent,
+            )
+        except Exception as error:
+            return response_engine.failure_response(
+                command,
+                str(error)
+            )
+
+        _sync_pending_selection_context(command)
+
+        log("[PIPELINE] SEMANTIC RESULT: stage=%s success=%s" % (str(result.get("stage", "")) if isinstance(result, dict) else "", str(result.get("success", "")) if isinstance(result, dict) else ""))
+
+        return _natural_response(
+            command,
+            result,
+            intent
+        )
+
+    # =========================================================
     # CONTEXTUAL CLOSE
     # =========================================================
 
     if intent_type == "close_current":
+
+        # Prefer the actual foreground window over stale remembered app/file
+        # names. This is what lets "PDF khol diya -> close" close the window
+        # that is actually on screen, even when the opened file is not a
+        # process name.
+        active_window = {}
+        try:
+            snapshot = autonomous_agent.world_state.snapshot(
+                autonomous_agent.context.snapshot(),
+                mission_state=autonomous_agent.mission_runtime.snapshot(),
+                include_ui=True,
+                include_clipboard=False,
+            )
+            active_window = snapshot.get("current_window") or {}
+            if not active_window:
+                active_window = (
+                    snapshot.get("ui", {}).get("active_window", {})
+                    if isinstance(snapshot.get("ui"), dict)
+                    else {}
+                )
+        except Exception:
+            active_window = {}
 
         current_app = getattr(
             autonomous_agent.context,
             "current_app",
             None
         )
+        current_file = getattr(
+            autonomous_agent.context,
+            "current_file",
+            None
+        )
 
-        if not current_app:
+        target = str(
+            active_window.get("title")
+            or current_app
+            or current_file
+            or ""
+        ).strip()
+        hwnd = active_window.get("hwnd")
+
+        if not target and not hwnd:
 
             return response_engine.failure_response(
                 command,
-                "No current application is available to close."
+                "No current window is available to close."
             )
 
         close_intent = {
             "intent": "close_app",
-            "target": str(
-                current_app
-            )
+            "target": target,
         }
 
         try:
-
-            raw = tool_manager.execute(
-                close_intent
+            capability_executor = getattr(
+                autonomous_agent,
+                "capability_executor",
+                None,
             )
 
-            # Clear the application context only after an
-            # actual close attempt.
-            autonomous_agent.context.set_current_target(
-                current_app
+            execute_capability = getattr(
+                capability_executor,
+                "execute",
+                None,
             )
+
+            if callable(execute_capability):
+                close_action = {
+                    "action": "close_application",
+                    "capability": "windows_ui",
+                    "target": target,
+                    "args": {},
+                }
+                if hwnd:
+                    close_action["args"]["hwnd"] = hwnd
+                raw = execute_capability(close_action)
+            else:
+                raw = tool_manager.execute(close_intent)
+
+            if isinstance(raw, dict) and raw.get("success"):
+                try:
+                    autonomous_agent.context.last_success = True
+                    autonomous_agent.context.last_result = raw
+                except Exception:
+                    pass
 
             return _natural_response(
                 command,
@@ -723,16 +771,16 @@ def execute(
 
     if intent_type == "conversation":
 
-        return response_engine.format(
-            command=command,
-            result={
+        return _natural_response(
+            command,
+            {
                 "success": True,
                 "conversation_type": intent.get(
                     "conversation_type",
-                    "acknowledge"
+                    "conversation"
                 )
             },
-            intent=intent
+            intent,
         )
 
     # =========================================================
@@ -765,7 +813,9 @@ def execute(
                 selection_intent
             )
 
-            autonomous_agent.context.clear_pending_selection()
+            # Keep the pending list alive when a number was invalid;
+            # successful selection clears it inside ToolManager.
+            _sync_pending_selection_context()
 
             # Keep the successful selection in current context.
             if isinstance(
@@ -805,19 +855,22 @@ def execute(
             )
 
     # =========================================================
-    # UNKNOWN SELECTION WITHOUT A PENDING LIST
+    # SELECTION IS CONTEXTUAL, NOT A GLOBAL COMMAND CLASS
     # =========================================================
-
+    # Numbers are only selections when a selection list is actually pending.
+    # Otherwise the complete utterance must remain available to semantic
+    # reasoning (for example arithmetic or another natural-language task).
     if (
         intent_type == "selection"
         and
         not _has_pending_selection()
     ):
-
-        return response_engine.failure_response(
-            command,
-            "There is no pending selection to choose from."
-        )
+        intent = {
+            "intent": "unknown",
+            "target": command,
+            "voice": intent.get("voice", {}) if isinstance(intent, dict) else {},
+        }
+        intent_type = "unknown"
 
     # =========================================================
     # FAST LANE
@@ -848,14 +901,20 @@ def execute(
 
             if intent_type == "open":
 
-                return (
-                    "ज़रूर। बताइए, क्या खोलना है?"
+                return _structured_response(
+                    "ज़रूर। बताइए, क्या खोलना है?",
+                    success=False,
+                    stage="needs_clarification",
+                    status="needs_clarification",
                 )
 
             if intent_type == "search_file":
 
-                return (
-                    "ज़रूर। बताइए, कौन-सी फ़ाइल खोजनी है?"
+                return _structured_response(
+                    "ज़रूर। बताइए, कौन-सी फ़ाइल खोजनी है?",
+                    success=False,
+                    stage="needs_clarification",
+                    status="needs_clarification",
                 )
 
             if intent_type == "close_app":
@@ -877,10 +936,7 @@ def execute(
 
                 else:
 
-                    return response_engine.failure_response(
-                        command,
-                        "No application was specified to close."
-                    )
+                    return _failure_response(command, "No application was specified to close.", stage="needs_clarification")
 
         try:
 
@@ -914,9 +970,60 @@ def execute(
                     )
                 )
 
-            raw_result = tool_manager.execute(
-                intent
-            )
+            raw_result = None
+
+            # For an explicit close target, prefer the live generic UI
+            # capability when the target resolves to an observed window.
+            # This avoids treating document-viewer processes (for example a
+            # PDF opened by an associated application) as if the document
+            # filename itself were a Windows process name.
+            if intent_type == "close_app":
+                try:
+                    capability_executor = getattr(
+                        autonomous_agent,
+                        "capability_executor",
+                        None,
+                    )
+                    execute_capability = getattr(
+                        capability_executor,
+                        "execute",
+                        None,
+                    )
+                    if callable(execute_capability):
+                        ui_snapshot = autonomous_agent.world_state.snapshot(
+                            autonomous_agent.context.snapshot(),
+                            mission_state=autonomous_agent.mission_runtime.snapshot(),
+                            include_ui=True,
+                            include_clipboard=False,
+                        )
+                        active_window = ui_snapshot.get("current_window") or {}
+                        active_title = str(active_window.get("title") or "").strip()
+                        target_text = str(intent.get("target") or "").strip()
+                        live_match = bool(
+                            active_window.get("hwnd")
+                            and target_text
+                            and (
+                                target_text.lower() in active_title.lower()
+                                or active_title.lower() in target_text.lower()
+                            )
+                        )
+                        if live_match:
+                            close_action = {
+                                "action": "close_application",
+                                "capability": "windows_ui",
+                                "target": active_title or target_text,
+                                "args": {"hwnd": active_window.get("hwnd")},
+                            }
+                            candidate = execute_capability(close_action)
+                            if isinstance(candidate, dict) and candidate.get("success"):
+                                raw_result = candidate
+                except Exception:
+                    raw_result = None
+
+            if raw_result is None:
+                raw_result = tool_manager.execute(
+                    intent
+                )
 
             # -------------------------------------------------
             # Sync selection state immediately.
@@ -960,14 +1067,6 @@ def execute(
         )
 
     # =========================================================
-    # EXTRACT MESSAGE
-    # =========================================================
-
-    message = _result_to_message(
-        result
-    )
-
-    # =========================================================
     # SYNC SELECTION
     # =========================================================
 
@@ -989,9 +1088,11 @@ def execute(
     # =========================================================
     # NATURAL RESPONSE
     # =========================================================
-
+    # Preserve the complete structured autonomous result so ConversationManager
+    # can report the real execution status instead of treating its human
+    # response text as a new successful command.
     return _natural_response(
         command,
-        message,
+        result,
         intent
     )

@@ -10,6 +10,8 @@ import ctypes
 import time
 import sys
 
+from tools.phonetic_matcher import score_candidate
+
 if sys.platform == "win32":
     try:
         import winreg
@@ -183,6 +185,51 @@ class UniversalResolver:
 
         return (exact + partial)[:self.max_results]
 
+    def _fuzzy_search_known_locations(self, target):
+        """Find close matches in known locations while preserving duplicates."""
+        query = self.clean_target(target)
+        if not query:
+            return []
+
+        paths = []
+        for base_path in self.common_paths + self.start_menu_paths + self.desktop_paths:
+            if not os.path.exists(base_path):
+                continue
+            try:
+                for root, dirs, files in os.walk(base_path):
+                    for directory in dirs:
+                        self._add_unique(paths, os.path.join(root, directory))
+                    for file in files:
+                        self._add_unique(paths, os.path.join(root, file))
+                    if len(paths) >= 5000:
+                        break
+            except Exception:
+                continue
+            if len(paths) >= 5000:
+                break
+
+        scored = []
+        for path in paths:
+            name = os.path.basename(path)
+            stem = os.path.splitext(name)[0]
+            score = max(
+                score_candidate(query, candidate_name)
+                for candidate_name in (name, stem)
+                if candidate_name
+            )
+            if score >= 0.72:
+                scored.append((float(score), path))
+
+        scored.sort(
+            key=lambda item: (-item[0], str(item[1]).lower())
+        )
+
+        results = []
+        for _, path in scored:
+            self._add_unique(results, path)
+            if len(results) >= self.max_results:
+                break
+        return results
     def search_start_menu(self, target):
         target_name = self.normalize(target)
         if not target_name:
@@ -586,6 +633,12 @@ exit 1
 
         if results:
             return results[:self.max_results]
+
+        # Exact/partial resolution remains unchanged. Fuzzy matching is only
+        # a fallback after normal discovery has failed.
+        fuzzy_results = self._fuzzy_search_known_locations(target)
+        if fuzzy_results:
+            return fuzzy_results[:self.max_results]
 
         path_result = self.find_in_path(target)
         if path_result:

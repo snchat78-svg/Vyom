@@ -22,6 +22,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from ai_core.goal_compiler import GoalCompiler
+
 
 class ContextActionCompiler:
     """Compile contextual follow-ups into an ordered generic/legacy plan."""
@@ -40,7 +42,10 @@ class ContextActionCompiler:
     )
 
     def __init__(self, goal_compiler: Optional[Any] = None):
-        self.goal_compiler = goal_compiler
+        # Phase 1: use the canonical GoalCompiler when this component is
+        # instantiated directly. ReasoningEngine may still inject the same
+        # shared compiler instance explicitly.
+        self.goal_compiler = goal_compiler if goal_compiler is not None else GoalCompiler()
 
     @staticmethod
     def _normalize(value: Any) -> str:
@@ -68,12 +73,35 @@ class ContextActionCompiler:
 
     @staticmethod
     def _context_target(context: Dict[str, Any]) -> str:
-        return str(
+        direct = str(
             context.get("current_target")
             or context.get("current_app")
             or context.get("current_file")
             or ""
         ).strip()
+        if direct:
+            return direct
+
+        focused = context.get("focused_control")
+        if not isinstance(focused, dict):
+            ui = context.get("ui")
+            focused = ui.get("focused_element") if isinstance(ui, dict) else None
+
+        if isinstance(focused, dict) and focused.get("exists", False):
+            return "focused_element"
+
+        return ""
+
+    @staticmethod
+    def _has_execution_context(context: Dict[str, Any]) -> bool:
+        if ContextActionCompiler._context_target(context):
+            return True
+
+        focused = context.get("focused_control")
+        if not isinstance(focused, dict):
+            ui = context.get("ui")
+            focused = ui.get("focused_element") if isinstance(ui, dict) else None
+        return bool(isinstance(focused, dict) and focused.get("exists", False))
 
     @staticmethod
     def _extract_name(history: Any) -> Optional[str]:
@@ -122,7 +150,7 @@ class ContextActionCompiler:
             return None
         return result if isinstance(result, dict) else None
 
-    def _generic_action(self, text: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def _generic_action(self, text: str, context: Dict[str, Any], planned_context: bool = False) -> Dict[str, Any]:
         value = self._normalize(text)
         lower = value.lower()
         current_target = self._context_target(context)
@@ -137,14 +165,18 @@ class ContextActionCompiler:
             "description": value,
         }
 
-        # Text entry: generic and application-agnostic.
+        # Text entry: generic and application-agnostic. Speech recognition
+        # may prepend a contextual Hindi/English wrapper such as "उसमें",
+        # "इसमें", "उसके अंदर", "there", or "in it". Those wrappers do
+        # not identify an application and therefore must not become part of
+        # the text that gets typed.
         match = re.match(
-            r"^(?:please\s+)?(?:type|write|enter|paste|टाइप\s+कर(?:ो|ें|ना)?|टाइप|लिखो|लिखें|लिख|डालो|डालें|डाल)\s+(.+)$",
+            r"^(?:please\s+)?(?:(?:उसमें|इसमें|उसके\s+अंदर|इसके\s+अंदर|उसने|इसने|यहाँ|वहाँ|(?:is|us)(?:me|men|mein|mai|amen|aman)|uske\s+andar|iske\s+andar|in\s+it|in\s+that|there|here)\s+)?(?:type|write|enter|paste|टाइप\s+कर(?:ो|ें|ना)?|टाइप|लिखो|लिखें|लिख|डालो|डालें|डाल)\s+(.+)$",
             value,
             flags=re.IGNORECASE,
         )
         if match:
-            if not current_target:
+            if not (self._has_execution_context(context) or planned_context):
                 return {
                     "kind": "clarification",
                     "message": "किस active application या input target में text लिखना है? पहले उसे खोलें या focus करें।",
@@ -157,7 +189,61 @@ class ContextActionCompiler:
                 "target": resolved["value"],
                 "args": {"text": resolved["value"]},
                 "preconditions": ["an active input target is available"],
+                "postconditions": ["the requested text is observable in the focused input target"],
+                "metadata": {
+                    "verification": {
+                        "mode": "all",
+                        "checks": [{
+                            "kind": "property",
+                            "source": "focused_element",
+                            "field": "value",
+                            "operator": "contains",
+                            "value": resolved["value"],
+                        }],
+                    }
+                },
+            })
+            return {"kind": "action", "action": base}
+
+        # Natural Hindi/Hinglish also commonly places the action verb after
+        # the content, e.g. "शंभू लाल लिखो" or "उसमें मेरा नाम लिखो".
+        # Keep this generic: the content is data, while the trailing verb is
+        # only the language-level action marker.
+        match = re.match(
+            r"^(?:please\s+)?(?:(?:उसमें|इसमें|उसके\s+अंदर|इसके\s+अंदर|उसने|इसने|यहाँ|वहाँ|(?:is|us)(?:me|men|mein|mai|amen|aman)|uske\s+andar|iske\s+andar|in\s+it|in\s+that|there|here)\s+)?(.+?)\s+(?:type|write|enter|paste|टाइप(?:\s+कर(?:ो|ें|ना)?)?|लिखो|लिखें|लिख|डालो|डालें|डाल)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            if not (current_target or planned_context):
+                return {
+                    "kind": "clarification",
+                    "message": "किस active application या input target में text लिखना है? पहले उसे खोलें या focus करें।",
+                }
+            resolved = self._resolve_text(match.group(1), context)
+            if not resolved.get("resolved"):
+                return {
+                    "kind": "clarification",
+                    "message": resolved.get("clarification", "क्या text लिखना है?"),
+                }
+            base.update({
+                "action": "type_text",
+                "target": resolved["value"],
+                "args": {"text": resolved["value"]},
+                "preconditions": ["an active input target is available"],
                 "postconditions": ["the requested text has been dispatched to the active input target"],
+                "metadata": {
+                    "verification": {
+                        "mode": "all",
+                        "checks": [{
+                            "kind": "property",
+                            "source": "focused_element",
+                            "field": "value",
+                            "operator": "contains",
+                            "value": resolved["value"],
+                        }],
+                    }
+                },
             })
             return {"kind": "action", "action": base}
 
@@ -252,6 +338,55 @@ class ContextActionCompiler:
             })
             return {"kind": "action", "action": base}
 
+        # Semantic UI Automation targets. A plain target such as
+        # "Search" is data, not an application name. The runtime resolves it
+        # through Windows UI Automation properties/control patterns.
+        match = re.match(
+            r"^(?:please\s+)?(?:click|क्लिक)(?:\s+(?:the|on|पर|को))?\s+(.+)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            target = self._normalize(match.group(1))
+            if not re.fullmatch(r"-?\d+\s*[, ]\s*-?\d+", target):
+                base.update({
+                    "action": "click_ui_element",
+                    "target": target,
+                    "args": {},
+                    "postconditions": ["the requested UI element was found and invoked"],
+                })
+                return {"kind": "action", "action": base}
+
+        match = re.match(
+            r"^(?:please\s+)?(?:invoke|activate|press|select|choose|invoke\s+the)\s+(.+)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            target = self._normalize(match.group(1))
+            base.update({
+                "action": "invoke_ui_element",
+                "target": target,
+                "args": {},
+                "postconditions": ["the requested UI control was invoked"],
+            })
+            return {"kind": "action", "action": base}
+
+        match = re.match(
+            r"^(?:please\s+)?(?:focus|फोकस)(?:\s+(?:the|on|पर))\s+(.+)$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            target = self._normalize(match.group(1))
+            base.update({
+                "action": "focus_ui_element",
+                "target": target,
+                "args": {},
+                "postconditions": ["the requested UI element is focused"],
+            })
+            return {"kind": "action", "action": base}
+
         # Explicit coordinates are the only low-level click form accepted in
         # Step 2B. Semantic control finding belongs to the later vision layer.
         match = re.match(r"^(?:please\s+)?(?:double[- ]?click|डबल\s+क्लिक)(?:\s+at|\s+पर)?\s*(-?\d+)\s*[, ]\s*(-?\d+)$", value, re.IGNORECASE)
@@ -334,7 +469,32 @@ class ContextActionCompiler:
                 previous_id = step_id
                 continue
 
-            generic = self._generic_action(part, ctx)
+            # A previous step in the same mission can establish the
+            # execution context (for example "open X" before "type Y").
+            # This does not guess an application; it only permits the next
+            # generic action to depend on the already-planned preceding step.
+            planned_context = any(
+                isinstance(previous, dict)
+                and (
+                    (
+                        previous.get("type") == "execute_existing_intent"
+                        and isinstance(previous.get("intent"), dict)
+                        and str(previous["intent"].get("intent", "")).strip().lower()
+                        in {"open", "open_file"}
+                    )
+                    or (
+                        previous.get("type") == "action"
+                        and str(previous.get("action", "")).strip().lower()
+                        in {"open_application", "open_file"}
+                    )
+                )
+                for previous in steps
+            )
+            generic = self._generic_action(
+                part,
+                ctx,
+                planned_context=planned_context,
+            )
             if generic.get("kind") == "action":
                 action = dict(generic["action"])
                 action_id = f"context_{index}"
@@ -382,4 +542,3 @@ class ContextActionCompiler:
             "context_target": self._context_target(ctx),
             "reason": "Contextual instruction compiled into an ordered safe plan.",
         }
-

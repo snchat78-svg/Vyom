@@ -22,6 +22,7 @@ from typing import Any, Dict, Optional
 from ai_core.action_validator import ActionValidator
 from ai_core.capability_registry import CapabilityRegistry
 from ai_core.capability_resolver import CapabilityResolver
+from ai_core.result_schema import normalize_result
 
 
 class CapabilityExecutor:
@@ -86,17 +87,17 @@ class CapabilityExecutor:
     def execute(self, action: Dict[str, Any]) -> Dict[str, Any]:
         validation = self.validator.validate_action(action)
         if not validation.get("valid", False):
-            return {
+            return normalize_result({
                 "success": False,
                 "stage": "action_validation_failed",
                 "message": validation.get("error", "Invalid action."),
-            }
+            }, default_stage="action_validation_failed")
 
         normalized = validation["action"]
         resolution = self.resolver.resolve(normalized)
 
         if not resolution.get("resolved", False):
-            return {
+            return normalize_result({
                 "success": False,
                 "stage": "capability_resolution_failed",
                 "message": resolution.get(
@@ -104,12 +105,12 @@ class CapabilityExecutor:
                 ),
                 "action": normalized,
                 "resolution": resolution,
-            }
+            }, default_stage="capability_resolution_failed")
 
         capability = str(resolution.get("capability") or "").strip().lower()
         provider = self._providers.get(capability)
         if provider is None:
-            return {
+            return normalize_result({
                 "success": False,
                 "stage": "capability_runtime_missing",
                 "message": (
@@ -117,38 +118,38 @@ class CapabilityExecutor:
                 ),
                 "action": normalized,
                 "resolution": resolution,
-            }
+            }, default_stage="capability_runtime_missing")
 
         execute = getattr(provider, "execute", None)
         if not callable(execute):
-            return {
+            return normalize_result({
                 "success": False,
                 "stage": "capability_provider_invalid",
                 "message": f"Capability provider '{capability}' has no execute method.",
                 "action": normalized,
-            }
+            }, default_stage="capability_provider_invalid")
 
         try:
             result = execute(normalized)
         except Exception as error:
-            return {
+            return normalize_result({
                 "success": False,
                 "stage": "capability_execution_error",
                 "message": str(error),
                 "action": normalized,
                 "capability": capability,
-            }
+            }, default_stage="capability_execution_error")
 
         if isinstance(result, dict):
             result = dict(result)
             result.setdefault("action", normalized)
             result.setdefault("capability", capability)
-            return result
+            return normalize_result(result, default_stage="capability_executed")
 
-        return {
+        return normalize_result({
             "success": bool(result),
             "stage": "capability_executed" if result else "capability_execution_failed",
             "result": result,
             "action": normalized,
             "capability": capability,
-        }
+        }, default_stage="capability_executed")

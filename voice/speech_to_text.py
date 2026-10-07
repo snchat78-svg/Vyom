@@ -16,6 +16,9 @@ import re
 import sys
 import time
 
+from .romanizer import normalize_voice_text
+from .command_normalizer import VoiceCommandNormalizer
+
 
 class SpeechToText:
     recognition_timeout = 4
@@ -49,11 +52,13 @@ class SpeechToText:
         # open between utterances.
         self._session_active = False
         self._last_text = ""
+        self._last_raw_text = ""
         self._last_language = ""
         self._last_status = ""
         self._device_error_count = 0
         self._recognition_error_count = 0
         self._sr_module = None
+        self.command_normalizer = VoiceCommandNormalizer()
         self._initialize()
 
     def _log(self, message):
@@ -250,17 +255,21 @@ class SpeechToText:
                 self._log("%s returned unsupported payload type: %s" %
                           (label, type(payload).__name__))
 
-            text = transcripts[0] if transcripts else ""
+            raw_text = transcripts[0] if transcripts else ""
+            text = normalize_voice_text(raw_text)
             elapsed = time.time() - started
             self._log("%s request finished: %s in %.2fs" % (label, language, elapsed))
-            self._log("%s transcript received: %s" % (label, text if text else "<empty>"))
+            self._log("%s raw transcript received: %s" % (label, raw_text if raw_text else "<empty>"))
+            self._log("%s Roman transcript: %s" % (label, text if text else "<empty>"))
             if len(transcripts) > 1:
                 self._log("%s alternatives: %d" % (label, len(transcripts)))
 
             result = {
                 "success": bool(text),
                 "text": text,
-                "alternatives": transcripts,
+                "raw_text": raw_text,
+                "alternatives": [normalize_voice_text(item) for item in transcripts],
+                "raw_alternatives": transcripts,
                 "language": language,
                 "status": "recognized" if text else "unrecognized",
             }
@@ -278,7 +287,7 @@ class SpeechToText:
             if self._is_device_error(error):
                 self._device_error_count += 1
                 return {
-                    "success": False, "text": "", "language": "",
+                    "success": False, "text": "", "raw_text": "", "language": "",
                     "status": "device_error", "message": message,
                 }
             if self._is_unknown_speech(error):
@@ -365,7 +374,8 @@ class SpeechToText:
         for text in candidates:
             matched, alias = self._wake_detected(text)
             if matched:
-                self._last_text = text
+                self._last_raw_text = text
+                self._last_text = normalize_voice_text(text)
                 self._last_language = "en-IN"
                 self._last_status = "wake_detected"
                 self._log("WAKE WORD MATCHED: " + alias)
@@ -387,7 +397,8 @@ class SpeechToText:
             for text in candidates:
                 matched, alias = self._wake_detected(text)
                 if matched:
-                    self._last_text = text
+                    self._last_raw_text = text
+                    self._last_text = normalize_voice_text(text)
                     self._last_language = "hi-IN"
                     self._last_status = "wake_detected"
                     self._log("WAKE WORD MATCHED: " + alias)
@@ -397,14 +408,16 @@ class SpeechToText:
                         "status": "wake_detected", "wake_word": alias,
                     }
 
-        text = str(first.get("text") or "").strip()
+        raw_text = str(first.get("raw_text") or first.get("text") or "").strip()
+        text = normalize_voice_text(raw_text)
+        self._last_raw_text = raw_text
         self._last_text = text
         self._last_language = "en-IN" if text else ""
         self._last_status = "wake_not_detected" if text else "unrecognized"
         status = self._last_status
         self._log("WAKE recognition cycle END: " + status)
         return {
-            "success": False, "text": text, "language": self._last_language,
+            "success": False, "text": text, "raw_text": raw_text, "language": self._last_language,
             "status": status, "message": str(first.get("message", "") or ""),
         }
 
@@ -417,15 +430,22 @@ class SpeechToText:
         if first.get("status") == "device_error":
             return first
         if first.get("success") or first.get("text"):
-            text = str(first.get("text") or "").strip()
+            raw_text = str(first.get("text") or "").strip()
+            command_meta = self.command_normalizer.normalize(raw_text)
+            text = str(command_meta.get("text") or raw_text).strip()
             self._last_text = text
             self._last_language = self.preferred_language
             self._last_status = "recognized"
             self._log("COMMAND recognition cycle END: recognized")
             return {
-                "success": True, "text": text,
+                "success": True,
+                "text": text,
+                "raw_text": str(first.get("raw_text") or "").strip(),
+                "roman_text": text,
                 "alternatives": list(first.get("alternatives") or []),
                 "language": self.preferred_language,
+                "command_confidence": command_meta.get("confidence", 0.0),
+                "command_corrections": command_meta.get("corrections", []),
                 "status": "recognized",
             }
 
@@ -436,15 +456,22 @@ class SpeechToText:
         if second.get("status") == "device_error":
             return second
         if second.get("success") or second.get("text"):
-            text = str(second.get("text") or "").strip()
+            raw_text = str(second.get("text") or "").strip()
+            command_meta = self.command_normalizer.normalize(raw_text)
+            text = str(command_meta.get("text") or raw_text).strip()
             self._last_text = text
             self._last_language = self.fallback_language
             self._last_status = "recognized"
             self._log("COMMAND recognition cycle END: recognized")
             return {
-                "success": True, "text": text,
+                "success": True,
+                "text": text,
+                "raw_text": str(second.get("raw_text") or "").strip(),
+                "roman_text": text,
                 "alternatives": list(second.get("alternatives") or []),
                 "language": self.fallback_language,
+                "command_confidence": command_meta.get("confidence", 0.0),
+                "command_corrections": command_meta.get("corrections", []),
                 "status": "recognized",
             }
 

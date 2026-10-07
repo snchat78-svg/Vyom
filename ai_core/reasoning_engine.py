@@ -100,6 +100,39 @@ class ReasoningEngine:
         self.last_deep_reasoning: Optional[Dict[str, Any]] = None
 
     # =========================================================
+    # LANGUAGE QUESTION CLASSIFICATION
+    # =========================================================
+
+    @staticmethod
+    def _looks_like_information_question(goal: str) -> bool:
+        value = " ".join(str(goal or "").strip().lower().split())
+        if not value:
+            return False
+        if "?" in value:
+            return True
+
+        tokens = value.replace("-", " ").split()
+        question_words = {
+            "what", "who", "why", "when", "where", "how", "which",
+            "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
+            "kitna", "kitni", "kitne", "kitane", "kitney",
+        }
+        if tokens and tokens[0] in question_words:
+            return True
+        if tokens and tokens[0] in {"tum", "aap", "you"}:
+            if any(token in question_words for token in tokens[1:]):
+                return True
+
+        auxiliaries = {
+            "is", "are", "am", "was", "were",
+            "hai", "hain", "tha", "thi", "the",
+            "hoga", "hogi", "honge", "ho",
+        }
+        if len(tokens) >= 2 and tokens[-1] in auxiliaries:
+            return any(token in question_words for token in tokens[:-1])
+        return False
+
+    # =========================================================
     # NORMALIZE
     # =========================================================
 
@@ -289,7 +322,8 @@ class ReasoningEngine:
         capabilities: List[Any],
         previous_result: Any,
         suggested_intents: List[Dict[str, Any]],
-        sub_goals: List[Any]
+        sub_goals: List[Any],
+        force: bool = False,
     ) -> Dict[str, Any]:
         self.last_deep_reasoning = None
 
@@ -301,7 +335,8 @@ class ReasoningEngine:
         if (
             not available
             or (
-                len(suggested_intents) == 1
+                not force
+                and len(suggested_intents) == 1
                 and len(sub_goals) <= 1
                 and previous_result is None
             )
@@ -413,6 +448,13 @@ class ReasoningEngine:
 
         ctx = context if isinstance(context, dict) else {}
 
+        # Natural-language questions are a semantic conversation class, not a
+        # missing computer capability. This is deliberately language-based:
+        # it does not contain facts, application names, aliases, or command
+        # phrases. The actual answer is produced later by the conversational
+        # model/fallback layer.
+        information_question = self._looks_like_information_question(goal)
+
         try:
             compiled = self.goal_compiler.compile(
                 goal=goal,
@@ -447,10 +489,27 @@ class ReasoningEngine:
         # follow-up such as "type my name" continue in the current session
         # without creating a new application-specific intent. It also builds
         # a complete mixed plan for goals such as "open X and type Y".
-        contextual = self.context_action_compiler.compile(
-            goal=goal,
-            context=ctx,
-        )
+        if (
+            information_question
+            and not suggested_intents
+            and len(sub_goals) <= 1
+        ):
+            # Pure information questions belong to conversation, not the
+            # contextual action compiler. This prevents ordinary question
+            # wording from being misread as an executable follow-up.
+            contextual = {
+                "plan": [],
+                "complete": False,
+                "continuation": False,
+                "context_target": "",
+                "clarification": None,
+                "reason": "Information question bypassed action compilation.",
+            }
+        else:
+            contextual = self.context_action_compiler.compile(
+                goal=goal,
+                context=ctx,
+            )
         contextual_plan = contextual.get("plan", [])
         if not isinstance(contextual_plan, list):
             contextual_plan = []
@@ -464,10 +523,128 @@ class ReasoningEngine:
             except Exception:
                 capabilities = []
 
-        # A complete deterministic contextual plan is already safer and more
-        # predictable than asking an unavailable model to invent actions. Let
-        # the model enrich goals that are not understood by this layer.
-        if suggested_intents or contextual_plan:
+        # Runtime providers advertise their generic actions through the
+        # canonical registry. Keep these descriptions separate from the
+        # legacy goal-capability list so route decisions do not accidentally
+        # treat every registered provider as a match for every goal.
+        reasoning_capabilities = list(capabilities)
+        try:
+            reasoning_capabilities.extend(
+                self.capability_registry.list_capabilities(enabled_only=True)
+            )
+        except Exception:
+            pass
+
+        # A deterministic contextual plan may safely use the fast path when
+        # it is a single action. Compound/contextual missions are non-trivial:
+        # keep DeepReasoner connected to the planning pipeline while retaining
+        # the deterministic contextual plan as the safe fallback whenever the
+        # reasoner is unavailable or returns unusable data.
+        contextual_is_compound = len(contextual_plan) > 1
+        legacy_is_compound = len(suggested_intents) > 1
+        goal_is_non_trivial = bool(
+            contextual_is_compound
+            or legacy_is_compound
+            or len(sub_goals) > 1
+        )
+
+        contextual_generic_actions = [
+            action for action in contextual_plan
+            if isinstance(action, dict) and action.get("type") == "action"
+        ]
+        contextual_resolutions = [
+            self.capability_resolver.resolve(action)
+            for action in contextual_generic_actions
+        ]
+        contextual_actions_resolved = (
+            bool(contextual_generic_actions)
+            and all(item.get("resolved", False) for item in contextual_resolutions)
+        )
+
+        # A complete contextual plan produced by Vyom's own compiler is an
+        # already-understood execution candidate. Treat the local plan as the
+        # canonical execution contract when every generic action has a
+        # registered provider and every legacy step is on the existing safe
+        # execution boundary. A model may still be consulted for non-trivial
+        # goals, but its advisory output must not replace a safe local plan
+        # with an unsupported or unnecessary capability request.
+        contextual_plan_executable = bool(
+            contextual_plan
+            and contextual_complete
+            and not contextual_clarification
+            and contextual_actions_resolved
+            and all(
+                isinstance(step, dict)
+                and (
+                    (
+                        step.get("type") == "execute_existing_intent"
+                        and isinstance(step.get("intent"), dict)
+                        and self._normalize(
+                            step["intent"].get("intent")
+                        ).lower() in self.SAFE_EXECUTABLE_INTENTS
+                        and self._normalize(step["intent"].get("target"))
+                    )
+                    or step.get("type") == "action"
+                )
+                for step in contextual_plan
+            )
+        )
+
+        if (
+            information_question
+            and not suggested_intents
+            and not contextual_plan
+            and len(sub_goals) <= 1
+        ):
+            # Pure conversational questions do not require an action plan.
+            # Route them directly to the response model, avoiding a redundant
+            # reasoning request that would otherwise consume provider quota.
+            deep = {
+                "suggested_intents": [],
+                "sub_goals": sub_goals,
+                "generic_actions": [],
+                "route": "conversation",
+                "data": {
+                    "understood": True,
+                    "goal": goal,
+                    "language": "hinglish"
+                    if any(ch.isascii() and ch.isalpha() for ch in goal)
+                    else "hindi",
+                    "complexity": "simple",
+                    "reason": "Language-only information question.",
+                },
+                "ordered_plan": [],
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
+            }
+        elif goal_is_non_trivial:
+            # Compound goals stay connected to DeepReasoner. When no external
+            # model is available, _deep_reason() returns the deterministic
+            # contextual/compiled fallback without blocking execution.
+            deep = self._deep_reason(
+                goal=goal,
+                intent=intent,
+                context=ctx,
+                capabilities=reasoning_capabilities,
+                previous_result=previous_result,
+                suggested_intents=suggested_intents,
+                sub_goals=sub_goals,
+                force=True,
+            )
+        elif contextual_plan and contextual_complete and contextual_actions_resolved:
+            # A simple contextual action is already fully resolved by Vyom's
+            # local context + capability registry. Keep this deterministic
+            # path and avoid an unnecessary model round-trip.
+            deep = {
+                "suggested_intents": suggested_intents,
+                "sub_goals": sub_goals,
+                "generic_actions": [],
+                "route": None,
+                "data": None,
+                "generic_action_plan": False,
+                "generic_actions_unsupported": False,
+            }
+        elif suggested_intents:
             deep = {
                 "suggested_intents": suggested_intents,
                 "sub_goals": sub_goals,
@@ -482,7 +659,7 @@ class ReasoningEngine:
                 goal=goal,
                 intent=intent,
                 context=ctx,
-                capabilities=capabilities,
+                capabilities=reasoning_capabilities,
                 previous_result=previous_result,
                 suggested_intents=suggested_intents,
                 sub_goals=sub_goals,
@@ -493,6 +670,26 @@ class ReasoningEngine:
         deep_data = deep.get("data")
         deep_route = deep.get("route")
         model_ordered_plan = deep.get("ordered_plan", [])
+
+        # A conversational route is a terminal semantic decision. Keep it
+        # ahead of executable-plan heuristics so a natural question cannot be
+        # reclassified as a mission merely because auxiliary plan metadata is
+        # present.
+        deep_conversation = (
+            isinstance(deep_route, str)
+            and deep_route.strip().lower() == "conversation"
+        )
+        if deep_conversation:
+            model_ordered_plan = []
+            suggested_intents = []
+
+        # DeepReasoner is advisory. When Vyom already has a complete local
+        # contextual plan that is independently executable, keep that plan
+        # authoritative for execution while retaining the model result for
+        # diagnostics/context. This prevents an available model from turning
+        # a known task into "request_new_capability".
+        if contextual_plan_executable:
+            model_ordered_plan = []
         if not isinstance(model_ordered_plan, list):
             model_ordered_plan = []
         generic_action_plan = bool(deep.get("generic_action_plan", False))
@@ -502,15 +699,6 @@ class ReasoningEngine:
         generic_actions = deep.get("generic_actions", [])
         if not isinstance(generic_actions, list):
             generic_actions = []
-
-        contextual_generic_actions = [
-            action for action in contextual_plan
-            if isinstance(action, dict) and action.get("type") == "action"
-        ]
-        contextual_resolutions = [
-            self.capability_resolver.resolve(action)
-            for action in contextual_generic_actions
-        ]
 
         capability_resolutions = [
             self.capability_resolver.resolve(action)
@@ -623,6 +811,7 @@ class ReasoningEngine:
             "generic_actions_unsupported": generic_actions_unsupported,
             "capability_resolutions": capability_resolutions,
             "deep_capability": deep_capability,
+            "information_question": information_question,
         }
 
         self.last_analysis = analysis
@@ -646,6 +835,45 @@ class ReasoningEngine:
         suggested = analysis.get("suggested_intents", [])
         capabilities = analysis.get("capabilities", [])
         deep = analysis.get("deep_reasoning")
+
+        # A natural information question must never become a computer mission
+        # merely because another planner emitted auxiliary metadata. Keep this
+        # boundary semantic and generic; the answer itself remains open-ended.
+        if analysis.get("information_question"):
+            route = {
+                "route": "conversation",
+                "reason": "The user's language expresses an information question."
+            }
+            self.last_route = route
+            return route
+
+        model_ordered_plan = analysis.get("model_ordered_plan", [])
+        if isinstance(model_ordered_plan, list) and model_ordered_plan:
+            plan_types = {str(item.get("type", "")).strip().lower() for item in model_ordered_plan if isinstance(item, dict)}
+            if "conversation" in plan_types:
+                route = {"route": "conversation", "reason": analysis.get("deep_reasoning", {}).get("reason", "The task requires conversation.")}
+            elif "execute_existing_intent" in plan_types and "action" in plan_types:
+                route = {"route": "mission", "reason": "The model produced an ordered mixed mission."}
+            elif plan_types == {"action"}:
+                resolutions = analysis.get("model_generic_capability_resolutions", [])
+                if resolutions and all(item.get("resolved", False) for item in resolutions):
+                    route = {
+                        "route": "capability",
+                        "reason": "The model produced generic actions with available providers.",
+                        "capability": resolutions[0].get("capability", ""),
+                    }
+                else:
+                    route = {
+                        "route": "missing_capability",
+                        "reason": "The model produced generic actions without an available provider.",
+                    }
+                    first = next((step for step in model_ordered_plan if isinstance(step, dict) and step.get("type") == "action"), None)
+                    if first:
+                        route["capability"] = first.get("capability", "")
+            else:
+                route = {"route": "mission", "reason": "The model produced an ordered mission plan."}
+            self.last_route = route
+            return route
 
         contextual_plan = analysis.get("contextual_plan", [])
         if isinstance(contextual_plan, list) and contextual_plan and analysis.get("contextual_plan_complete", False):
@@ -696,34 +924,6 @@ class ReasoningEngine:
                     "route": "existing_tools" if len(contextual_plan) == 1 else "mission",
                     "reason": "Contextual plan uses existing tools.",
                 }
-            self.last_route = route
-            return route
-
-        model_ordered_plan = analysis.get("model_ordered_plan", [])
-        if isinstance(model_ordered_plan, list) and model_ordered_plan:
-            plan_types = {str(item.get("type", "")).strip().lower() for item in model_ordered_plan if isinstance(item, dict)}
-            if "conversation" in plan_types:
-                route = {"route": "conversation", "reason": analysis.get("deep_reasoning", {}).get("reason", "The task requires conversation.")}
-            elif "execute_existing_intent" in plan_types and "action" in plan_types:
-                route = {"route": "mission", "reason": "The model produced an ordered mixed mission."}
-            elif plan_types == {"action"}:
-                resolutions = analysis.get("model_generic_capability_resolutions", [])
-                if resolutions and all(item.get("resolved", False) for item in resolutions):
-                    route = {
-                        "route": "capability",
-                        "reason": "The model produced generic actions with available providers.",
-                        "capability": resolutions[0].get("capability", ""),
-                    }
-                else:
-                    route = {
-                        "route": "missing_capability",
-                        "reason": "The model produced generic actions without an available provider.",
-                    }
-                    first = next((step for step in model_ordered_plan if isinstance(step, dict) and step.get("type") == "action"), None)
-                    if first:
-                        route["capability"] = first.get("capability", "")
-            else:
-                route = {"route": "mission", "reason": "The model produced an ordered mission plan."}
             self.last_route = route
             return route
 
@@ -844,14 +1044,6 @@ class ReasoningEngine:
             generic_actions = []
 
         contextual_plan = analysis.get("contextual_plan", [])
-        if (
-            isinstance(contextual_plan, list)
-            and contextual_plan
-            and analysis.get("contextual_plan_complete", False)
-        ):
-            self.last_plan = [dict(step) for step in contextual_plan if isinstance(step, dict)]
-            return self.last_plan
-
         model_ordered_plan = analysis.get("model_ordered_plan", [])
 
         # A model may describe the required generic operations even when no
@@ -883,6 +1075,18 @@ class ReasoningEngine:
 
         if isinstance(model_ordered_plan, list) and model_ordered_plan:
             self.last_plan = [dict(step) for step in model_ordered_plan if isinstance(step, dict)]
+            return self.last_plan
+
+        if route_name != "missing_capability" and isinstance(model_ordered_plan, list) and model_ordered_plan:
+            self.last_plan = [dict(step) for step in model_ordered_plan if isinstance(step, dict)]
+            return self.last_plan
+
+        if route_name != "missing_capability" and (
+            isinstance(contextual_plan, list)
+            and contextual_plan
+            and analysis.get("contextual_plan_complete", False)
+        ):
+            self.last_plan = [dict(step) for step in contextual_plan if isinstance(step, dict)]
             return self.last_plan
 
         if route_name == "existing_tools":

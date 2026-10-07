@@ -282,9 +282,15 @@ def main():
         # RESPONSE
         # ========================================================
 
+        display = (
+            response.get("message", response)
+            if isinstance(response, dict)
+            else response
+        )
+
         _safe_print(
             "Vyom : "
-            + str(response)
+            + str(display)
         )
 
         _safe_print("")

@@ -15,6 +15,7 @@ from typing import Any, Dict
 
 from command_engine.multilingual_command import MultilingualCommand
 from ai_core.goal_router import GoalRouter
+from voice.command_normalizer import VoiceCommandNormalizer
 
 
 class IntentEngine:
@@ -31,6 +32,19 @@ class IntentEngine:
         "चौथी": "4", "चौथे": "4", "पांच": "5", "पाँच": "5", "पांचवा": "5",
         "पाँचवा": "5", "छह": "6", "छः": "6", "सात": "7", "आठ": "8",
         "नौ": "9", "दस": "10",
+        # Romanized Hindi number words commonly produced by speech recognition.
+        "ek": "1", "one": "1", "do": "2", "teen": "3", "char": "4", "chaar": "4",
+        "paanch": "5", "panch": "5", "che": "6", "chhe": "6", "chhah": "6",
+        "saat": "7", "aath": "8", "nau": "9", "das": "10", "dus": "10",
+        "pahla": "1", "pehla": "1", "pehli": "1", "pehle": "1",
+        "dusra": "2", "doosra": "2", "dusri": "2", "doosri": "2",
+        "teesra": "3", "tisra": "3", "teesri": "3",
+        "chautha": "4", "choutha": "4", "chauthi": "4",
+        "panchva": "5", "panchwan": "5",
+        # Common Hindi spellings of spoken English number words.
+        "वन": "1", "टू": "2", "थ्री": "3", "फोर": "4",
+        "फाइव": "5", "सिक्स": "6", "सेवन": "7", "एट": "8",
+        "नाइन": "9", "टेन": "10",
     }
 
     CONVERSATION_PHRASES = {
@@ -53,6 +67,7 @@ class IntentEngine:
     def __init__(self):
         self.multilingual = MultilingualCommand()
         self.goal_router = GoalRouter()
+        self.voice_normalizer = VoiceCommandNormalizer()
 
     def _normalize(self, text: Any) -> str:
         value = str(text or "").strip().lower()
@@ -63,13 +78,19 @@ class IntentEngine:
             return self.CONVERSATION_PHRASES[text]
 
         patterns = [
-            (r"^(?:hi|hello|hey)\b.*", "greeting"),
+            # Conversation recognition must also work after the voice boundary
+            # has normalized Hindi speech into Roman/Hinglish text.
+            (r"^(?:hi|hello|hey|helo|namaste|namaskar|pranam)\b.*", "greeting"),
             (r"^(?:good morning|good afternoon|good evening)\b.*", "greeting"),
             (r"^(?:कैसे हो|क्या हाल है|कैसा चल रहा है)\b.*", "status"),
+            (r"^(?:kaise ho|kaise hain|kya haal|sab thik|sab theek)$", "status"),
+            (r"^(?:tum|aap)\s+(?:kaise ho|kaise|kya haal|sab thik|theek ho).*", "status"),
             (r"^(?:तुम|आप)\s+(?:कैसे|क्या हाल).*", "status"),
             (r"^(?:what|tell me)\s+(?:can|could)\s+you\s+do.*", "capabilities"),
+            (r"^(?:tum|aap)\s+(?:kya kar sakte ho|kya karte ho|kya kar sakte).*", "capabilities"),
             (r"^(?:तुम|आप)\s+क्या\s+कर\s+सकते.*", "capabilities"),
             (r"^(?:who are you|what are you).*", "identity"),
+            (r"^(?:tum|aap)\s+(?:kaun ho|kaun hain).*", "identity"),
             (r"^(?:तुम कौन हो|आप कौन हैं).*", "identity"),
         ]
         for pattern, kind in patterns:
@@ -77,34 +98,104 @@ class IntentEngine:
                 return kind
         return None
 
+    def _selection_value(self, value: str):
+        candidate = self._normalize(value).strip()
+        if not candidate:
+            return None
+        if candidate.isdigit():
+            return candidate
+        mapped = self.NUMBER_WORDS.get(candidate)
+        if mapped is not None:
+            return mapped
+        return None
+
+    def _strip_selection_suffix(self, value: str) -> str:
+        candidate = self._normalize(value).strip()
+        if not candidate:
+            return ""
+
+        suffixes = (
+            "open it", "open", "select", "choose", "pick",
+            "please", "pls", "kholo", "khol", "kholen",
+            "khol do", "kholdo", "open karo", "open kar",
+            "select karo", "select kar", "chuno", "chun lo",
+            "चुनो", "चुनिए", "चुन लो", "खोलो", "खोलना",
+            "खोलिए", "खोलिये", "खोल दो", "खोल दें",
+            "कर दो", "करो"
+        )
+        changed = True
+        while changed and candidate:
+            changed = False
+            for suffix in sorted(suffixes, key=len, reverse=True):
+                if candidate == suffix:
+                    return ""
+                marker = " " + suffix
+                if candidate.endswith(marker):
+                    candidate = candidate[:-len(marker)].strip()
+                    changed = True
+                    break
+        return candidate
+
     def _detect_selection(self, command: str):
         text = self._normalize(command)
-        if text.isdigit():
-            return text
-        if text in self.NUMBER_WORDS:
-            return self.NUMBER_WORDS[text]
+        if not text:
+            return None
 
-        value = re.sub(
-            r"(?:^|\s)(?:number|option|item|choice|no)\s+",
-            "",
+        direct = self._selection_value(text)
+        if direct is not None:
+            return direct
+
+        # Prefix selections:
+        #   number 1
+        #   number 1 kholo
+        #   option one open
+        #   no 2 select
+        prefix_match = re.match(
+            r"^(?:number|nambar|नंबर|क्रमांक|option|item|choice|no)\s+(.+)$",
             text,
-            count=1,
             flags=re.IGNORECASE,
-        ).strip()
-        value = re.sub(
-            r"\s+(?:please|pls|open|open it|select|choose|pick|खोलो|खोलना|खोलिए|खोलिये|खोल दो|खोल दें|चुनो|चुनिए|चुन लो|कर दो|करो)$",
-            "",
-            value,
+        )
+        if prefix_match:
+            candidate = self._strip_selection_suffix(prefix_match.group(1))
+            direct = self._selection_value(candidate)
+            if direct is not None:
+                return direct
+
+            # Spoken number followed by extra action words.
+            first_token = candidate.split(" ", 1)[0] if candidate else ""
+            direct = self._selection_value(first_token)
+            if direct is not None and len(candidate.split()) <= 3:
+                return direct
+
+        # Bare numeric selection followed by a generic action:
+        #   1
+        #   1 kholo
+        #   2 open karo
+        numeric_match = re.match(
+            r"^(\d+)(?:\s+.+)?$",
+            text,
             flags=re.IGNORECASE,
-        ).strip()
-        if value in self.NUMBER_WORDS:
-            return self.NUMBER_WORDS[value]
-        if value in (
+        )
+        if numeric_match:
+            return numeric_match.group(1)
+
+        cleaned = self._strip_selection_suffix(text)
+
+        # Ordinal / number phrases such as:
+        #   first one open
+        #   second option
+        #   पहला वाला खोलो
+        if cleaned in (
             "first one", "first option", "first item",
             "second one", "second option", "second item",
             "third one", "third option", "third item",
             "fourth one", "fourth option", "fourth item",
             "fifth one", "fifth option", "fifth item",
+            "पहला वाला", "पहली वाली", "पहले वाला", "पहले वाली",
+            "दूसरा वाला", "दूसरी वाली", "दूसरे वाला",
+            "तीसरा वाला", "तीसरी वाली", "तीसरे वाला",
+            "चौथा वाला", "चौथी वाली",
+            "पांचवां वाला", "पाँचवाँ वाला",
         ):
             return {
                 "first one": "1", "first option": "1", "first item": "1",
@@ -112,37 +203,38 @@ class IntentEngine:
                 "third one": "3", "third option": "3", "third item": "3",
                 "fourth one": "4", "fourth option": "4", "fourth item": "4",
                 "fifth one": "5", "fifth option": "5", "fifth item": "5",
-            }[value]
-
-        if value in (
-            "पहला वाला", "पहली वाली", "पहले वाला", "पहले वाली",
-            "दूसरा वाला", "दूसरी वाली", "दूसरे वाला",
-            "तीसरा वाला", "तीसरी वाली", "तीसरे वाला",
-            "चौथा वाला", "चौथी वाली", "पांचवां वाला", "पाँचवाँ वाला",
-        ):
-            return {
                 "पहला वाला": "1", "पहली वाली": "1", "पहले वाला": "1", "पहले वाली": "1",
                 "दूसरा वाला": "2", "दूसरी वाली": "2", "दूसरे वाला": "2",
                 "तीसरा वाला": "3", "तीसरी वाली": "3", "तीसरे वाला": "3",
                 "चौथा वाला": "4", "चौथी वाली": "4",
                 "पांचवां वाला": "5", "पाँचवाँ वाला": "5",
-            }[value]
-        if value.isdigit():
-            return value
+            }[cleaned]
 
-        patterns = [
-            r"^(?:the\s+)?(.+?)\s+(?:one|option|item)$",
-            r"^(.+?)\s+वाला$", r"^(.+?)\s+वाली$", r"^(.+?)\s+वाले$",
-            r"^(.+?)\s+चुनो$", r"^(.+?)\s+चुनिए$", r"^(.+?)\s+चुन लो$",
-        ]
-        for pattern in patterns:
-            match = re.match(pattern, text)
+        # Natural "open the first/second/third" forms.
+        ordinal_patterns = (
+            r"^(?:open|select|choose|pick)\s+the\s+(first|second|third|fourth|fifth)$",
+            r"^(first|second|third|fourth|fifth)\s+(?:one|option|item)$",
+        )
+        for pattern in ordinal_patterns:
+            match = re.match(pattern, cleaned, flags=re.IGNORECASE)
             if match:
-                candidate = match.group(1).strip()
-                if candidate in self.NUMBER_WORDS:
-                    return self.NUMBER_WORDS[candidate]
-                if candidate.isdigit():
-                    return candidate
+                return self.NUMBER_WORDS.get(match.group(1))
+
+        # Romanized Hindi ordinals produced by the voice boundary.
+        roman_ordinal = self._selection_value(cleaned)
+        if roman_ordinal is not None:
+            return roman_ordinal
+
+        # Generic "number/option/item ..." forms with a trailing action.
+        generic_match = re.match(
+            r"^(?:number|nambar|नंबर|क्रमांक|option|item|choice|no)\s+(.+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if generic_match:
+            candidate = self._strip_selection_suffix(generic_match.group(1))
+            return self._selection_value(candidate)
+
         return None
 
     def _strip_polite_suffix(self, target: str) -> str:
@@ -160,7 +252,7 @@ class IntentEngine:
 
         # Open: action may appear before OR after the target.
         open_after = re.match(
-            r"^(?:please\s+|मेरे\s+लिए\s+|मुझे\s+|जरा\s+|ज़रा\s+)?(.+?)\s+(?:open|launch|start|run|खोल|खोलो|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|चला|khol|kholo|kholna|chalu|chalu karo|chalao|open karo|launch karo|start karo|ओपन|खोल दो|ओपन करो)(?:\s+.*)?$",
+            r"^(?:please\s+|मेरे\s+लिए\s+|मुझे\s+|जरा\s+|ज़रा\s+)?(.+?)\s+(?:open|launch|start|run|खोल|खोलो|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|चला|khol|kholo|kholna|kholiye|kholen|khol do|kholdo|chalu|chalu karo|chalao|open karo|open kar|launch karo|start karo|ओपन|खोल दो|ओपन करो)(?:\s+.*)?$",
             text,
             flags=re.IGNORECASE,
         )
@@ -171,7 +263,7 @@ class IntentEngine:
                 return "open", target
 
         open_before = re.match(
-            r"^(?:please\s+)?(?:open|launch|start|run|खोलो?|खोलना|खोलिए|खोलिये|चालू करो|चालू|चलाओ|चला दो|khol|kholo|chalu|chalao|open karo|launch karo|start karo)\s+(.+?)$",
+            r"^(?:please\s+)?(?:open|launch|start|run|खोलो?|खोलना|खोलिए|खोलिये|खोल दो|चालू करो|चालू|चलाओ|चला दो|khol|kholo|kholna|kholiye|kholen|khol do|kholdo|chalu|chalu karo|chalao|open karo|open kar|launch karo|start karo|opan|opn)\s+(.+?)$",
             text,
             flags=re.IGNORECASE,
         )
@@ -203,15 +295,29 @@ class IntentEngine:
 
         return None
 
-    def detect(self, command: Any) -> Dict[str, Any]:
+    def detect(self, command: Any, metadata: Any = None) -> Dict[str, Any]:
         original = str(command or "").strip()
-        text = self._normalize(original)
+        voice_meta = self.voice_normalizer.normalize(original)
+
+        # Preserve voice-origin information that is not present in the
+        # normalized Romanized command. This lets downstream response
+        # generation choose the user's actual spoken language.
+        if isinstance(metadata, dict):
+            external_voice = metadata.get("voice")
+            if isinstance(external_voice, dict):
+                voice_meta = dict(voice_meta)
+                for key in ("raw_text", "recognized_language", "language", "roman_text"):
+                    value = external_voice.get(key)
+                    if value not in (None, ""):
+                        voice_meta[key] = value
+        normalized_input = str(voice_meta.get("text") or original).strip()
+        text = self._normalize(normalized_input)
         if not text:
-            return {"intent": "unknown", "target": "", "selection": None}
+            return {"intent": "unknown", "target": "", "selection": None, "voice": voice_meta}
 
         selection = self._detect_selection(text)
         if selection is not None:
-            return {"intent": "selection", "target": selection, "selection": selection}
+            return {"intent": "selection", "target": selection, "selection": selection, "voice": voice_meta}
 
         conversation = self._conversation(text)
         if conversation:
@@ -219,6 +325,7 @@ class IntentEngine:
                 "intent": "conversation",
                 "target": conversation,
                 "conversation_type": conversation,
+                "voice": voice_meta,
             }
 
         if text in (
@@ -226,10 +333,39 @@ class IntentEngine:
             "बंद करो", "बंद कर दो", "इसे बंद करो", "इसे बंद कर दो",
             "इसे बंद कर", "इसे रोक दो", "band karo", "band kar do"
         ):
-            return {"intent": "close_current", "target": ""}
+            return {"intent": "close_current", "target": "", "voice": voice_meta}
 
         if text in ("exit", "quit", "stop"):
-            return {"intent": "close_app", "target": ""}
+            return {"intent": "close_app", "target": "", "voice": voice_meta}
+
+        # Explicit file-search language remains on the proven
+        # file-search fast path. General searches continue to semantic
+        # reasoning instead.
+        file_search_match = re.match(
+            r"^(?:search|find)\s+(?:file|document)\s+(.+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if file_search_match:
+            return {
+                "intent": "search_file",
+                "target": self._strip_polite_suffix(file_search_match.group(1)),
+                "voice": voice_meta,
+            }
+
+        # A bare open command is still a known command. Return a missing
+        # target so the executor can ask what should be opened instead of
+        # sending the input down the unknown-goal path.
+        if text in (
+            "open", "launch", "start", "run",
+            "open karo", "launch karo", "start karo", "run karo",
+            "खोल", "खोलो", "खोलना", "खोलिए", "खोलिये",
+            "खोल दो", "ओपन", "ओपन करो",
+            "चालू", "चालू करो", "चलाओ",
+            "khol", "kholo", "kholna", "kholiye", "kholen", "khol do", "kholdo",
+            "chalu", "chalu karo", "chalao",
+        ):
+            return {"intent": "open", "target": "", "voice": voice_meta}
 
         # ---------------------------------------------------------
         # COMMAND / GOAL BOUNDARY
@@ -245,19 +381,21 @@ class IntentEngine:
                 "goal": original,
                 "route_reason": route.get("reason", "goal"),
                 "compound": bool(route.get("compound", False)),
+                "voice": voice_meta,
             }
 
-        natural = self._natural_family(original)
+        natural = self._natural_family(normalized_input)
         if natural:
             family, target = natural
             return {
                 "intent": "open" if family == "open" else "close_app",
                 "target": target,
+                "voice": voice_meta,
             }
 
         if text.startswith("find and open ") or text.startswith("search and open "):
             prefix = "find and open " if text.startswith("find and open ") else "search and open "
-            return {"intent": "search_and_open_file", "target": text[len(prefix):].strip()}
+            return {"intent": "search_and_open_file", "target": text[len(prefix):].strip(), "voice": voice_meta}
 
         try:
             converted = self.multilingual.convert(original)
@@ -268,9 +406,9 @@ class IntentEngine:
             family = converted.get("intent")
             target = self._strip_polite_suffix(str(converted.get("target") or "").strip())
             if family == "open":
-                return {"intent": "open", "target": target}
+                return {"intent": "open", "target": target, "voice": voice_meta}
             if family == "close":
-                return {"intent": "close_app", "target": target}
+                return {"intent": "close_app", "target": target, "voice": voice_meta}
             if family == "search":
                 match = re.search(
                     r"([^\s]+\.(?:txt|pdf|doc|docx|xls|xlsx|csv|ppt|pptx|jpg|jpeg|png|gif|mp3|mp4|zip|rar|py|json|xml))$",
@@ -279,8 +417,23 @@ class IntentEngine:
                 )
                 if match:
                     target = match.group(1)
-                target = re.sub(r"^(?:फाइल|फ़ाइल|file)\s+", "", target, flags=re.IGNORECASE).strip()
-                return {"intent": "search_file", "target": target}
+                    target = re.sub(r"^(?:फाइल|फ़ाइल|file)\s+", "", target, flags=re.IGNORECASE).strip()
+                    return {"intent": "search_file", "target": target, "voice": voice_meta}
+
+                if re.search(r"\b(?:search|find)\s+(?:file|document)\b", text, flags=re.IGNORECASE):
+                    return {
+                        "intent": "search_file",
+                        "target": self._strip_polite_suffix(target),
+                        "voice": voice_meta,
+                    }
+
+                # General search requests are not file-search requests.
+                # Preserve the complete utterance for semantic reasoning.
+                return {
+                    "intent": "unknown",
+                    "target": original,
+                    "voice": voice_meta,
+                }
 
         file_extensions = (
             ".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv",
@@ -288,7 +441,6 @@ class IntentEngine:
             ".mp4", ".zip", ".rar", ".py", ".json", ".xml"
         )
         if any(text.endswith(ext) for ext in file_extensions):
-            return {"intent": "open_file", "target": text}
+            return {"intent": "open_file", "target": text, "voice": voice_meta}
 
-        return {"intent": "unknown", "target": original}
-
+        return {"intent": "unknown", "target": original, "voice": voice_meta}

@@ -87,6 +87,9 @@ from memory.session_memory import SessionMemory
 
 from ai_core.observation_verifier import ObservationVerifier
 from ai_core.world_state import WorldStateModel
+from windows_agent.ui_state_observer import UIStateObserver
+from windows_agent.clipboard_manager import ClipboardManager
+from windows_agent.screen_observer import ScreenObserver
 
 
 class AutonomousAgent:
@@ -125,7 +128,10 @@ class AutonomousAgent:
         # GOAL-CENTRIC ARCHITECTURE
         # =========================================================
 
-        self.goal_compiler = GoalCompiler()
+        # ReasoningEngine owns the canonical GoalCompiler. Reuse that exact
+        # instance so goal compilation, contextual compilation, and deep
+        # reasoning cannot drift into separate compiler state.
+        self.goal_compiler = self.reasoning_engine.goal_compiler
 
         self.mission_planner = MissionPlanner(
             max_steps=max_steps
@@ -152,7 +158,11 @@ class AutonomousAgent:
 
         self.verifier = ObservationVerifier()
 
-        self.world_state = WorldStateModel()
+        self.world_state = WorldStateModel(
+            ui_observer=UIStateObserver(),
+            clipboard_manager=ClipboardManager(),
+            screen_observer=ScreenObserver(),
+        )
 
         # =========================================================
         # SESSION MEMORY
@@ -579,6 +589,103 @@ class AutonomousAgent:
             ""
         )
 
+        # Generic Action Schema steps execute only through the registered
+        # capability provider. They are never converted into legacy intents.
+        if step_type == "action":
+            self.context.record_action(
+                {
+                    "type": "action",
+                    "action": step,
+                    "step": step,
+                }
+            )
+            try:
+                result = self.capability_executor.execute(step)
+            except Exception as error:
+                result = {
+                    "success": False,
+                    "stage": "capability_execution_error",
+                    "error": str(error),
+                }
+
+            verification = (
+                result.get("verification", {})
+                if isinstance(result, dict)
+                else {}
+            )
+            verified = bool(
+                isinstance(verification, dict)
+                and verification.get("verified", False)
+            )
+            if isinstance(result, dict) and result.get("success") and not verified:
+                # Provider-level verification is part of the generic
+                # capability contract; do not claim success without it.
+                result = dict(result)
+                result["success"] = False
+                result["stage"] = "verification_failed"
+                verification = dict(verification)
+                verification.setdefault(
+                    "reason",
+                    "Generic capability returned success without verification."
+                )
+
+            successful = bool(
+                isinstance(result, dict)
+                and result.get("success")
+                and verified
+            )
+            self.context.record_result(result, successful)
+            self.world_state.record_execution(
+                action={"type": "action", "action": step, "step": step},
+                result=result,
+                verification=verification,
+            )
+            self.task_history.append({
+                "step": self.step_count,
+                "type": "action",
+                "action": step,
+                "result": result,
+                "verified": verified,
+                "verification": verification,
+                "result_success": bool(
+                    result.get("success")
+                ) if isinstance(result, dict) else False,
+            })
+
+            if successful:
+                action_name = str(step.get("action") or "").strip().lower()
+                target = str(step.get("target") or "").strip()
+                if action_name in {"open_application", "open_file"} and target:
+                    self.context.set_current_target(target)
+                    if action_name == "open_application":
+                        self.context.set_current_app(target)
+                    else:
+                        self.context.set_current_file(target)
+                return {
+                    "success": True,
+                    "stage": "verified",
+                    "result": result,
+                    "verification": verification,
+                    "step": self.step_count,
+                }
+
+            return {
+                "success": False,
+                "stage": "verification_failed" if result.get("stage") == "verification_failed" else "execution_failed",
+                "result": result,
+                "verification": verification,
+                "step": self.step_count,
+            }
+
+        current_intent = step.get(
+            "intent"
+        )
+
+        step_type = step.get(
+            "type",
+            ""
+        )
+
         # =========================================================
         # CAPABILITY ROUTES
         # =========================================================
@@ -792,6 +899,16 @@ class AutonomousAgent:
         # HISTORY
         # =========================================================
 
+        self.world_state.record_execution(
+            action={
+                "type": step_type,
+                "intent": current_intent,
+                "step": step,
+            },
+            result=result,
+            verification=verification,
+        )
+
         history_item = {
             "step": self.step_count,
             "type": step_type,
@@ -906,6 +1023,42 @@ class AutonomousAgent:
             "step": self.step_count
         }
 
+    def _observe_cycle(self, *, phase: str, step: Optional[Dict[str, Any]] = None, result: Any = None, verification: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Capture a fresh, serializable world/context observation.
+
+        Observation is deliberately provider-agnostic. UI/file/process details
+        remain owned by WorldState and platform capabilities; this method only
+        creates the stable boundary used by the autonomous loop.
+        """
+        try:
+            snapshot = self.world_state.snapshot(
+                self.context.snapshot(),
+                mission_state=self.mission_runtime.snapshot(),
+                include_ui=True,
+                include_clipboard=True,
+            )
+        except Exception as error:
+            snapshot = {
+                "observation_error": str(error),
+                "mission_state": self.mission_runtime.snapshot(),
+            }
+
+        observation = {
+            "phase": str(phase or ""),
+            "step_id": (step or {}).get("id") if isinstance(step, dict) else None,
+            "step_type": (step or {}).get("type") if isinstance(step, dict) else None,
+            "result": result,
+            "verification": verification or {},
+            "world_state": snapshot,
+        }
+
+        try:
+            self.world_state.record_observation(observation)
+        except Exception:
+            # Observation persistence must never break execution.
+            pass
+        return observation
+
     # =============================================================
     # RUN MISSION THROUGH RUNTIME
     # =============================================================
@@ -953,6 +1106,8 @@ class AutonomousAgent:
         # =========================================================
         # START MISSION RUNTIME
         # =========================================================
+
+        self._observe_cycle(phase="before_mission", result=None)
 
         runtime_snapshot = (
             self.mission_runtime.start(
@@ -1037,9 +1192,21 @@ class AutonomousAgent:
                             )
                         )
 
+                    final_stage = "completed"
+                    execution_history = [
+                        item
+                        for item in self.task_history
+                        if isinstance(item, dict)
+                        and item.get("stage") != "observation"
+                    ]
+                    if execution_history:
+                        last_history = execution_history[-1]
+                        if bool(last_history.get("verified", False)):
+                            final_stage = "verified"
+
                     return {
                         "success": True,
-                        "stage": "completed",
+                        "stage": final_stage,
                         "result": last_result,
                         "goal": goal,
                         "goal_compilation": compilation,
@@ -1073,8 +1240,17 @@ class AutonomousAgent:
             # Execute the selected step.
             # -----------------------------------------------------
 
+            self._observe_cycle(phase="before_action", step=step, result=None)
+
             result = self._execute_step(
                 step
+            )
+
+            self._observe_cycle(
+                phase="after_action",
+                step=step,
+                result=result.get("result") if isinstance(result, dict) else result,
+                verification=result.get("verification") if isinstance(result, dict) else {},
             )
 
             step_id = step.get(
@@ -1236,9 +1412,21 @@ class AutonomousAgent:
 
             try:
 
+                # Phase 5.6: capture a fresh observation before semantic
+                # re-reasoning. The new plan must be grounded in the state
+                # that exists after the failed/retried execution, not the
+                # stale state from the original plan.
+                self._observe_cycle(
+                    phase="before_replan",
+                    result=self.context.last_result,
+                )
+
                 refreshed_state = (
                     self.world_state.snapshot(
-                        self.context.snapshot()
+                        self.context.snapshot(),
+                        mission_state=self.mission_runtime.snapshot(),
+                        include_ui=True,
+                        include_clipboard=True,
                     )
                 )
 
@@ -1251,6 +1439,13 @@ class AutonomousAgent:
                             self.context.last_result
                         )
                     )
+                )
+
+                # Keep the semantic re-plan itself observable without
+                # mixing it into task_history (which remains execution-only).
+                self._observe_cycle(
+                    phase="after_replan",
+                    result=re_reasoning,
                 )
 
             except Exception as error:
@@ -1376,11 +1571,13 @@ class AutonomousAgent:
             # Validate route
             # -----------------------------------------------------
 
-            if new_route.get(
-                "route"
-            ) not in (
-                "existing_tools",
-                "mission"
+            new_route_name = str(new_route.get("route") or "").strip().lower()
+            new_has_actions = any(
+                isinstance(item, dict) and item.get("type") == "action"
+                for item in new_reasoning_plan
+            )
+            if new_route_name not in ("existing_tools", "mission", "capability") or (
+                new_route_name == "capability" and not new_has_actions
             ):
 
                 self.active = False
@@ -1553,8 +1750,21 @@ class AutonomousAgent:
 
                 break
 
+            self._observe_cycle(
+                phase="before_action",
+                step=step,
+                result=None,
+            )
+
             result = self._execute_step(
                 step
+            )
+
+            self._observe_cycle(
+                phase="after_action",
+                step=step,
+                result=result.get("result") if isinstance(result, dict) else result,
+                verification=result.get("verification") if isinstance(result, dict) else {},
             )
 
             step_id = step.get(
@@ -1951,7 +2161,10 @@ class AutonomousAgent:
 
             state_snapshot = (
                 self.world_state.snapshot(
-                    self.context.snapshot()
+                    self.context.snapshot(),
+                    mission_state=self.mission_runtime.snapshot(),
+                    include_ui=True,
+                    include_clipboard=True,
                 )
             )
 
@@ -2090,12 +2303,20 @@ class AutonomousAgent:
         # EXECUTABLE / MISSION ROUTES
         # =========================================================
 
-        if route.get(
-            "route"
-        ) in (
+        route_name = str(route.get("route") or "").strip().lower()
+        executable_capability_plan = (
+            route_name == "capability"
+            and bool(plan)
+            and any(
+                isinstance(step, dict) and step.get("type") == "action"
+                for step in plan
+            )
+        )
+
+        if route_name in (
             "existing_tools",
             "mission"
-        ):
+        ) or executable_capability_plan:
 
             if not plan:
 
@@ -2154,9 +2375,7 @@ class AutonomousAgent:
         # CAPABILITY FOUND
         # =========================================================
 
-        if route.get(
-            "route"
-        ) == "capability":
+        if route_name == "capability":
 
             capability = route.get(
                 "capability"
@@ -2235,11 +2454,10 @@ class AutonomousAgent:
                 dict
             ):
 
+                # A capability/skill plan is preparation only. It must
+                # never be reported as successful task execution.
                 return {
-                    "success": skill_result.get(
-                        "success",
-                        False
-                    ),
+                    "success": False,
                     "stage": skill_result.get(
                         "stage",
                         "skill_planned"

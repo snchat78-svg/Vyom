@@ -57,6 +57,20 @@ class ReasoningCoreWiringTests(unittest.TestCase):
         self.assertEqual(deep.calls, 1)
         self.assertEqual(result["plan"][0]["intent"]["intent"], "open")
 
+    def test_information_question_skips_action_planning_round_trip(self):
+        compiler = GoalCompiler()
+        deep = FakeDeepReasoner()
+        engine = ReasoningEngine(
+            goal_compiler=compiler,
+            deep_reasoner=deep,
+        )
+
+        result = engine.reason("bharat ki rajadhani kya hai")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["route"]["route"], "conversation")
+        self.assertEqual(deep.calls, 0)
+
     def test_simple_action_keeps_deterministic_path(self):
         compiler = GoalCompiler()
         deep = FakeDeepReasoner()

@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 from ai_core.reasoning_gateway import AIReasoningGateway
 from ai_core.model_gateway import ModelGateway
 from ai_core.goal_compiler import GoalCompiler
+from ai_core.logger import log
 
 
 class DeepReasoner:
@@ -47,6 +48,50 @@ class DeepReasoner:
             else AIReasoningGateway(self.model_gateway)
         )
         self.last_result = None
+
+    @staticmethod
+    def _looks_like_information_question(goal: str) -> bool:
+        value = " ".join(str(goal or "").strip().lower().split())
+        if not value:
+            return False
+
+        # This classifier only identifies interrogative language structure.
+        # It does not contain factual answers, application aliases, or a
+        # command dictionary. The actual answer remains open-ended.
+        if "?" in value:
+            return True
+
+        tokens = value.replace("-", " ").split()
+        if not tokens:
+            return False
+
+        question_words = {
+            "what", "who", "why", "when", "where", "how", "which",
+            "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
+            "kitna", "kitni", "kitne", "kitane", "kitney",
+        }
+
+        if tokens[0] in question_words:
+            return True
+
+        if tokens[0] in {"tum", "aap", "you"} and any(
+            token in question_words for token in tokens[1:]
+        ):
+            return True
+
+        # Hindi/Hinglish and colloquial English often place the interrogative
+        # before a copular/auxiliary ending:
+        #   "... kya hai", "... kaise ho", "... what is"
+        auxiliaries = {
+            "is", "are", "am", "was", "were",
+            "hai", "hain", "tha", "thi", "the",
+            "hoga", "hogi", "honge", "ho",
+        }
+        if len(tokens) >= 2 and tokens[-1] in auxiliaries:
+            if any(token in question_words for token in tokens[:-1]):
+                return True
+
+        return False
 
     def _local_reason(
         self,
@@ -82,6 +127,18 @@ class DeepReasoner:
                     ),
                     "intent": item,
                 })
+        elif self._looks_like_information_question(goal):
+            route = "conversation"
+            plan = [{
+                "step": 1,
+                "type": "conversation",
+                "description": (
+                    "Answer the user's natural-language question from the "
+                    "configured conversational knowledge provider when available."
+                ),
+                "capability": None,
+                "intent": None,
+            }]
         else:
             route = "missing_capability"
             plan = [{
@@ -126,7 +183,15 @@ class DeepReasoner:
         intent=None,
     ):
         # A configured real model always enters through the validated gateway.
-        if self.reasoning_gateway.is_available():
+        model_available = False
+        try:
+            model_available = bool(self.reasoning_gateway.is_available())
+        except Exception:
+            model_available = False
+
+        log("[AI] DEEP REASONER: model_available=%s" % model_available)
+
+        if model_available:
             result = self.reasoning_gateway.reason(
                 goal=goal,
                 context=context,
@@ -138,12 +203,25 @@ class DeepReasoner:
                 and result.get("success", False)
             ):
                 self.last_result = result
+                log("[AI] DEEP REASONER SOURCE: model")
                 return result
+
+            # If the real model is configured but its response fails validation,
+            # do not execute an unvalidated model decision. Record a bounded
+            # diagnostic so runtime logs show why the model path was abandoned.
+            if isinstance(result, dict):
+                stage = str(result.get("stage") or "model_request_failed")
+                reason = str(result.get("error") or result.get("reason") or "").strip()[:240]
+                log(
+                    "[AI] DEEP REASONER MODEL FALLBACK: stage=%s reason=%s"
+                    % (stage, reason)
+                )
 
             # If the real model is configured but its response fails validation,
             # do not execute an unvalidated model decision. Fall back to the
             # existing deterministic local reasoner.
 
+        log("[AI] DEEP REASONER SOURCE: local_reasoner")
         result = self._local_reason(
             goal=goal,
             context=context,

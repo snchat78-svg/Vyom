@@ -37,6 +37,13 @@ class GoalCompiler:
         "क्लोज", "क्लोज करो"
     )
 
+    _ACTION_MARKERS = (
+        "type", "write", "enter", "paste", "press", "click",
+        "double click", "hotkey", "shortcut", "scroll", "focus",
+        "wait", "copy", "cut", "undo", "redo", "select all",
+        "टाइप", "लिख", "डाल", "दबाओ", "क्लिक", "फोकस",
+    )
+
     _SEARCH_WORDS = (
         "search", "find", "look for", "dhundo", "dhundho",
         "खोज", "खोजो", "ढूंढ", "ढूंढो", "ढूंढना"
@@ -130,7 +137,11 @@ class GoalCompiler:
     def _targets_are_clean(self, targets: List[str]) -> bool:
         """Reject target fragments that secretly contain another action/clause."""
 
-        action_words = list(self._OPEN_WORDS) + list(self._CLOSE_WORDS)
+        action_words = (
+            list(self._OPEN_WORDS)
+            + list(self._CLOSE_WORDS)
+            + list(self._ACTION_MARKERS)
+        )
         normalized_actions = sorted(
             {
                 self.normalize(word).lower()
@@ -305,8 +316,13 @@ class GoalCompiler:
             return result
 
         suggested: List[Dict[str, Any]] = []
+        parts = self._split_compound(original)
 
-        if isinstance(intent, dict):
+        # A parser-supplied intent is safe only when the complete utterance
+        # is a single goal. For compound language, the parser may have
+        # recognized only the first stage (for example "open X and ...").
+        # Never let that partial intent suppress the rest of the sentence.
+        if len(parts) == 1 and isinstance(intent, dict):
             intent_name = str(intent.get("intent") or "").strip()
             target = str(intent.get("target") or "").strip()
             if intent_name in (
@@ -314,8 +330,6 @@ class GoalCompiler:
                 "search_and_open_file", "close_app"
             ) and target:
                 suggested.append(dict(intent))
-
-        parts = self._split_compound(original)
 
         if not suggested:
             for part in parts:

@@ -4,10 +4,17 @@ run-name: Vyom EXE | branch=${{ github.ref_name }} | commit=${{ github.sha }}
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - updated
 
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      VYOM_AI_ENABLED: "true"
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: "gemini-3.6-flash"
 
     steps:
 
@@ -18,12 +25,87 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
 
 
       # ======================================================
       # 2. VERIFY EXACT BUILD SOURCE
       # ======================================================
+
+      - name: Verify AI Runtime Configuration
+        shell: powershell
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+              Write-Host "GEMINI_API_KEY is not available in CI; EXE will use user-local vyom.env at runtime."
+          } else {
+              Write-Host "GEMINI_API_KEY is available to the build environment (secret value is never printed)."
+          }
+
+
+      - name: Verify Gemini API Connectivity
+        shell: powershell
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: "gemini-3.6-flash"
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+              Write-Host "GEMINI API SMOKE TEST: SKIPPED - GEMINI_API_KEY secret is not configured."
+              exit 0
+          }
+
+          $uri = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+          $headers = @{
+              "Authorization" = "Bearer $env:GEMINI_API_KEY"
+              "Content-Type" = "application/json"
+              "x-goog-api-client" = "vyom-ai/1.0"
+          }
+
+          $body = @{
+              model = $env:GEMINI_MODEL
+              messages = @(
+                  @{
+                      role = "user"
+                      content = "Reply with the single word OK."
+                  }
+              )
+              temperature = 0
+          } | ConvertTo-Json -Depth 6
+
+          try {
+              $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Post -Body $body -TimeoutSec 30
+              $content = $response.choices[0].message.content
+
+              if ([string]::IsNullOrWhiteSpace([string]$content)) {
+                  Write-Error "GEMINI API SMOKE TEST: FAIL - API returned no message content."
+                  exit 1
+              }
+
+              Write-Host "GEMINI API SMOKE TEST: PASS - secure GitHub key authenticated successfully."
+              Write-Host "Gemini model: $env:GEMINI_MODEL"
+          }
+          catch {
+              $message = [string]$_.Exception.Message
+              $statusCode = $null
+              if ($_.Exception.Response) {
+                  try {
+                      $statusCode = [int]$_.Exception.Response.StatusCode
+                  } catch {}
+              }
+
+              if ($statusCode -eq 429) {
+                  Write-Host "GEMINI API SMOKE TEST: PASS-WARN - Gemini endpoint is reachable but currently rate-limited (HTTP 429)."
+                  Write-Host "Gemini smoke test will not block the build on provider throttling."
+                  exit 0
+              }
+
+              Write-Host "GEMINI API SMOKE TEST: FAIL - API request was rejected or unreachable."
+              Write-Host ("Gemini error: " + $message)
+              if ($statusCode) {
+                  Write-Host ("HTTP status: " + $statusCode)
+              }
+              exit 1
+          }
+
 
       - name: Verify Exact Build Source
         shell: powershell
@@ -143,6 +225,7 @@ jobs:
               "ai_core/skill_builder.py",
               "ai_core/skill_registry.py",
               "ai_core/ui_autonomous_agent.py",
+              "ai_core/result_schema.py",
               "ai_core/world_state.py",
 
               # COMMAND ENGINE
@@ -172,6 +255,11 @@ jobs:
               "windows_agent/process_manager.py",
               "windows_agent/screen_observer.py",
               "windows_agent/ui_automation.py",
+              "windows_agent/ui_element_finder.py",
+              "windows_agent/ui_grounder.py",
+              "windows_agent/ui_verifier.py",
+              "windows_agent/ui_state_observer.py",
+              "windows_agent/ui_patterns.py",
               "windows_agent/window_manager.py",
 
               # VOICE
@@ -192,6 +280,11 @@ jobs:
               "tests/test_reasoning_gateway.py",
               "tests/test_ui_autonomous_agent.py",
               "tests/test_voice_conversation_integration.py",
+              "tests/test_voice_command_normalizer.py",
+              "tests/test_phase5_autonomous_loop.py",
+              "tests/test_phase1_contracts.py",
+              "tests/test_ui_automation_phase2.py",
+              "tests/test_phase3_verification.py",
               "tests/test_windows_ui_capability.py"
           )
 
@@ -239,7 +332,7 @@ jobs:
         shell: powershell
         run: |
 
-          python -c "import ai_core; import ai_core.main; import ai_core.autonomous_agent; import ai_core.brain; import ai_core.capability_manager; import ai_core.capability_executor; import ai_core.capability_registry; import ai_core.capability_resolver; import ai_core.action_schema; import ai_core.action_validator; import ai_core.context_action_compiler; import ai_core.config; import ai_core.conversation_manager; import ai_core.conversation_result; import ai_core.deep_reasoner; import ai_core.goal_compiler; import ai_core.goal_router; import ai_core.logger; import ai_core.mission_planner; import ai_core.mission_runtime; import ai_core.model_gateway; import ai_core.observation_verifier; import ai_core.reasoning_engine; import ai_core.reasoning_gateway; import ai_core.response_engine; import ai_core.skill_builder; import ai_core.skill_registry; import ai_core.ui_autonomous_agent; import ai_core.world_state; import command_engine.executor; import command_engine.intent; import command_engine.multilingual_command; import command_engine.parser; import tools.tool_manager; import tools.universal_app_launcher; import tools.universal_resolver; import memory.selection_manager; import memory.session_memory; import windows_agent.clipboard_manager; import windows_agent.input_controller; import windows_agent.launcher; import windows_agent.process_manager; import windows_agent.screen_observer; import windows_agent.ui_automation; import windows_agent.window_manager; print('VYOM CORE + STEP2 IMPORT TEST PASSED')"
+          python -c "import ai_core; import ai_core.main; import ai_core.autonomous_agent; import ai_core.brain; import ai_core.capability_manager; import ai_core.capability_executor; import ai_core.capability_registry; import ai_core.capability_resolver; import ai_core.action_schema; import ai_core.action_validator; import ai_core.context_action_compiler; import ai_core.config; import ai_core.conversation_manager; import ai_core.conversation_result; import ai_core.deep_reasoner; import ai_core.goal_compiler; import ai_core.goal_router; import ai_core.logger; import ai_core.mission_planner; import ai_core.mission_runtime; import ai_core.model_gateway; import ai_core.observation_verifier; import ai_core.reasoning_engine; import ai_core.reasoning_gateway; import ai_core.response_engine; import ai_core.skill_builder; import ai_core.skill_registry; import ai_core.ui_autonomous_agent; import ai_core.world_state; import command_engine.executor; import command_engine.intent; import command_engine.multilingual_command; import command_engine.parser; import tools.tool_manager; import tools.universal_app_launcher; import tools.universal_resolver; import memory.selection_manager; import memory.session_memory; import windows_agent.clipboard_manager; import windows_agent.input_controller; import windows_agent.launcher; import windows_agent.process_manager; import windows_agent.screen_observer; import windows_agent.ui_automation; import windows_agent.ui_element_finder; import windows_agent.ui_grounder; import windows_agent.ui_state_observer; import windows_agent.ui_verifier; import windows_agent.ui_patterns; import windows_agent.window_manager; import ai_core.result_schema; print('VYOM CORE + STEP2 IMPORT TEST PASSED')"
 
 
       # ======================================================
@@ -250,7 +343,7 @@ jobs:
         shell: powershell
         run: |
 
-          python -c "import voice; import voice.voice_controller; import voice.speech_to_text; import voice.text_to_speech; print('VOICE IMPORT TEST PASSED')"
+          python -c "import voice; import voice.voice_controller; import voice.command_normalizer; import voice.speech_to_text; import voice.text_to_speech; print('VOICE IMPORT TEST PASSED')"
 
 
       # ======================================================
@@ -354,6 +447,7 @@ jobs:
           }
 
           Write-Host "VYOM EXE VERIFIED."
+          Write-Host "AI credentials are intentionally NOT embedded in the EXE."
 
 
       # ======================================================

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 from enum import Enum
 
+from ai_core.result_schema import normalize_result
+
 
 class ConversationStatus(Enum):
     """Stable conversation outcome statuses."""
@@ -64,6 +66,7 @@ class ConversationResult:
             )
         
         if isinstance(result, dict):
+            result = normalize_result(result, status_hint=status_hint)
             response_text = str(result.get("message", result.get("text", "")))
             error_msg = result.get("error", None)
             success = result.get("success", False)
