@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -29,7 +30,6 @@ class LocalQwenProviderTests(unittest.TestCase):
             "VYOM_AI_ENABLED": "true",
             "VYOM_AI_PROVIDER": "auto",
             "VYOM_AI_API_URL": "",
-            "VYOM_AI_API_MODEL": "",
             "VYOM_AI_MODEL": "",
             "GEMINI_API_KEY": "",
             "GEMINI_MODEL": "gemini-3.6-flash",
@@ -79,12 +79,20 @@ class LocalQwenProviderTests(unittest.TestCase):
         self.assertEqual(status["fallbacks"], [])
 
     def test_complete_falls_back_from_gemini_429_to_local_qwen(self):
-        model_payload = (
-            '{"choices":[{"message":{"content":'
-            '"{\"understood\":true,\"goal\":\"hello\",'
-            '\"language\":\"english\",\"complexity\":\"simple\",'
-            '\"route\":\"conversation\",\"plan\":[]}"}}]}'
-        )
+        model_payload = json.dumps({
+            "choices": [{
+                "message": {
+                    "content": json.dumps({
+                        "understood": True,
+                        "goal": "hello",
+                        "language": "english",
+                        "complexity": "simple",
+                        "route": "conversation",
+                        "plan": [],
+                    })
+                }
+            }]
+        })
         calls = []
 
         def fake_urlopen(request, timeout):
