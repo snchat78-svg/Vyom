@@ -145,6 +145,14 @@ class LocalQwenProviderTests(unittest.TestCase):
         self.assertEqual(result["provider"], "local_qwen")
         self.assertEqual(len(calls), 2)
 
+    def test_gemini_429_is_cooled_for_subsequent_requests(self):
+        with self._env(GEMINI_API_KEY="gem-key", QWEN_LOCAL_ENABLED="false"):
+            gateway = ModelGateway()
+            gateway._cool_down_provider("gemini", seconds=60)
+
+            candidates = gateway._provider_candidates()
+
+        self.assertEqual(candidates, [])
 
 if __name__ == "__main__":
     unittest.main()
