@@ -54,6 +54,43 @@ class Phase3VerificationTests(unittest.TestCase):
             {"success": True},
         )
         self.assertFalse(result["verified"])
+    def test_click_ui_element_requires_observable_effect(self):
+        action = {
+            "action": "click_ui_element",
+            "capability": "windows_ui",
+            "target": "Send",
+        }
+        before = {
+            "target_element": {"exists": True, "name": "Send", "focused": False},
+            "focused_element": {"exists": True, "name": "Input", "value": "hello"},
+            "ui_tree_signature": [{"name": "Send"}],
+            "active_window": {"name": "Chat", "hwnd": 10},
+        }
+        unchanged = {
+            "target_element": {"exists": True, "name": "Send", "focused": False},
+            "focused_element": {"exists": True, "name": "Input", "value": "hello"},
+            "ui_tree_signature": [{"name": "Send"}],
+            "active_window": {"name": "Chat", "hwnd": 10},
+        }
+        result = self.verifier.verify(action, before, unchanged, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_click_ui_element_passes_when_target_state_changes(self):
+        action = {
+            "action": "click_ui_element",
+            "capability": "windows_ui",
+            "target": "Send",
+        }
+        before = {
+            "target_element": {"exists": True, "name": "Send", "focused": False},
+            "focused_element": {"exists": True, "name": "Input", "value": "hello"},
+        }
+        after = {
+            "target_element": {"exists": True, "name": "Send", "focused": True},
+            "focused_element": {"exists": True, "name": "Send"},
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertTrue(result["verified"])
 
     def test_custom_postcondition_is_generic(self):
         action = {
