@@ -188,6 +188,60 @@ class LocalSemanticBrain:
         return text
 
     @classmethod
+    def _resolve_reference_target(
+        cls,
+        target: str,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        value = cls._normalize(target)
+        lowered = value.lower()
+        reference_forms = (
+            "it", "this", "that", "this one", "that one",
+            "the same", "same one", "wahi", "wohi", "ye", "ye wala",
+            "woh", "woh wala", "isko", "usko", "ise", "use",
+            "इसे", "इसे वाला", "इसे खोल", "उसे", "उसको", "यह",
+            "यह वाला", "वह", "वो", "वो वाला", "वही",
+        )
+        is_reference = (
+            lowered in reference_forms
+            or lowered.startswith(("this one ", "that one ", "ye wala ", "woh wala "))
+            or lowered.startswith(("वही ", "वो वाला ", "वह वाला ", "यह वाला "))
+        )
+        if not is_reference:
+            return {"resolved": True, "target": value, "reference": None}
+
+        candidates = []
+        for key in ("current_target", "current_app", "current_file"):
+            item = str(context.get(key) or "").strip()
+            if item and item not in candidates:
+                candidates.append(item)
+
+        if not candidates:
+            ui = context.get("ui")
+            focused = (
+                ui.get("focused_element")
+                if isinstance(ui, dict)
+                else context.get("focused_control")
+            )
+            if isinstance(focused, dict) and focused.get("exists"):
+                candidates.append("focused_element")
+
+        if len(candidates) == 1:
+            return {
+                "resolved": True,
+                "target": candidates[0],
+                "reference": "current_context",
+            }
+
+        return {
+            "resolved": False,
+            "clarification": (
+                "मैंने reference सुना, लेकिन current target स्पष्ट नहीं है। "
+                "कृपया बताइए किस item या window की बात कर रहे हैं।"
+            ),
+        }
+
+    @classmethod
     def _is_file_target(cls, target: str) -> bool:
         value = cls._lower(target)
         extensions = (
@@ -276,7 +330,11 @@ class LocalSemanticBrain:
             step["depends_on"] = [previous] if previous else []
             previous = step["id"]
 
-    def _open_close(self, text: str) -> Optional[Dict[str, Any]]:
+    def _open_close(
+        self,
+        text: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         value = self._normalize(text)
 
         action_patterns = [
@@ -306,6 +364,18 @@ class LocalSemanticBrain:
             target = self._strip_end(self._strip_reference_prefix(target))
             target = re.sub(r"^(?:the|a|an)\s+", "", target, flags=re.IGNORECASE).strip()
 
+            reference = self._resolve_reference_target(target, context or {})
+            if not reference.get("resolved"):
+                return {
+                    "operation": "clarification",
+                    "message": reference.get(
+                        "clarification",
+                        "Current target is ambiguous.",
+                    ),
+                    "confidence": 0.40,
+                }
+
+            target = str(reference.get("target") or "").strip()
             if not target:
                 continue
 
@@ -318,6 +388,7 @@ class LocalSemanticBrain:
                 "interpretation": {
                     "operation": operation,
                     "target_role": "file" if self._is_file_target(target) else "application",
+                    "reference": reference.get("reference"),
                 },
             }
 
@@ -533,8 +604,16 @@ class LocalSemanticBrain:
                 })
                 continue
 
-            opened = self._open_close(part)
+            opened = self._open_close(part, context=ctx)
             if opened:
+                if opened.get("operation") == "clarification":
+                    unresolved.append(part)
+                    interpretations.append({
+                        "text": part,
+                        "operation": "clarification",
+                        "confidence": opened.get("confidence", 0.40),
+                    })
+                    continue
                 steps.append(
                     self._action(
                         opened["operation"],
