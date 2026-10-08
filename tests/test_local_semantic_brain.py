@@ -150,3 +150,39 @@ def test_deep_reasoner_local_brain_works_with_no_model():
     assert result["source"] == "local_semantic_brain"
     assert result["data"]["route"] == "mission"
     assert gateway.calls == 0
+
+
+def test_local_brain_understands_natural_typing_without_context():
+    brain = LocalSemanticBrain()
+    result = brain.reason(
+        "shambhu lal likho",
+        context={},
+    )
+
+    assert result["route"] == "capability"
+    assert result["plan"][0]["action"] == "type_text"
+    assert result["plan"][0]["args"]["text"] == "shambhu lal"
+
+
+def test_local_brain_understands_natural_ui_click():
+    brain = LocalSemanticBrain()
+    result = brain.reason(
+        "search box click karo",
+        context={},
+    )
+
+    assert result["route"] == "capability"
+    assert result["plan"][0]["action"] == "click_ui_element"
+    assert result["plan"][0]["target"] == "search box"
+
+
+def test_local_brain_understands_window_controls():
+    brain = LocalSemanticBrain()
+    result = brain.reason(
+        "window maximize karo",
+        context={},
+    )
+
+    assert result["route"] == "capability"
+    assert result["plan"][0]["action"] == "hotkey"
+    assert result["plan"][0]["args"]["keys"] == ["win", "up"]
