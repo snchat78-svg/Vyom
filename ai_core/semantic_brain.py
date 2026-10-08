@@ -333,6 +333,94 @@ class LocalSemanticBrain:
             return "focused_element"
         return ""
 
+    @classmethod
+    def _selection_index(cls, text: str) -> Optional[int]:
+        value = cls._lower(text)
+        word_numbers = {
+            "one": 1, "first": 1, "two": 2, "second": 2,
+            "three": 3, "third": 3, "four": 4, "fourth": 4,
+            "five": 5, "fifth": 5,
+            "ek": 1, "pehla": 1, "पहला": 1,
+            "do": 2, "dusra": 2, "दूसरा": 2,
+            "teen": 3, "teesra": 3, "तीसरा": 3,
+            "char": 4, "chautha": 4, "चौथा": 4,
+            "paanch": 5, "pachva": 5, "पाँचवाँ": 5,
+        }
+        digit = re.search(
+            r"(?:number|no\.?|option|item|choice|विकल्प|नंबर|आइटम)\s*([0-9]+)",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if digit:
+            return int(digit.group(1))
+        for marker, number in word_numbers.items():
+            if re.search(
+                rf"\b(?:number|option|item|choice)\s+{re.escape(marker)}\b",
+                value,
+                flags=re.IGNORECASE,
+            ):
+                return number
+            if value.strip() == marker:
+                return number
+        return None
+
+    @classmethod
+    def _selection_from_context(
+        cls,
+        text: str,
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if not bool(context.get("pending_selection", False)):
+            return None
+
+        options = context.get("selection_options")
+        if not isinstance(options, list) or not options:
+            return {
+                "operation": "clarification",
+                "message": (
+                    "मुझे पिछली selection याद है, लेकिन उसके options उपलब्ध नहीं हैं। "
+                    "कृपया item का नाम बोलिए।"
+                ),
+                "confidence": 0.40,
+            }
+
+        number = cls._selection_index(text)
+        if number is None:
+            return None
+
+        index = number - 1
+        if index < 0 or index >= len(options):
+            return {
+                "operation": "clarification",
+                "message": "यह selection number उपलब्ध नहीं है। कृपया मिले हुए options में से सही number बताइए।",
+                "confidence": 0.45,
+            }
+
+        selected = options[index]
+        if isinstance(selected, dict):
+            target = str(
+                selected.get("path")
+                or selected.get("name")
+                or selected.get("display_name")
+                or ""
+            ).strip()
+        else:
+            target = str(selected or "").strip()
+
+        if not target:
+            return {
+                "operation": "clarification",
+                "message": "मैं selected item की पहचान नहीं कर पाया। कृपया उसका नाम बताइए।",
+                "confidence": 0.42,
+            }
+
+        return {
+            "operation": "open_file" if cls._is_file_target(target) else "open_application",
+            "target": target,
+            "confidence": 0.96,
+            "reference": "pending_selection",
+        }
+
     def _action(
         self,
         action: str,
@@ -779,6 +867,30 @@ class LocalSemanticBrain:
         ] or [original]
 
         if len(parts) == 1:
+            selected = self._selection_from_context(parts[0], ctx)
+            if selected and selected.get("operation") != "clarification":
+                step = self._action(
+                    selected["operation"],
+                    target=selected["target"],
+                    description="Resolve the user's selection from the previous runtime result.",
+                )
+                self._set_ids([step])
+                result = {
+                    "success": True,
+                    "route": "capability",
+                    "goal": original,
+                    "confidence": selected.get("confidence", 0.96),
+                    "semantic_interpretation": [{
+                        "operation": selected["operation"],
+                        "reference": selected.get("reference"),
+                    }],
+                    "plan": [step],
+                    "source": "local_semantic_brain",
+                    "needs_confirmation": False,
+                }
+                self.last_result = result
+                return result
+
             opened = self._open_close(parts[0], context=ctx)
             if opened and opened.get("operation") != "clarification":
                 step = self._action(
