@@ -204,10 +204,13 @@ class DeepReasoner:
         plan = plan if isinstance(plan, list) else []
 
         # A locally understood execution/conversation decision is authoritative
-        # enough to avoid an unnecessary remote model dependency. Unresolved
-        # language can still escalate to the optional model below.
-        if route in {"capability", "mission", "conversation"} and (
-            bool(plan) or route == "conversation"
+        # enough to avoid an unnecessary remote model dependency. A safe
+        # clarification is also local terminal state; it must not burn a model
+        # request merely to rephrase the same question.
+        terminal_route = route
+        output_route = "conversation" if route == "clarification" else route
+        if output_route in {"capability", "mission", "conversation"} and (
+            bool(plan) or output_route == "conversation"
         ):
             data = {
                 "understood": True,
@@ -216,7 +219,9 @@ class DeepReasoner:
                 "language": "hinglish",
                 "complexity": "simple" if len(plan) <= 1 else "medium",
                 "analysis": "Local semantic interpretation.",
-                "route": route,
+                "route": output_route,
+                "semantic_route": terminal_route,
+                "response": str(semantic.get("message") or "").strip(),
                 "capability": "windows_ui" if any(
                     isinstance(step, dict) and step.get("type") == "action"
                     for step in plan
