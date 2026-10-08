@@ -555,9 +555,39 @@ class LocalSemanticBrain:
             self.last_result = result
             return result
 
-        # Reuse the canonical contextual compiler first. It already knows
-        # how to preserve dependency order for supported mixed goals such as
-        # "open X and type Y" without losing the second semantic stage.
+        # Single natural commands are interpreted by the semantic brain
+        # itself before the legacy contextual compiler. This is important for
+        # pronouns/references: "ye wala kholo" must become a generic
+        # open_application action, not a legacy mission step.
+        parts = [
+            self._normalize(item)
+            for item in self._CONNECTOR_RE.split(original)
+            if self._normalize(item)
+        ] or [original]
+
+        if len(parts) == 1:
+            opened = self._open_close(parts[0], context=ctx)
+            if opened and opened.get("operation") != "clarification":
+                step = self._action(
+                    opened["operation"],
+                    target=opened["target"],
+                    description="Resolve and execute the user's requested target at runtime.",
+                )
+                self._set_ids([step])
+                result = {
+                    "success": True,
+                    "route": "capability",
+                    "goal": original,
+                    "confidence": opened.get("confidence", 0.94),
+                    "semantic_interpretation": [opened.get("interpretation", {})],
+                    "plan": [step],
+                    "source": "local_semantic_brain",
+                    "needs_confirmation": False,
+                }
+                self.last_result = result
+                return result
+
+        # Reuse the canonical contextual compiler for mixed/compound goals.
         whole_plan = self._generic_from_context_compiler(original, ctx)
         if whole_plan:
             self._set_ids(whole_plan)
@@ -582,12 +612,6 @@ class LocalSemanticBrain:
             }
             self.last_result = result
             return result
-
-        parts = [
-            self._normalize(item)
-            for item in self._CONNECTOR_RE.split(original)
-            if self._normalize(item)
-        ] or [original]
 
         steps: List[Dict[str, Any]] = []
         interpretations = []
