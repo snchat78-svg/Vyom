@@ -491,6 +491,148 @@ class LocalSemanticBrain:
         plan = compiled.get("plan")
         return [dict(item) for item in plan if isinstance(item, dict)]
 
+    @classmethod
+    def _extract_payload(cls, text: str, vocabulary) -> str:
+        value = cls._normalize(text)
+        phrases = "|".join(
+            re.escape(item)
+            for item in sorted(vocabulary, key=len, reverse=True)
+        )
+        match = re.match(
+            rf"^(?:please\s+|mujhe\s+|mere\s+liye\s+)?(?:{phrases})\s+(.+?)\s*$",
+            value,
+            re.IGNORECASE,
+        )
+        if match:
+            return cls._strip_end(match.group(1)).strip(" ,.!?")
+        match = re.match(
+            rf"^(.+?)\s+(?:{phrases})(?:\s+.*)?$",
+            value,
+            re.IGNORECASE,
+        )
+        if match:
+            return cls._strip_end(match.group(1)).strip(" ,.!?")
+        return ""
+
+    def _semantic_surface_action(
+        self,
+        text: str,
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        value = self._normalize(text)
+        lower = value.lower()
+
+        payload = self._extract_payload(value, self._TYPE)
+        if payload:
+            return {
+                "operation": "type_text",
+                "target": "focused_element",
+                "args": {"text": self._strip_reference_prefix(payload)},
+                "confidence": 0.90,
+            }
+
+        payload = self._extract_payload(value, self._CLICK)
+        if payload:
+            payload = re.sub(
+                r"^(?:on|the|button|link|par)\s+",
+                "",
+                payload,
+                flags=re.IGNORECASE,
+            ).strip()
+            return {
+                "operation": "click_ui_element",
+                "target": payload,
+                "confidence": 0.84,
+            }
+
+        payload = self._extract_payload(value, self._FOCUS)
+        if payload:
+            return {
+                "operation": "focus_ui_element",
+                "target": payload,
+                "confidence": 0.84,
+            }
+
+        payload = self._extract_payload(value, self._INVOKE)
+        if payload:
+            return {
+                "operation": (
+                    "select_ui_element"
+                    if lower.startswith(("select ", "choose ", "chun", "चुन"))
+                    else "invoke_ui_element"
+                ),
+                "target": payload,
+                "confidence": 0.83,
+            }
+
+        if lower in {
+            "maximize", "maximize karo", "window maximize",
+            "window ko maximize karo", "बड़ा करो", "अधिकतम करो",
+        }:
+            return {
+                "operation": "hotkey",
+                "target": "win+up",
+                "args": {"keys": ["win", "up"]},
+                "confidence": 0.87,
+            }
+
+        if lower in {
+            "minimize", "minimize karo", "window minimize",
+            "window ko minimize karo", "छोटा करो", "न्यूनतम करो",
+        }:
+            return {
+                "operation": "hotkey",
+                "target": "win+down",
+                "args": {"keys": ["win", "down"]},
+                "confidence": 0.87,
+            }
+
+        if lower in {
+            "switch window", "switch windows", "next window",
+            "window change", "window badlo", "खिड़की बदलो", "विंडो बदलो",
+        }:
+            return {
+                "operation": "hotkey",
+                "target": "alt+tab",
+                "args": {"keys": ["alt", "tab"]},
+                "confidence": 0.84,
+            }
+
+        if lower in {
+            "screenshot", "take screenshot", "screen shot",
+            "screenshot lo", "screen shot lo", "स्क्रीनशॉट", "स्क्रीन शॉट लो",
+        }:
+            return {
+                "operation": "screenshot",
+                "target": "",
+                "args": {},
+                "confidence": 0.90,
+            }
+
+        scroll_target = cls._strip_end(lower)
+        if scroll_target in {
+            "scroll down", "scroll neeche", "neeche scroll",
+            "नीचे स्क्रॉल", "स्क्रॉल नीचे", "नीचे स्क्रोल",
+        }:
+            return {
+                "operation": "scroll",
+                "target": "down",
+                "args": {"amount": 3},
+                "confidence": 0.86,
+            }
+        if scroll_target in {
+            "scroll up", "scroll upar", "upar scroll",
+            "ऊपर स्क्रॉल", "स्क्रॉल ऊपर", "ऊपर स्क्रोल",
+        }:
+            return {
+                "operation": "scroll",
+                "target": "up",
+                "args": {"amount": -3},
+                "confidence": 0.86,
+            }
+
+        return None
+
     def _operation_from_surface(self, text: str) -> Optional[Dict[str, Any]]:
         value = self._normalize(text)
         lower = value.lower()
@@ -684,6 +826,23 @@ class LocalSemanticBrain:
                     "operation": searched["operation"],
                     "query": searched["query"],
                     "confidence": searched["confidence"],
+                })
+                continue
+
+            generic = self._semantic_surface_action(part, ctx)
+            if generic:
+                steps.append(
+                    self._action(
+                        generic["operation"],
+                        target=generic.get("target") or "",
+                        args=generic.get("args") or {},
+                        description="Interpret the natural-language computer operation locally.",
+                    )
+                )
+                interpretations.append({
+                    "text": part,
+                    "operation": generic["operation"],
+                    "confidence": generic.get("confidence", 0.83),
                 })
                 continue
 
