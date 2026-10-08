@@ -80,6 +80,22 @@ def test_local_brain_keeps_compound_goal_order():
     assert result["plan"][1]["depends_on"] == [result["plan"][0]["id"]]
 
 
+def test_local_brain_resolves_follow_up_reference_from_context():
+    brain = LocalSemanticBrain()
+    result = brain.reason(
+        "ye wala kholo",
+        context={
+            "current_target": "Current Document",
+            "current_app": "",
+            "current_file": "",
+        },
+    )
+
+    assert result["route"] == "capability"
+    assert result["plan"][0]["action"] == "open_application"
+    assert result["plan"][0]["target"] == "Current Document"
+
+
 def test_local_brain_does_not_guess_numbered_instance():
     brain = LocalSemanticBrain()
     result = brain.reason(
