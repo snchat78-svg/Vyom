@@ -333,13 +333,10 @@ class ReasoningEngine:
             available = False
 
         if (
-            not available
-            or (
-                not force
-                and len(suggested_intents) == 1
-                and len(sub_goals) <= 1
-                and previous_result is None
-            )
+            not force
+            and len(suggested_intents) == 1
+            and len(sub_goals) <= 1
+            and previous_result is None
         ):
             return {
                 "suggested_intents": suggested_intents,
@@ -677,7 +674,7 @@ class ReasoningEngine:
         # present.
         deep_conversation = (
             isinstance(deep_route, str)
-            and deep_route.strip().lower() == "conversation"
+            and deep_route.strip().lower() in {"conversation", "clarification"}
         )
         if deep_conversation:
             model_ordered_plan = []
@@ -981,10 +978,15 @@ class ReasoningEngine:
             self.last_route = route
             return route
 
-        if isinstance(deep, dict) and deep.get("route") == "conversation":
+        if isinstance(deep, dict) and deep.get("route") in {"conversation", "clarification"}:
             route = {
                 "route": "conversation",
-                "reason": deep.get("reason", "The task requires conversation.")
+                "reason": deep.get(
+                    "reason",
+                    "The task requires clarification."
+                    if deep.get("route") == "clarification"
+                    else "The task requires conversation."
+                )
             }
             self.last_route = route
             return route
