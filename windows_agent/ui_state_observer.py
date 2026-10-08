@@ -7,6 +7,7 @@ paths.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -25,7 +26,14 @@ class UIStateObserver:
         self.finder = finder or UIElementFinder()
         self.max_tree_elements = max(1, int(max_tree_elements))
         self._Desktop = None
+        self._user32 = None
         self.available = False
+
+        try:
+            if os.name == "nt":
+                self._user32 = ctypes.windll.user32
+        except Exception:
+            self._user32 = None
 
         try:
             if os.name == "nt":
@@ -151,10 +159,64 @@ class UIStateObserver:
         window = self._top_level(active) or active
         return self.element_state(window)
 
+    def _win32_focused_handle(self) -> int:
+        """Return the OS-reported focused child HWND when available."""
+        if self._user32 is None:
+            return 0
+
+        class GUITHREADINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_uint32),
+                ("flags", ctypes.c_uint32),
+                ("hwndActive", ctypes.c_void_p),
+                ("hwndFocus", ctypes.c_void_p),
+                ("hwndCapture", ctypes.c_void_p),
+                ("hwndMenuOwner", ctypes.c_void_p),
+                ("hwndMoveSize", ctypes.c_void_p),
+                ("hwndCaret", ctypes.c_void_p),
+            ]
+
+        try:
+            foreground = self._user32.GetForegroundWindow()
+            if not foreground:
+                return 0
+
+            process_id = ctypes.c_uint32(0)
+            thread_id = self._user32.GetWindowThreadProcessId(
+                foreground,
+                ctypes.byref(process_id),
+            )
+            if not thread_id:
+                return 0
+
+            info = GUITHREADINFO()
+            info.cbSize = ctypes.sizeof(GUITHREADINFO)
+            if not self._user32.GetGUIThreadInfo(
+                thread_id,
+                ctypes.byref(info),
+            ):
+                return 0
+
+            return int(info.hwndFocus or 0)
+        except Exception:
+            return 0
+
     def focused_element_state(self) -> Dict[str, Any]:
         desktop = self._desktop()
         if desktop is None:
             return {"exists": False}
+
+        # Prefer the OS focus handle. This avoids depending on the position of
+        # the focused control inside a potentially large UIA descendant tree.
+        focused_handle = self._win32_focused_handle()
+        if focused_handle:
+            try:
+                focused = desktop.window(handle=focused_handle)
+                state = self.element_state(focused)
+                if state.get("exists"):
+                    return state
+            except Exception:
+                pass
 
         try:
             active = desktop.get_active()
