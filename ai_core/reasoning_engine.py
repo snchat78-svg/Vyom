@@ -801,7 +801,19 @@ class ReasoningEngine:
             "previous_result": previous_result,
             "compiled_goal": compiled,
             "deep_reasoning": deep_data,
-            "deep_reasoning_source": "model" if deep_data is not None else None,
+            "response": (
+                deep_data.get("response", "")
+                if isinstance(deep_data, dict)
+                else ""
+            ),
+            "deep_reasoning_source": (
+                "local_semantic_brain"
+                if isinstance(deep_data, dict)
+                and deep_data.get("source") == "local_semantic_brain"
+                else "model"
+                if deep_data is not None
+                else None
+            ),
             "deep_reasoning_language": language,
             "generic_action_plan": generic_action_plan,
             "generic_actions": generic_actions,
