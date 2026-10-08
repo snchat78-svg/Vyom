@@ -16,6 +16,7 @@ low-resource Windows machines without requiring a paid API.
 This module never executes computer actions.
 """
 
+import os
 from typing import Any, Dict, Optional
 
 from ai_core.reasoning_gateway import AIReasoningGateway
@@ -51,6 +52,12 @@ class DeepReasoner:
         )
         self.semantic_brain = LocalSemanticBrain(
             context_action_compiler=ContextActionCompiler(self.goal_compiler)
+        )
+        self.allow_remote_reasoning = bool(
+            str(
+                os.getenv("VYOM_REMOTE_REASONING", "false")
+            ).strip().lower()
+            in {"1", "true", "yes", "on"}
         )
         self.last_result = None
 
@@ -267,8 +274,22 @@ class DeepReasoner:
             log("[AI] DEEP REASONER SOURCE: local_semantic_brain")
             return local_result
 
-        # A configured real model is only consulted when the local semantic
-        # layer cannot safely resolve the complete goal.
+        # Remote model reasoning is deliberately opt-in. The default
+        # production control plane is the local Vyom semantic brain, so
+        # Gemini quota/network state cannot prevent computer command execution.
+        if not self.allow_remote_reasoning:
+            result = self._local_reason(
+                goal=goal,
+                context=context,
+                capabilities=capabilities,
+                previous_result=previous_result,
+                intent=intent,
+            )
+            self.last_result = result
+            log("[AI] DEEP REASONER SOURCE: local_reasoner")
+            return result
+
+        # A configured real model is consulted only when explicitly enabled.
         model_available = False
         try:
             model_available = bool(self.reasoning_gateway.is_available())
