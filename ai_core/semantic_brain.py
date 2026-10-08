@@ -699,23 +699,44 @@ class LocalSemanticBrain:
 
         if unresolved:
             current = self._current_target(ctx)
-            if any("number" in self._lower(item) or "option" in self._lower(item) for item in unresolved):
-                message = "मैंने instruction समझने की कोशिश की, लेकिन selection का संदर्भ स्पष्ट नहीं है। कृपया बताइए किस item/instance को चुनना है।"
+            selection_ambiguity = any(
+                "number" in self._lower(item)
+                or "option" in self._lower(item)
+                or "instance" in self._lower(item)
+                for item in unresolved
+            )
+
+            if selection_ambiguity:
+                message = (
+                    "मैंने instruction समझने की कोशिश की, लेकिन selection का संदर्भ "
+                    "स्पष्ट नहीं है। कृपया बताइए किस item/instance को चुनना है।"
+                )
+                route = "clarification"
             elif current:
-                message = "मैंने active context पहचाना है, लेकिन इस instruction को safely execute करने के लिए थोड़ा और detail चाहिए।"
+                message = (
+                    "मैं active context पहचान रहा हूँ, लेकिन इस instruction को "
+                    "safely execute करने के लिए semantic interpretation और चाहिए।"
+                )
+                route = "escalate"
             else:
-                message = "मैं इस instruction का सुरक्षित अर्थ तय नहीं कर पाया। कृपया इसे थोड़ा और स्पष्ट करें।"
+                message = (
+                    "यह instruction local semantic rules से पूरी तरह resolve नहीं हुई। "
+                    "इसे आगे semantic reasoning के लिए भेजा जा सकता है।"
+                )
+                route = "escalate"
 
             result = {
                 "success": True,
-                "route": "clarification",
+                "route": route,
                 "goal": original,
-                "confidence": 0.34,
+                "confidence": 0.34 if route == "clarification" else 0.46,
                 "semantic_interpretation": interpretations,
                 "unresolved_parts": unresolved,
                 "message": message,
                 "plan": [],
                 "source": "local_semantic_brain",
+                "terminal": route == "clarification",
+                "needs_model": route == "escalate",
             }
             self.last_result = result
             return result
