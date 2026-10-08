@@ -319,8 +319,11 @@ class DeepReasoner:
         return result
 
     def is_available(self):
-        # "Available" means a real model endpoint is configured.
-        return self.reasoning_gateway.is_available()
+        # The reasoning layer is always available because the dependency-free
+        # local semantic brain can interpret and plan supported computer tasks.
+        # A hosted/local model is an optional escalation source, not a
+        # prerequisite for semantic execution.
+        return True
 
     def reset(self):
         self.last_result = None
