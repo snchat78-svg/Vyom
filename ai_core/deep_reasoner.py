@@ -22,6 +22,7 @@ from ai_core.reasoning_gateway import AIReasoningGateway
 from ai_core.model_gateway import ModelGateway
 from ai_core.goal_compiler import GoalCompiler
 from ai_core.logger import log
+from ai_core.semantic_brain import LocalSemanticBrain
 
 
 class DeepReasoner:
@@ -46,6 +47,9 @@ class DeepReasoner:
             reasoning_gateway
             if reasoning_gateway is not None
             else AIReasoningGateway(self.model_gateway)
+        )
+        self.semantic_brain = LocalSemanticBrain(
+            context_action_compiler=ContextActionCompiler(self.goal_compiler)
         )
         self.last_result = None
 
@@ -174,6 +178,69 @@ class DeepReasoner:
             },
         }
 
+    def _local_semantic_result(
+        self,
+        goal: str,
+        context: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Return a safe executable semantic plan without contacting a model."""
+        try:
+            semantic = self.semantic_brain.reason(
+                goal=goal,
+                context=context,
+            )
+        except Exception as error:
+            log(
+                "[AI] LOCAL SEMANTIC BRAIN ERROR: %s"
+                % str(error)[:240]
+            )
+            return None
+
+        if not isinstance(semantic, dict):
+            return None
+
+        route = str(semantic.get("route") or "").strip().lower()
+        plan = semantic.get("plan")
+        plan = plan if isinstance(plan, list) else []
+
+        # A locally understood execution/conversation decision is authoritative
+        # enough to avoid an unnecessary remote model dependency. Unresolved
+        # language can still escalate to the optional model below.
+        if route in {"capability", "mission", "conversation"} and (
+            bool(plan) or route == "conversation"
+        ):
+            data = {
+                "understood": True,
+                "goal": str(semantic.get("goal") or goal),
+                "objective": str(semantic.get("goal") or goal),
+                "language": "hinglish",
+                "complexity": "simple" if len(plan) <= 1 else "medium",
+                "analysis": "Local semantic interpretation.",
+                "route": route,
+                "capability": "windows_ui" if any(
+                    isinstance(step, dict) and step.get("type") == "action"
+                    for step in plan
+                ) else "",
+                "semantic_interpretation": semantic.get(
+                    "semantic_interpretation", []
+                ),
+                "confidence": semantic.get("confidence", 0.0),
+                "plan": plan,
+                "needs_confirmation": bool(
+                    semantic.get("needs_confirmation", False)
+                ),
+                "reason": "Resolved by local semantic brain.",
+                "source": "local_semantic_brain",
+            }
+            return {
+                "success": True,
+                "available": False,
+                "source": "local_semantic_brain",
+                "data": data,
+            }
+
+        return None
+
     def reason(
         self,
         goal: str,
@@ -182,7 +249,20 @@ class DeepReasoner:
         previous_result=None,
         intent=None,
     ):
-        # A configured real model always enters through the validated gateway.
+        # Local semantic reasoning is the first-class mind for executable
+        # computer tasks. A remote model is an escalation path, not a
+        # prerequisite for understanding or executing ordinary commands.
+        local_result = self._local_semantic_result(
+            goal=goal,
+            context=context,
+        )
+        if local_result is not None:
+            self.last_result = local_result
+            log("[AI] DEEP REASONER SOURCE: local_semantic_brain")
+            return local_result
+
+        # A configured real model is only consulted when the local semantic
+        # layer cannot safely resolve the complete goal.
         model_available = False
         try:
             model_available = bool(self.reasoning_gateway.is_available())
@@ -244,5 +324,9 @@ class DeepReasoner:
             pass
         try:
             self.goal_compiler.last_compilation = None
+        except Exception:
+            pass
+        try:
+            self.semantic_brain.last_result = None
         except Exception:
             pass
