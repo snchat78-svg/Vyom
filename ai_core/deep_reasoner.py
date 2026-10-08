@@ -7,11 +7,12 @@ Purpose:
     Hybrid local/cloud reasoning layer.
 
 Priority:
-    1. Configured AI model through the validated AI Reasoning Gateway.
-    2. Lightweight local goal reasoning when no model is configured.
+    1. Dependency-free local Vyom semantic brain.
+    2. Deterministic local reasoning/compiler fallback.
+    3. Optional remote reasoning only when explicitly enabled.
 
-The local path is intentionally dependency-free so Vyom can work on
-low-resource Windows machines without requiring a paid API.
+The local path is authoritative for computer control so quota, network and
+provider outages cannot block ordinary command execution.
 
 This module never executes computer actions.
 """
