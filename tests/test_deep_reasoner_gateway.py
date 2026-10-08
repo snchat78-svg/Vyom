@@ -51,7 +51,11 @@ class DeepReasonerGatewayTests(unittest.TestCase):
                 ],
             },
         })
-        reasoner = DeepReasoner(reasoning_gateway=gateway, goal_compiler=FakeCompiler())
+        reasoner = DeepReasoner(
+            reasoning_gateway=gateway,
+            goal_compiler=FakeCompiler(),
+        )
+        reasoner.allow_remote_reasoning = True
         result = reasoner.reason("perform an advanced multi-step workflow")
         self.assertTrue(result["success"])
         self.assertEqual(result["source"], "ai_reasoning_gateway")
@@ -64,7 +68,11 @@ class DeepReasonerGatewayTests(unittest.TestCase):
             "stage": "reasoning_validation_error",
             "error": "bad output",
         })
-        reasoner = DeepReasoner(reasoning_gateway=gateway, goal_compiler=FakeCompiler())
+        reasoner = DeepReasoner(
+            reasoning_gateway=gateway,
+            goal_compiler=FakeCompiler(),
+        )
+        reasoner.allow_remote_reasoning = True
         result = reasoner.reason("some complex task")
         self.assertTrue(result["success"])
         self.assertEqual(result["source"], "local_reasoner")
