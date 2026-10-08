@@ -186,3 +186,21 @@ def test_local_brain_understands_window_controls():
     assert result["route"] == "capability"
     assert result["plan"][0]["action"] == "hotkey"
     assert result["plan"][0]["args"]["keys"] == ["win", "up"]
+
+
+def test_local_brain_resolves_pending_selection_number():
+    brain = LocalSemanticBrain()
+    result = brain.reason(
+        "number 1",
+        context={
+            "pending_selection": True,
+            "selection_options": [
+                {"name": "Example Application", "path": "Example Application"},
+                {"name": "Other Application", "path": "Other Application"},
+            ],
+        },
+    )
+
+    assert result["route"] == "capability"
+    assert result["plan"][0]["action"] == "open_application"
+    assert result["plan"][0]["target"] == "Example Application"
