@@ -396,9 +396,21 @@ class ResponseEngine:
                 if isinstance(result, dict)
                 else ""
             )
+            local_clarification = False
+            if result_stage == "conversation" and isinstance(result, dict):
+                analysis = result.get("analysis")
+                deep = analysis.get("deep_reasoning") if isinstance(analysis, dict) else None
+                local_clarification = (
+                    isinstance(deep, dict)
+                    and str(deep.get("semantic_route") or "").strip().lower() == "clarification"
+                )
+
             needs_model_response = (
-                intent_type == "conversation"
-                or result_stage == "conversation"
+                not local_clarification
+                and (
+                    intent_type == "conversation"
+                    or result_stage == "conversation"
+                )
             )
 
             if model_available and not selection_options and needs_model_response:
