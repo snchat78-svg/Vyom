@@ -1334,6 +1334,38 @@ catch {
         if strong and not force_refresh:
             return strong[:self.max_results]
 
+        # Targeted Program Files discovery comes before the expensive
+        # complete AppsFolder/AppX inventory. It is generic and preserves
+        # phonetic/fuzzy matching while reducing latency for installed desktop
+        # applications that are not exposed by Start Menu/desktop shortcuts.
+        if not force_refresh:
+            try:
+                targeted = self.scan_program_files()
+            except Exception:
+                targeted = []
+
+            targeted_scored = []
+            for app in targeted:
+                if not isinstance(app, dict):
+                    continue
+                app_name = str(app.get("name", "")).strip()
+                if not app_name:
+                    continue
+                score = max(
+                    self._match_score(variant, app_name)
+                    for variant in target_variants
+                )
+                if score >= 0.62:
+                    targeted_scored.append((float(score), app))
+
+            targeted_scored.sort(key=lambda pair: pair[0], reverse=True)
+            strong_targeted = [
+                item for score, item in targeted_scored
+                if score >= 0.82
+            ]
+            if strong_targeted:
+                return strong_targeted[:self.max_results]
+
         database = self.build_database(force=force_refresh)
         for app in database:
             if not isinstance(app, dict):
