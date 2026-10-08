@@ -490,9 +490,14 @@ class LocalSemanticBrain:
         whole_plan = self._generic_from_context_compiler(original, ctx)
         if whole_plan:
             self._set_ids(whole_plan)
+            has_legacy = any(
+                isinstance(step, dict)
+                and str(step.get("type") or "").strip().lower() == "execute_existing_intent"
+                for step in whole_plan
+            )
             result = {
                 "success": True,
-                "route": "mission" if len(whole_plan) > 1 else "capability",
+                "route": "mission" if len(whole_plan) > 1 or has_legacy else "capability",
                 "goal": original,
                 "confidence": 0.93,
                 "semantic_interpretation": [{
@@ -637,7 +642,12 @@ class LocalSemanticBrain:
             return result
 
         self._set_ids(steps)
-        route = "mission" if len(steps) > 1 else "capability"
+        has_legacy = any(
+            isinstance(step, dict)
+            and str(step.get("type") or "").strip().lower() == "execute_existing_intent"
+            for step in steps
+        )
+        route = "mission" if len(steps) > 1 or has_legacy else "capability"
 
         result = {
             "success": True,
