@@ -23,6 +23,7 @@ Rules:
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
 from ai_core.context_action_compiler import ContextActionCompiler
@@ -58,6 +59,10 @@ class LocalSemanticBrain:
     _CLICK = (
         "click", "click karo", "klik", "clik", "क्लिक", "क्लिक करो",
     )
+    _DOUBLE_CLICK = (
+        "double click", "double-click", "doubleclick", "dubble click",
+        "dobara click", "दो बार क्लिक", "डबल क्लिक",
+    )
     _INVOKE = (
         "invoke", "activate", "press", "select", "choose", "choose karo",
         "daba", "dabao", "दबाओ", "दबाएँ", "दबाएं", "चुनो", "चुनिए",
@@ -69,6 +74,15 @@ class LocalSemanticBrain:
     _SCROLL = (
         "scroll", "scrol", "स्क्रोल", "स्क्रॉल",
     )
+    _KEYWORDS = {
+        "enter", "return", "tab", "escape", "esc", "space", "backspace",
+        "delete", "insert", "home", "end", "left", "right", "up", "down",
+        "pageup", "pagedown", "f1", "f2", "f3", "f4", "f5", "f6", "f7",
+        "f8", "f9", "f10", "f11", "f12",
+        "एंटर", "टैब", "एस्केप", "स्पेस", "बैकस्पेस", "डिलीट",
+        "लेफ्ट", "राइट", "अप", "डाउन",
+    }
+
     _SHORTCUTS = {
         "save": ("ctrl", "s"),
         "save karo": ("ctrl", "s"),
@@ -168,6 +182,29 @@ class LocalSemanticBrain:
                 and any(item in cls._QUESTION_WORDS for item in tokens[:-1])
             )
         ))
+
+    @classmethod
+    def _fuzzy_phrase(cls, text: str, vocabulary, threshold: float = 0.78) -> Optional[str]:
+        value = cls._lower(text)
+        if not value:
+            return None
+
+        exact = cls._matches_verb(value, vocabulary)
+        if exact:
+            return exact
+
+        best = None
+        best_score = 0.0
+        for phrase in vocabulary:
+            score = SequenceMatcher(
+                None,
+                value.replace(" ", ""),
+                str(phrase).lower().replace(" ", ""),
+            ).ratio()
+            if score > best_score:
+                best_score = score
+                best = phrase
+        return best if best_score >= threshold else None
 
     @classmethod
     def _matches_verb(cls, text: str, vocabulary) -> Optional[str]:
@@ -531,6 +568,20 @@ class LocalSemanticBrain:
                 "confidence": 0.90,
             }
 
+        payload = self._extract_payload(value, self._DOUBLE_CLICK)
+        if payload:
+            payload = re.sub(
+                r"^(?:on|the|button|link|par)\s+",
+                "",
+                payload,
+                flags=re.IGNORECASE,
+            ).strip()
+            return {
+                "operation": "double_click",
+                "target": payload,
+                "confidence": 0.84,
+            }
+
         payload = self._extract_payload(value, self._CLICK)
         if payload:
             payload = re.sub(
@@ -543,6 +594,26 @@ class LocalSemanticBrain:
                 "operation": "click_ui_element",
                 "target": payload,
                 "confidence": 0.84,
+            }
+
+        payload = self._extract_payload(value, self._INVOKE)
+        if payload:
+            key = payload.lower().strip()
+            if key in {str(item).lower() for item in self._KEYWORDS}:
+                return {
+                    "operation": "keypress",
+                    "target": payload,
+                    "args": {"key": payload},
+                    "confidence": 0.88,
+                }
+            return {
+                "operation": (
+                    "select_ui_element"
+                    if lower.startswith(("select ", "choose ", "chun", "चुन"))
+                    else "invoke_ui_element"
+                ),
+                "target": payload,
+                "confidence": 0.83,
             }
 
         payload = self._extract_payload(value, self._FOCUS)
@@ -637,11 +708,11 @@ class LocalSemanticBrain:
         value = self._normalize(text)
         lower = value.lower()
 
-        if self._matches_verb(value, self._CLICK):
+        if self._fuzzy_phrase(value, self._CLICK):
             return {"operation": "click_ui_element", "target": value}
-        if self._matches_verb(value, self._FOCUS):
+        if self._fuzzy_phrase(value, self._FOCUS):
             return {"operation": "focus_window", "target": value}
-        if self._matches_verb(value, self._SCROLL):
+        if self._fuzzy_phrase(value, self._SCROLL):
             return {"operation": "scroll"}
         shortcut = self._SHORTCUTS.get(lower)
         if shortcut:
