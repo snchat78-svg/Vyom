@@ -69,6 +69,32 @@ class LocalSemanticBrain:
     _SCROLL = (
         "scroll", "scrol", "स्क्रोल", "स्क्रॉल",
     )
+    _SHORTCUTS = {
+        "save": ("ctrl", "s"),
+        "save karo": ("ctrl", "s"),
+        "refresh": ("ctrl", "r"),
+        "refresh karo": ("ctrl", "r"),
+        "back": ("alt", "left"),
+        "go back": ("alt", "left"),
+        "piche": ("alt", "left"),
+        "पीछे": ("alt", "left"),
+        "forward": ("alt", "right"),
+        "go forward": ("alt", "right"),
+        "aage": ("alt", "right"),
+        "आगे": ("alt", "right"),
+        "copy": ("ctrl", "c"),
+        "copy karo": ("ctrl", "c"),
+        "paste": ("ctrl", "v"),
+        "paste karo": ("ctrl", "v"),
+        "cut": ("ctrl", "x"),
+        "cut karo": ("ctrl", "x"),
+        "undo": ("ctrl", "z"),
+        "undo karo": ("ctrl", "z"),
+        "redo": ("ctrl", "y"),
+        "redo karo": ("ctrl", "y"),
+        "select all": ("ctrl", "a"),
+        "all select": ("ctrl", "a"),
+    }
 
     _QUESTION_WORDS = {
         "what", "who", "why", "when", "where", "how", "which",
@@ -404,16 +430,26 @@ class LocalSemanticBrain:
             return {"operation": "focus_window", "target": value}
         if self._matches_verb(value, self._SCROLL):
             return {"operation": "scroll"}
-        if lower in {"copy", "copy karo", "कॉपी", "कॉपी करो"}:
-            return {"operation": "hotkey", "target": "ctrl+c", "args": {"keys": ["ctrl", "c"]}}
-        if lower in {"paste", "paste karo", "पेस्ट", "पेस्ट करो"}:
-            return {"operation": "hotkey", "target": "ctrl+v", "args": {"keys": ["ctrl", "v"]}}
-        if lower in {"cut", "cut karo", "कट", "कट करो"}:
-            return {"operation": "hotkey", "target": "ctrl+x", "args": {"keys": ["ctrl", "x"]}}
-        if lower in {"undo", "undo karo", "अनडू", "अनडू करो"}:
-            return {"operation": "hotkey", "target": "ctrl+z", "args": {"keys": ["ctrl", "z"]}}
-        if lower in {"redo", "redo karo", "रीडू", "रीडू करो"}:
-            return {"operation": "hotkey", "target": "ctrl+y", "args": {"keys": ["ctrl", "y"]}}
+        shortcut = self._SHORTCUTS.get(lower)
+        if shortcut:
+            target = "+".join(shortcut)
+            return {
+                "operation": "hotkey",
+                "target": target,
+                "args": {"keys": list(shortcut)},
+            }
+
+        # Hindi/English suffixes can leave a polite helper after the action.
+        # Remove only language glue; never rewrite the user target.
+        cleaned = self._strip_end(lower)
+        shortcut = self._SHORTCUTS.get(cleaned)
+        if shortcut:
+            target = "+".join(shortcut)
+            return {
+                "operation": "hotkey",
+                "target": target,
+                "args": {"keys": list(shortcut)},
+            }
         return None
 
     def reason(
@@ -444,6 +480,29 @@ class LocalSemanticBrain:
                 "semantic_interpretation": "information_question",
                 "plan": [],
                 "source": "local_semantic_brain",
+            }
+            self.last_result = result
+            return result
+
+        # Reuse the canonical contextual compiler first. It already knows
+        # how to preserve dependency order for supported mixed goals such as
+        # "open X and type Y" without losing the second semantic stage.
+        whole_plan = self._generic_from_context_compiler(original, ctx)
+        if whole_plan:
+            self._set_ids(whole_plan)
+            result = {
+                "success": True,
+                "route": "mission" if len(whole_plan) > 1 else "capability",
+                "goal": original,
+                "confidence": 0.93,
+                "semantic_interpretation": [{
+                    "text": original,
+                    "source": "context_action_compiler",
+                    "confidence": 0.93,
+                }],
+                "plan": whole_plan,
+                "source": "local_semantic_brain",
+                "needs_confirmation": False,
             }
             self.last_result = result
             return result
