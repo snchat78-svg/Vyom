@@ -34,14 +34,14 @@ class FakeGateway:
 
 
 class DeepReasonerGatewayTests(unittest.TestCase):
-    def test_real_model_result_passes_through_gateway(self):
+    def test_real_model_is_escalation_for_unresolved_goal(self):
         gateway = FakeGateway({
             "success": True,
             "available": True,
             "source": "ai_reasoning_gateway",
             "data": {
                 "understood": True,
-                "goal": "open notepad and calculator",
+                "goal": "perform an advanced multi-step workflow",
                 "language": "english",
                 "complexity": "medium",
                 "route": "mission",
@@ -52,7 +52,7 @@ class DeepReasonerGatewayTests(unittest.TestCase):
             },
         })
         reasoner = DeepReasoner(reasoning_gateway=gateway, goal_compiler=FakeCompiler())
-        result = reasoner.reason("open notepad and calculator")
+        result = reasoner.reason("perform an advanced multi-step workflow")
         self.assertTrue(result["success"])
         self.assertEqual(result["source"], "ai_reasoning_gateway")
         self.assertEqual(gateway.calls, 1)
