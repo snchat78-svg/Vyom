@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 from ai_core.reasoning_gateway import AIReasoningGateway
 from ai_core.model_gateway import ModelGateway
 from ai_core.goal_compiler import GoalCompiler
+from ai_core.context_action_compiler import ContextActionCompiler
 from ai_core.logger import log
 from ai_core.semantic_brain import LocalSemanticBrain
 
