@@ -725,7 +725,7 @@ class LocalSemanticBrain:
             }
 
         if lower in {
-            "maximize", "maximize karo", "window maximize",
+            "maximize", "maximize karo", "window maximize", "window maximize karo",
             "window ko maximize karo", "बड़ा करो", "अधिकतम करो",
         }:
             return {
