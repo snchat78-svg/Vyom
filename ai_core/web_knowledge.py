@@ -161,7 +161,7 @@ class WebKnowledge:
             match = re.fullmatch(pattern, value, flags=re.IGNORECASE)
             if match:
                 return re.sub(
-                    r"\\b[A-Za-z]+\\b",
+                    r"\b[A-Za-z]+\b",
                     lambda token: WebKnowledge._ROMAN_HINDI.get(token.group(0).lower(), token.group(0)),
                     re.sub(pattern, replacement, value, flags=re.IGNORECASE),
                 )
