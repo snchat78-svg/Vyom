@@ -486,6 +486,12 @@ class ResponseEngine:
                 "en" if self._explicit_english_request(command)
                 or self._explicit_english_request(question_text) else "hi"
             )
+            safe_question = question_text.encode(
+                "unicode_escape", errors="backslashreplace"
+            ).decode("ascii")
+            log("[KNOWLEDGE] LOOKUP START: language=%s question=%s" % (
+                preferred_language, safe_question[:240]
+            ))
             try:
                 lookup = self.knowledge_lookup.answer(
                     question_text,
