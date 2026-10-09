@@ -401,11 +401,12 @@ class VoiceController:
         result = self.process_text(command)
         response = str(result.get("message", "") or "").strip()
         if response:
+            # Voice mode also displays the actual answer. This makes a slow
+            # website lookup or a missing/bad voice observable instead of
+            # leaving only pipeline diagnostics in the console.
+            self._safe_print("Vyom : " + response)
             speech_result = self._speak_response(response)
             if not isinstance(speech_result, dict) or not speech_result.get("success", False):
-                # Keep the assistant useful when Hindi SAPI/eSpeak is missing:
-                # print the real answer rather than silently dropping it.
-                self._safe_print("Vyom : " + response)
                 reason = (
                     str(speech_result.get("message") or "").strip()
                     if isinstance(speech_result, dict) else ""
