@@ -118,9 +118,9 @@ class IntentEngine:
             (r"^(?:tum|aap)\s+(?:kaun ho|kaun hain).*", "identity"),
             (r"^(?:तुम कौन हो|आप कौन हैं).*", "identity"),
             (r"^(?:tumhara|aapka|apka)\\s+(?:nam|naam)\\s+kya hai$", "identity"),
-            (r"^(?:mera|meri)\\s+(?:nam|naam)\\s+kya hai$", "user_name"),
-            (r"^(?:hindi|हिंदी|हिन्दी)(?:\\s+(?:mein|me|men|में))?\\s+(?:baat|bat)\\s+(?:karo|kijiye|kiji|करो|करें)$", "language_preference"),
-            (r"^(?:(?:tum|aap)\\s+)?kya kar rahe (?:ho|hain)$", "activity"),
+            (r"^(?:mera|meri)\s+(?:nam|naam)\s+kya hai$", "user_name"),
+            (r"^(?:hindi|हिंदी|हिन्दी)(?:\s+(?:mein|me|men|में))?\s+(?:baat|bat)\s+(?:karo|kijiye|kiji|करो|करें)$", "language_preference"),
+            (r"^(?:(?:tum|aap)\s+)?kya kar rahe (?:ho|hain)$", "activity"),
         ]
         for pattern, kind in patterns:
             if re.match(pattern, text, flags=re.IGNORECASE):
