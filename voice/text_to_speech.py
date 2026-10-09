@@ -493,7 +493,7 @@ class TextToSpeech:
         engine = None
         previous = self.engine
         try:
-            is_hindi_text = bool(re.search(r"[\\u0900-\\u097F]", text))
+            is_hindi_text = bool(re.search(r"[\u0900-\u097F]", text))
             if previous is not None:
                 try:
                     previous.stop()
