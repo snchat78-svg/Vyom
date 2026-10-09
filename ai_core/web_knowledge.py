@@ -12,6 +12,7 @@ import json
 import re
 import urllib.parse
 import urllib.request
+import time
 from html.parser import HTMLParser
 from typing import Any, Callable, Dict, List, Optional
 
@@ -107,6 +108,8 @@ class WebKnowledge:
         "rashtriy": "राष्ट्रीय", "rashtriya": "राष्ट्रीय", "pakshi": "पक्षी",
         "kshetraphal": "क्षेत्रफल", "kshetrafal": "क्षेत्रफल", "ksetraphal": "क्षेत्रफल",
         "area": "क्षेत्रफल", "ganv": "गाँव", "gaon": "गाँव", "gaav": "गाँव",
+        "jila": "जिला", "jile": "जिले", "zilla": "जिला", "zila": "जिला", "zile": "जिले",
+        "pashu": "पशु", "pasu": "पशु", "sa": "सा", "se": "से", "state": "राज्य", "district": "जिला",
         "nam": "नाम", "naam": "नाम", "tumhara": "तुम्हारा", "tumhari": "तुम्हारी",
         "mera": "मेरा", "meri": "मेरी", "mere": "मेरे", "pani": "पानी", "paanee": "पानी",
         "duniya": "दुनिया", "sabse": "सबसे", "bada": "बड़ा", "badi": "बड़ी", "bade": "बड़े",
@@ -116,10 +119,16 @@ class WebKnowledge:
 
     def __init__(
         self,
-        timeout: float = 2.5,
+        timeout: float = 1.8,
+        total_timeout: float = 6.0,
         opener: Optional[Callable[..., Any]] = None,
     ) -> None:
-        self.timeout = max(1.0, float(timeout))
+        # Each socket request is short, and the complete lookup has its own
+        # deadline. A series of failed sources must not freeze a voice turn for
+        # several independent per-request timeouts.
+        self.timeout = min(2.0, max(1.0, float(timeout)))
+        self.total_timeout = min(8.0, max(2.0, float(total_timeout)))
+        self._deadline: Optional[float] = None
         self._opener = opener or urllib.request.urlopen
 
     @classmethod
@@ -190,7 +199,13 @@ class WebKnowledge:
                 "Accept-Language": "hi-IN,hi;q=0.9,en;q=0.7",
             },
         )
-        with self._opener(request, timeout=self.timeout) as response:
+        request_timeout = self.timeout
+        if self._deadline is not None:
+            remaining = self._deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Web knowledge lookup deadline reached.")
+            request_timeout = min(request_timeout, remaining)
+        with self._opener(request, timeout=request_timeout) as response:
             raw = response.read()
         if isinstance(raw, bytes):
             return raw.decode("utf-8", errors="replace")
@@ -212,7 +227,7 @@ class WebKnowledge:
         except Exception:
             return None
 
-        for candidate in candidates[:3]:
+        for candidate in candidates[:1]:
             title = str(candidate.get("title") or "").strip()
             if not title:
                 continue
@@ -317,32 +332,46 @@ class WebKnowledge:
         variants = self._query_variants(question)
         if not variants:
             return {"success": False, "answer": "", "sources": [], "reason": "empty_query"}
+
         preferred = "en" if str(preferred_language or "hi").lower().startswith("en") else "hi"
         other = "en" if preferred == "hi" else "hi"
+        previous_deadline = self._deadline
+        new_deadline = time.monotonic() + self.total_timeout
+        self._deadline = min(previous_deadline, new_deadline) if previous_deadline else new_deadline
 
-        result = self._wikipedia(variants[0], preferred, output_language=preferred)
-        if result:
-            result["sources"] = [result.get("source", {})]
-            return result
-        if len(variants) > 1:
-            result = self._wikipedia(variants[1], preferred, output_language=preferred)
-            if result:
-                result["sources"] = [result.get("source", {})]
-                return result
-        # Keep cross-language fallback extractive and label its source honestly.
-        result = self._wikipedia(variants[-1], other, output_language=preferred)
-        if result:
-            result["sources"] = [result.get("source", {})]
-            return result
-        for query in variants:
-            result = self._duckduckgo(query, preferred)
-            if result:
-                result["sources"] = [result.get("source", {})]
-                return result
-        return {
-            "success": False, "answer": "", "sources": [], "query": question,
-            "reason": "no_source_or_network_unavailable",
-        }
+        # Keep the order useful for Hindi/Hinglish: normalized preferred-
+        # language Wikipedia, the original query on the preferred wiki, then
+        # a clearly labelled cross-language/search fallback. _read_url enforces
+        # the same overall deadline at every network boundary.
+        try:
+            attempts = [(variants[0], preferred, preferred)]
+            if len(variants) > 1:
+                attempts.append((variants[1], preferred, preferred))
+                attempts.append((variants[1], other, preferred))
+            attempts.extend((query, "ddg", preferred) for query in variants)
+
+            for query, source_language, output_language in attempts:
+                if self._deadline is not None and time.monotonic() >= self._deadline:
+                    break
+                if source_language == "ddg":
+                    result = self._duckduckgo(query, preferred)
+                else:
+                    result = self._wikipedia(query, source_language, output_language=output_language)
+                if result:
+                    result["sources"] = [result.get("source", {})]
+                    return result
+
+            reason = (
+                "lookup_deadline_exceeded"
+                if self._deadline is not None and time.monotonic() >= self._deadline
+                else "no_source_or_network_unavailable"
+            )
+            return {
+                "success": False, "answer": "", "sources": [],
+                "query": question, "reason": reason,
+            }
+        finally:
+            self._deadline = previous_deadline
 
 
 
