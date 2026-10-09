@@ -92,27 +92,31 @@ class WebKnowledge:
 
     _ROMAN_HINDI = {
         "india": "भारत", "bharat": "भारत", "rajasthan": "राजस्थान",
-        "nepal": "नेपाल", "pakistan": "पाकिस्तान", "china": "चीन",
-        "japan": "जापान", "russia": "रूस", "america": "अमेरिका",
-        "ki": "की", "ka": "का", "ke": "के",
-        "kya": "क्या", "hai": "है", "hain": "हैं", "tha": "था",
-        "thi": "थी", "the": "थे", "rajadhani": "राजधानी",
-        "rajdhani": "राजधानी", "kaun": "कौन", "kyu": "क्यों",
-        "kyun": "क्यों", "kab": "कब", "kahan": "कहाँ",
-        "kahaan": "कहाँ", "kaise": "कैसे", "kitna": "कितना",
-        "kitni": "कितनी", "kitne": "कितने", "mein": "में",
-        "me": "में", "kisne": "किसने", "kiska": "किसका",
-        "kiski": "किसकी", "kisko": "किसको", "kise": "किसे",
-        "pani": "पानी", "paanee": "पानी", "duniya": "दुनिया",
-        "sabse": "सबसे", "bada": "बड़ा", "badi": "बड़ी",
-        "bade": "बड़े", "hota": "होता", "hoti": "होती",
-        "hote": "होते", "batao": "बताओ", "bataiye": "बताइए",
-        "samjhao": "समझाओ", "kyon": "क्यों", "kaaran": "कारण",
+        "nepal": "नेपाल", "pakistan": "पाकिस्तान", "china": "चीन", "japan": "जापान",
+        "russia": "रूस", "america": "अमेरिका", "goa": "गोवा", "gova": "गोवा", "delhi": "दिल्ली",
+        "ki": "की", "ka": "का", "ke": "के", "k": "का", "kya": "क्या", "hai": "है",
+        "hain": "हैं", "ha": "है", "he": "है", "tha": "था", "thi": "थी", "the": "थे",
+        "men": "में", "mein": "में", "me": "में", "main": "में", "kul": "कुल",
+        "rajadhani": "राजधानी", "rajdhani": "राजधानी", "kaun": "कौन", "kyu": "क्यों",
+        "kyun": "क्यों", "kyon": "क्यों", "kab": "कब", "kahan": "कहाँ", "kahaan": "कहाँ",
+        "kaise": "कैसे", "kitna": "कितना", "kitana": "कितना", "kitanaa": "कितना",
+        "kitni": "कितनी", "kitani": "कितनी", "kitnee": "कितनी", "kitne": "कितने",
+        "kitane": "कितने", "kitney": "कितने", "kitnay": "कितने", "kis": "किस",
+        "kise": "किसे", "kiska": "किसका", "kiski": "किसकी", "kiske": "किसके",
+        "kisne": "किसने", "kisko": "किसको", "rajy": "राज्य", "rajya": "राज्य",
+        "rashtriy": "राष्ट्रीय", "rashtriya": "राष्ट्रीय", "pakshi": "पक्षी",
+        "kshetraphal": "क्षेत्रफल", "kshetrafal": "क्षेत्रफल", "ksetraphal": "क्षेत्रफल",
+        "area": "क्षेत्रफल", "ganv": "गाँव", "gaon": "गाँव", "gaav": "गाँव",
+        "nam": "नाम", "naam": "नाम", "tumhara": "तुम्हारा", "tumhari": "तुम्हारी",
+        "mera": "मेरा", "meri": "मेरी", "mere": "मेरे", "pani": "पानी", "paanee": "पानी",
+        "duniya": "दुनिया", "sabse": "सबसे", "bada": "बड़ा", "badi": "बड़ी", "bade": "बड़े",
+        "hota": "होता", "hoti": "होती", "hote": "होते", "batao": "बताओ", "bataiye": "बताइए",
+        "samjhao": "समझाओ", "kaaran": "कारण", "bird": "पक्षी",
     }
 
     def __init__(
         self,
-        timeout: float = 3.5,
+        timeout: float = 2.5,
         opener: Optional[Callable[..., Any]] = None,
     ) -> None:
         self.timeout = max(1.0, float(timeout))
@@ -123,21 +127,17 @@ class WebKnowledge:
         clean = re.sub(r"\s+", " ", str(question or "")).strip(" \t\r\n?？")
         if not clean:
             return []
-
         translated = cls._english_question_to_hindi(clean)
         converted = re.sub(
             r"\b[A-Za-z]+\b",
             lambda match: cls._ROMAN_HINDI.get(match.group(0).lower(), match.group(0)),
             clean,
         )
-        variants = []
-        if translated:
-            variants.append(translated)
-        if converted and converted.lower() != clean.lower():
-            variants.append(converted)
-        variants.append(clean)
+        # Keep a complete Hindi query first and preserve the exact query second.
+        variants = [translated, clean] if translated else [converted, clean]
         result = []
         for value in variants:
+            value = re.sub(r"\s+", " ", str(value or "")).strip()
             if value and value not in result:
                 result.append(value)
         return result[:2]
@@ -196,7 +196,7 @@ class WebKnowledge:
             return raw.decode("utf-8", errors="replace")
         return str(raw or "")
 
-    def _wikipedia(self, query: str, language: str) -> Optional[Dict[str, Any]]:
+    def _wikipedia(self, query: str, language: str, output_language: str = "hi") -> Optional[Dict[str, Any]]:
         api = "https://" + language + ".wikipedia.org/w/api.php?"
         search_url = api + urllib.parse.urlencode({
             "action": "query",
@@ -248,12 +248,14 @@ class WebKnowledge:
             language_label = "हिन्दी" if language == "hi" else "अंग्रेज़ी"
             if language == "hi":
                 answer = summary + "\nस्रोत: विकिपीडिया (हिन्दी) — " + title
-            else:
+            elif output_language == "hi":
                 answer = (
                     "हिन्दी विकिपीडिया पर उपयुक्त लेख नहीं मिला। अंग्रेज़ी "
-                    "विकिपीडिया में उपलब्ध जानकारी: " + summary
+                    "विकिपीडिया से मिला अंश: " + summary
                     + "\nस्रोत: Wikipedia (English) — " + title
                 )
+            else:
+                answer = summary + "\nSource: Wikipedia (English) — " + title
             return {
                 "success": True,
                 "answer": answer,
@@ -315,40 +317,33 @@ class WebKnowledge:
         variants = self._query_variants(question)
         if not variants:
             return {"success": False, "answer": "", "sources": [], "reason": "empty_query"}
-
         preferred = "en" if str(preferred_language or "hi").lower().startswith("en") else "hi"
-        order = [preferred, "en" if preferred == "hi" else "hi"]
+        other = "en" if preferred == "hi" else "hi"
 
-        # Prefer Hindi pages and transliterated Hindi queries where available.
-        for language in order:
-            for query in variants[:1]:
-                result = self._wikipedia(query, language)
-                if result:
-                    result["sources"] = [result.get("source", {})]
-                    return result
-
-        # Search the web directly if Wikipedia has no suitable article.
-        query = variants[0]
-        result = self._duckduckgo(query, preferred)
+        result = self._wikipedia(variants[0], preferred, output_language=preferred)
         if result:
             result["sources"] = [result.get("source", {})]
             return result
-
-        # One final attempt with the user's original wording on the other
-        # Wikipedia language, capped to avoid long delays on poor networks.
         if len(variants) > 1:
-            result = self._wikipedia(variants[-1], order[-1])
+            result = self._wikipedia(variants[1], preferred, output_language=preferred)
             if result:
                 result["sources"] = [result.get("source", {})]
                 return result
-
+        # Keep cross-language fallback extractive and label its source honestly.
+        result = self._wikipedia(variants[-1], other, output_language=preferred)
+        if result:
+            result["sources"] = [result.get("source", {})]
+            return result
+        for query in variants:
+            result = self._duckduckgo(query, preferred)
+            if result:
+                result["sources"] = [result.get("source", {})]
+                return result
         return {
-            "success": False,
-            "answer": "",
-            "sources": [],
-            "query": question,
+            "success": False, "answer": "", "sources": [], "query": question,
             "reason": "no_source_or_network_unavailable",
         }
+
 
 
 __all__ = ["WebKnowledge"]
