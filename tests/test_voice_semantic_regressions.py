@@ -104,3 +104,19 @@ def test_incomplete_calculator_expression_is_not_executed_as_a_guess():
         result.get("route") == "mission"
         and any(step.get("action") == "keypress" for step in result.get("plan", []))
     )
+
+def test_opening_a_button_routes_to_generic_ui_automation():
+    intent = IntentEngine().detect("pavar batan kholo")
+    assert intent["intent"] == "unknown"
+    assert intent["semantic_handoff_reason"] == "ui_control_target"
+
+    result = LocalSemanticBrain().reason("pavar batan kholo", context={})
+    assert result["route"] == "capability"
+    assert result["plan"][0]["action"] == "invoke_ui_element"
+    assert result["plan"][0]["target"] == "power button"
+
+
+def test_existing_application_open_fast_path_is_preserved():
+    intent = IntentEngine().detect("notepad kholo")
+    assert intent["intent"] == "open"
+    assert intent["target"] == "notepad"
