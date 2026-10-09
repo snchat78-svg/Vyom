@@ -456,6 +456,31 @@ class LocalSemanticBrain:
             step["depends_on"] = [previous] if previous else []
             previous = step["id"]
 
+    @classmethod
+    def _normalize_ui_control_target(cls, target: str) -> str:
+        substitutions = {
+            "pavar": "power",
+            "batan": "button",
+            "aikon": "icon",
+            "feld": "field",
+            "dabba": "box",
+        }
+        value = cls._normalize(target)
+        return re.sub(
+            r"\\b[A-Za-z]+\\b",
+            lambda match: substitutions.get(match.group(0).lower(), match.group(0)),
+            value,
+        )
+
+    @classmethod
+    def _is_ui_control_target(cls, target: str) -> bool:
+        tokens = set(re.findall(r"\\w+", cls._lower(target), flags=re.UNICODE))
+        return bool(tokens & {
+            "button", "बटन", "box", "बॉक्स", "field", "textbox",
+            "tab", "टैब", "menu", "मेन्यू", "link", "लिंक",
+            "icon", "आइकन", "checkbox", "dropdown", "toggle", "slider",
+        }) or "text box" in cls._lower(target) or "check box" in cls._lower(target)
+
     def _open_close(
         self,
         text: str,
@@ -504,6 +529,22 @@ class LocalSemanticBrain:
             target = str(reference.get("target") or "").strip()
             if not target:
                 continue
+
+            # A target ending in a generic UI-control noun is not an app name.
+            # Route it through UI Automation so open/show requests can ground
+            # and invoke the actual visible element rather than launch a fake app.
+            control_target = self._normalize_ui_control_target(target)
+            if operation == "open" and self._is_ui_control_target(control_target):
+                return {
+                    "operation": "invoke_ui_element",
+                    "target": control_target,
+                    "confidence": 0.80,
+                    "interpretation": {
+                        "operation": "invoke_ui_element",
+                        "target_role": "ui_control",
+                        "reference": reference.get("reference"),
+                    },
+                }
 
             return {
                 "operation": "open_application" if operation == "open" and not self._is_file_target(target) else (
