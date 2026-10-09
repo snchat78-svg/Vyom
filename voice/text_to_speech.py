@@ -60,6 +60,10 @@ class TextToSpeech:
         self._current_voice = None
         self._pyttsx3 = None
 
+        # Default to the Windows/SAPI voice selected by the user. Hindi SAPI or
+        # eSpeak NG may be enabled explicitly, but neither is required to run Vyom.
+        self.tts_mode = os.environ.get("VYOM_TTS_MODE", "system").strip().lower()
+
         self._initialize()
 
     # =========================================================
@@ -495,13 +499,31 @@ class TextToSpeech:
                     previous.stop()
                 except Exception:
                     pass
-            # Do not pass Devanagari text to an English SAPI voice. On Windows 8,
-            # use a local eSpeak NG Hindi voice if available; otherwise report the missing voice.
-            if is_hindi_text and not self._has_hindi_sapi_voice(previous):
-                return self._speak_with_espeak(text)
-            engine = self._create_fresh_engine()
-            self.engine = engine
-            self._select_voice_on_engine(engine, text)
+            # Normal mode respects the Windows default/selected SAPI voice exactly as
+            # before. Hindi pronunciation support is optional and must never stop
+            # Vyom from responding when a Hindi voice or eSpeak NG is unavailable.
+            optional_hindi_modes = {"auto", "hindi", "espeak", "espeak-ng"}
+            use_optional_hindi = self.tts_mode in optional_hindi_modes
+
+            if is_hindi_text and use_optional_hindi:
+                if self._has_hindi_sapi_voice(previous):
+                    engine = self._create_fresh_engine()
+                    self.engine = engine
+                    self._select_voice_on_engine(engine, text)
+                else:
+                    local_result = self._speak_with_espeak(text)
+                    if local_result.get("success"):
+                        return local_result
+                    self._log(
+                        "Optional Hindi TTS is unavailable; falling back to the "
+                        "Windows-selected SAPI voice. Vyom will continue normally."
+                    )
+
+            if engine is None:
+                engine = self._create_fresh_engine()
+                self.engine = engine
+                # Do not set a voice in the default mode. SAPI will use the
+                # system/user-selected voice; voice choice is never a startup dependency.
 
             self._log("engine.say() START")
             engine.say(text)
