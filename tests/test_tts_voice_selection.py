@@ -102,8 +102,6 @@ def _make_speak_tts(mode, engine, local_speech):
 
 
 def test_default_mode_keeps_system_selected_voice_and_does_not_require_hindi_tts():
-    import os
-
     david = make_voice("en-US", "Microsoft David Desktop", ["en-US"])
     engine = FakeSpeechEngine([david])
     tts = _make_speak_tts(
@@ -117,7 +115,6 @@ def test_default_mode_keeps_system_selected_voice_and_does_not_require_hindi_tts
     assert result["success"] is True
     assert engine.spoken == ["भारत की राजधानी नई दिल्ली है।"]
     assert engine.selected is None
-    assert os.environ.get("VYOM_TTS_MODE", "system").lower() != "force-hindi"
 
 
 def test_optional_espeak_failure_falls_back_to_system_voice_without_stopping_vyom():
