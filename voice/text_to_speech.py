@@ -20,7 +20,10 @@ IMPORTANT:
 """
 
 from typing import Optional
+import os
 import re
+import shutil
+import subprocess
 
 
 class TextToSpeech:
@@ -353,6 +356,60 @@ class TextToSpeech:
             for attr in ("id", "name", "languages")
         ).lower()
 
+    def _has_hindi_sapi_voice(self, engine=None):
+        engine = engine or self.engine
+        if engine is None:
+            return False
+        try:
+            voices = engine.getProperty("voices") or []
+        except Exception:
+            return False
+        markers = ("hindi", "hi-in", "hi_in", "kalpana", "hemant")
+        return any(
+            any(marker in self._voice_identity(voice) for marker in markers)
+            for voice in voices
+        )
+
+    def _find_espeak_ng(self):
+        candidates = [shutil.which("espeak-ng"), shutil.which("espeak-ng.exe")]
+        roots = [
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            os.environ.get("LOCALAPPDATA", ""),
+        ]
+        for root in roots:
+            if root:
+                candidates.extend((
+                    os.path.join(root, "eSpeak NG", "espeak-ng.exe"),
+                    os.path.join(root, "eSpeak NG", "espeak-ng"),
+                ))
+        return next((path for path in candidates if path and os.path.isfile(path)), None)
+
+    def _speak_with_espeak(self, text):
+        executable = self._find_espeak_ng()
+        if not executable:
+            self._log(
+                "Hindi SAPI voice is not installed and eSpeak NG was not found. "
+                "Install eSpeak NG (Windows x64) or add a genuine Hindi SAPI voice."
+            )
+            return {
+                "success": False, "text": str(text or ""),
+                "message": "Hindi TTS voice is not installed. Install eSpeak NG or a compatible Hindi SAPI voice.",
+            }
+        try:
+            self._log("Using local eSpeak NG Hindi voice (hi); no cloud TTS is used.")
+            kwargs = {
+                "check": True, "capture_output": True, "text": True,
+                "timeout": max(15, min(45, int(len(str(text)) / 8) + 15)),
+            }
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.run([executable, "-v", "hi", str(text)], **kwargs)
+            return {"success": True, "text": str(text), "message": "Speech completed with local eSpeak NG Hindi voice."}
+        except Exception as error:
+            self._log("eSpeak NG Hindi speech failed: " + str(error))
+            return {"success": False, "text": str(text or ""), "message": "Local Hindi TTS failed: " + str(error)}
+
     def _select_voice_on_engine(self, engine, text):
         try:
             voices = engine.getProperty("voices") or []
@@ -432,12 +489,16 @@ class TextToSpeech:
         engine = None
         previous = self.engine
         try:
+            is_hindi_text = bool(re.search(r"[\\u0900-\\u097F]", text))
             if previous is not None:
                 try:
                     previous.stop()
                 except Exception:
                     pass
-
+            # Do not pass Devanagari text to an English SAPI voice. On Windows 8,
+            # use a local eSpeak NG Hindi voice if available; otherwise report the missing voice.
+            if is_hindi_text and not self._has_hindi_sapi_voice(previous):
+                return self._speak_with_espeak(text)
             engine = self._create_fresh_engine()
             self.engine = engine
             self._select_voice_on_engine(engine, text)

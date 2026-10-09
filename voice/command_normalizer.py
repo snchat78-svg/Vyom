@@ -5,7 +5,6 @@ protecting runtime targets. Application, file, folder and user names are not
 stored here and are not fuzzy-corrected as command words.
 """
 
-import difflib
 import re
 from typing import Dict, List, Tuple
 
@@ -81,6 +80,24 @@ class VoiceCommandNormalizer:
         value = re.sub(r"[^a-z0-9_\s-]", " ", value)
         return re.sub(r"\s+", " ", value).strip()
 
+    @staticmethod
+    def _edit_similarity(left: str, right: str) -> float:
+        """Normalized edit similarity; reject substring false positives."""
+        left, right = str(left or ""), str(right or "")
+        if not left or not right:
+            return 0.0
+        previous = list(range(len(right) + 1))
+        for i, left_char in enumerate(left, start=1):
+            current = [i]
+            for j, right_char in enumerate(right, start=1):
+                current.append(min(
+                    current[j - 1] + 1,
+                    previous[j] + 1,
+                    previous[j - 1] + (left_char != right_char),
+                ))
+            previous = current
+        return 1.0 - previous[-1] / max(len(left), len(right))
+
     def _best_word(self, word: str) -> Tuple[str, float]:
         normalized = self._clean_word(word)
         if not normalized:
@@ -93,7 +110,7 @@ class VoiceCommandNormalizer:
         best_name = normalized
         best_score = 0.0
         for alias, canonical in self._alias_to_canonical.items():
-            score = difflib.SequenceMatcher(None, normalized, alias).ratio()
+            score = self._edit_similarity(normalized, alias)
             if score > best_score:
                 best_score = score
                 best_name = canonical
