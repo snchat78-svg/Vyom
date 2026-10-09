@@ -79,6 +79,17 @@ class ResponseEngineModelBudgetTests(unittest.TestCase):
         self.assertEqual(gateway.chat_calls, 0)
         self.assertEqual(gateway.availability_calls, 0)
 
+    def test_ordinary_conversation_defaults_to_hindi_without_model(self):
+        gateway = FakeModelGateway()
+        engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=FakeKnowledge())
+        result = engine.format(
+            command="how are you?",
+            result={"success": True, "stage": "conversation"},
+            intent={"intent": "conversation", "conversation_type": "status"},
+        )
+        self.assertIn("बढ़िया", result)
+        self.assertEqual(gateway.chat_calls, 0)
+
     def test_romanized_hindi_is_detected_as_hindi(self):
         engine = ResponseEngine(model_gateway=FakeModelGateway(), knowledge_lookup=FakeKnowledge())
         self.assertEqual(engine.detect_language("namaste bhaiya kaise ho"), "hindi")

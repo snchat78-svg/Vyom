@@ -479,7 +479,6 @@ class ResponseEngine:
         # A configured model gets the final conversational turn only when the
         # user has explicitly enabled VYOM_REMOTE_RESPONSES.
         # respond naturally like an assistant instead of exposing executor
-        # respond naturally like an assistant instead of exposing executor
         # wording. The deterministic formatter remains the safe fallback.
         try:
             model_available = self.allow_remote_responses and bool(self.model_gateway.is_available())
@@ -554,6 +553,11 @@ class ResponseEngine:
             command,
             intent if isinstance(intent, dict) else None,
         )
+        if not self._explicit_english_request(command) and (
+            (isinstance(intent, dict) and intent.get("intent") == "conversation")
+            or (isinstance(result, dict) and result.get("conversation_type"))
+        ):
+            language = "hindi"
 
         if isinstance(intent, dict) and intent.get("intent") == "conversation":
             return self.conversation_response(
