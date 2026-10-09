@@ -825,6 +825,93 @@ class LocalSemanticBrain:
             }
         return None
 
+    def _calculator_compound_plan(
+        self,
+        text: str,
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Compile a spoken calculator workflow into verified, ordered UI steps."""
+        value = self._normalize(text)
+        opened = self._open_close(value, context=context)
+        if not isinstance(opened, dict) or opened.get("operation") != "open_application":
+            return None
+
+        target = self._lower(opened.get("target"))
+        # Only take over when the user's named target is recognizably a
+        # calculator. App aliases are still resolved by the normal launcher.
+        if not re.search(r"calculator|kailakuletar|calculetar|kalkulator|\\bcalc\\b", target):
+            return None
+
+        numbers = re.findall(r"(?<![\\w.])\\d+(?:\\.\\d+)?(?![\\w.])", value)
+        if len(numbers) < 2:
+            return None
+
+        # A terminal operator indicates STT captured an unfinished expression;
+        # don't execute a guessed calculation.
+        if re.search(r"(?:[+*/-]|\\b(?:plus|minus|times|divided|add|subtract|multiply|divide))\\s*$", value):
+            return None
+
+        operation_patterns = (
+            (r"\\b(?:subtract|minus|ghatao|ghata|kam karo)\\b|घटाओ|घटाना", "-"),
+            (r"\\b(?:multiply|multiplied|times|guna|gunaa)\\b|गुणा", "*"),
+            (r"\\b(?:divide|divided|bhag|bhaag)\\b|भाग", "/"),
+            (r"\\b(?:add|addition|plus|sum|jodo|joro|jod|jama)\\b|जोड़|जोड़|जमा", "+"),
+        )
+        operator = None
+        for pattern, symbol in operation_patterns:
+            if re.search(pattern, value, flags=re.IGNORECASE):
+                operator = symbol
+                break
+        if operator is None and re.search(r"\\d\\s*[+*/-]\\s*\\d", value):
+            # A complete symbolic expression is also valid natural input.
+            symbol_match = re.search(r"([+*/-])", value)
+            operator = symbol_match.group(1) if symbol_match else None
+        if operator is None:
+            return None
+
+        expression = operator.join(numbers)
+        steps = [
+            self._action(
+                "open_application",
+                target=str(opened.get("target") or "").strip(),
+                description="Open the calculator requested by the user and verify its window.",
+            ),
+            self._action(
+                "wait",
+                target="",
+                args={"seconds": 0.8},
+                description="Allow the newly opened calculator to finish loading.",
+            ),
+            self._action(
+                "type_text",
+                target="focused_element",
+                args={"text": expression},
+                description="Enter the arithmetic expression into the foreground calculator.",
+            ),
+            self._action(
+                "keypress",
+                target="enter",
+                args={"key": "enter"},
+                description="Evaluate the expression in the calculator.",
+            ),
+        ]
+        self._set_ids(steps)
+        return {
+            "success": True,
+            "route": "mission",
+            "goal": value,
+            "confidence": 0.90,
+            "semantic_interpretation": [{
+                "text": value,
+                "operation": "calculator_workflow",
+                "expression": expression,
+                "source": "local_semantic_brain",
+            }],
+            "plan": steps,
+            "source": "local_semantic_brain",
+            "needs_confirmation": False,
+        }
+
     def reason(
         self,
         goal: str,
@@ -843,6 +930,11 @@ class LocalSemanticBrain:
             }
             self.last_result = result
             return result
+
+        calculator_plan = self._calculator_compound_plan(original, ctx)
+        if calculator_plan:
+            self.last_result = calculator_plan
+            return calculator_plan
 
         if self._is_question(original):
             result = {
