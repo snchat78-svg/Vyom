@@ -80,6 +80,24 @@ class IntentEngine:
         value = str(text or "").strip().lower()
         return re.sub(r"\s+", " ", value)
 
+    @staticmethod
+    def _is_incomplete_location_fragment(text: str) -> bool:
+        value = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        tokens = value.split()
+        if len(tokens) < 2 or len(tokens) > 4:
+            return False
+        if tokens[-1] not in {
+            "in", "men", "mein", "me", "में", "का", "की", "के", "par", "पर",
+            "about", "of", "ke",
+        }:
+            return False
+        action_words = {
+            "open", "launch", "start", "run", "close", "stop", "search", "find",
+            "click", "type", "write", "send", "select", "choose", "khol", "kholo",
+            "karo", "करो", "खोलो", "बंद", "लिखो", "भेजो",
+        }
+        return not any(token in action_words for token in tokens)
+
     def _conversation(self, text: str):
         if text in self.CONVERSATION_PHRASES:
             return self.CONVERSATION_PHRASES[text]
@@ -336,6 +354,16 @@ class IntentEngine:
                 "intent": "conversation",
                 "target": conversation,
                 "conversation_type": conversation,
+                "voice": voice_meta,
+            }
+
+        # STT may return only the location/topic prefix of a longer question.
+        # Ask for the rest rather than routing this fragment to a capability.
+        if self._is_incomplete_location_fragment(text):
+            return {
+                "intent": "conversation",
+                "target": "clarification",
+                "conversation_type": "clarification",
                 "voice": voice_meta,
             }
 
