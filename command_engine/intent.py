@@ -276,6 +276,19 @@ class IntentEngine:
         )
         return value.strip()
 
+    @staticmethod
+    def _is_ui_control_target(target: Any) -> bool:
+        value = str(target or "").strip().lower()
+        # Generic UI nouns only; app/file names remain runtime data.
+        control_terms = {
+            "button", "batan", "बटन", "box", "बॉक्स", "field", "feld",
+            "क्षेत्र", "textbox", "text box", "tab", "टैब", "menu", "मेन्यू",
+            "link", "लिंक", "icon", "aikon", "आइकन", "checkbox",
+            "check box", "dropdown", "drop-down", "toggle", "slider",
+        }
+        tokens = set(re.findall(r"[\\w\\u0900-\\u097F]+", value))
+        return any(term in tokens or term in value for term in control_terms)
+
     def _natural_family(self, original: str):
         text = self._normalize(original)
 
@@ -426,6 +439,16 @@ class IntentEngine:
         natural = self._natural_family(normalized_input)
         if natural:
             family, target = natural
+            if family == "open" and self._is_ui_control_target(target):
+                # "Power button kholo" is a UI-element request, not a request
+                # to launch an application named "Power button". Let the
+                # semantic brain ground it through Windows UI Automation.
+                return {
+                    "intent": "unknown",
+                    "target": original,
+                    "voice": voice_meta,
+                    "semantic_handoff_reason": "ui_control_target",
+                }
             return {
                 "intent": "open" if family == "open" else "close_app",
                 "target": target,
