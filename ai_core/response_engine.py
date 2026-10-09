@@ -363,6 +363,11 @@ class ResponseEngine:
                 "hinglish": "Theek hai. Ab main aapse Hindi mein baat karunga.",
                 "english": "Okay. I'll speak with you in Hindi.",
             },
+            "clarification": {
+                "hindi": "आपका सवाल अधूरा सुनाई दिया। कृपया पूरा सवाल एक बार फिर बताइए।",
+                "hinglish": "Aapka sawal adhura sunaai diya. Kripya poora sawal dobara bataiye.",
+                "english": "I only heard part of your question. Please repeat the complete question.",
+            },
             "user_name": {
                 "hindi": "मुझे इस सत्र की बातचीत में आपका नाम पुष्टि के साथ नहीं मिला। आप अपना नाम बता दें, तो मैं आगे के संदर्भ में उसका उपयोग करूँगा।",
                 "hinglish": "Mujhe is session ki baat-cheet mein aapka naam pakke taur par nahi mila. Aap naam bata dein to main aage use karunga.",
@@ -471,7 +476,7 @@ class ResponseEngine:
         )
         local_chat_types = {
             "greeting", "status", "identity", "thanks", "acknowledge", "help", "capabilities",
-            "language_preference", "activity", "user_name",
+            "language_preference", "activity", "user_name", "clarification",
         }
         is_conversation_turn = (
             intent_type_for_lookup == "conversation"
