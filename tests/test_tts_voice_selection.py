@@ -44,3 +44,24 @@ def test_hindi_text_prefers_indian_english_over_us_english_when_hindi_is_absent(
     tts._select_voice_on_engine(engine, "भारत की राजधानी नई दिल्ली है।")
 
     assert engine.selected == "en-IN"
+
+
+def test_local_espeak_fallback_uses_hindi_voice(monkeypatch):
+    import subprocess
+
+    tts = TextToSpeech.__new__(TextToSpeech)
+    tts.debug = False
+    tts._log = lambda _message: None
+    tts._find_espeak_ng = lambda: r"C:\\Tools\\espeak-ng.exe"
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return None
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = tts._speak_with_espeak("भारत की राजधानी नई दिल्ली है।")
+
+    assert result["success"] is True
+    assert calls[0][0][1:3] == ["-v", "hi"]
+    assert calls[0][0][-1] == "भारत की राजधानी नई दिल्ली है।"

@@ -28,6 +28,11 @@ class VoiceCommandNormalizationTests(unittest.TestCase):
         self.assertEqual(result["target"], "notapaid")
         self.assertEqual(result["voice"]["text"], "close notapaid")
 
+    def test_normalizer_does_not_rewrite_hindi_to_find(self):
+        normalizer = VoiceCommandNormalizer()
+        result = normalizer.normalize("hindi men bat karo")
+        self.assertEqual(result["text"], "hindi men bat karo")
+
     def test_low_similarity_word_is_not_forced_into_command(self):
         normalizer = VoiceCommandNormalizer(min_similarity=0.80)
         result = normalizer.normalize("cloze myfile")

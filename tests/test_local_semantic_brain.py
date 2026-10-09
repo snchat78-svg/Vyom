@@ -103,6 +103,20 @@ def test_local_brain_routes_information_request_without_question_mark():
     assert result["semantic_interpretation"] == "information_question"
 
 
+def test_local_brain_routes_noisy_roman_hindi_questions_to_knowledge():
+    brain = LocalSemanticBrain()
+    questions = (
+        "rajasthan men kitane rajy hain",
+        "bharat men kul kitane ganv",
+        "rajasthan ka kshetraphal kitana hai",
+        "bharat men gova ka kshetraphal kitana hai",
+    )
+    for question in questions:
+        result = brain.reason(question, context={})
+        assert result["route"] == "conversation", (question, result)
+        assert result["semantic_interpretation"] == "information_question"
+
+
 def test_local_brain_does_not_guess_numbered_instance():
     brain = LocalSemanticBrain()
     result = brain.reason(

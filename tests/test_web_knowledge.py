@@ -29,6 +29,17 @@ class WebKnowledgeTests(unittest.TestCase):
         variants = WebKnowledge._query_variants("what is the capital of India?")
         self.assertEqual(variants[0], "भारत की राजधानी क्या है")
 
+    def test_stt_roman_hindi_spelling_generates_hindi_search_query(self):
+        variants = WebKnowledge._query_variants(
+            "rajasthan men gova ka kshetraphal kitana hai"
+        )
+        self.assertEqual(variants[0], "राजस्थान में गोवा का क्षेत्रफल कितना है")
+
+    def test_english_question_uses_hindi_query_and_preserves_original(self):
+        variants = WebKnowledge._query_variants("what is the capital of India?")
+        self.assertEqual(variants[0], "भारत की राजधानी क्या है")
+        self.assertEqual(variants[1], "what is the capital of India?")
+
     def test_wikipedia_answer_is_extractive_and_has_a_source(self):
         calls = []
 
