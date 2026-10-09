@@ -353,6 +353,21 @@ class ResponseEngine:
                 "hinglish": "Main badhiya hoon aur kaam ke liye ready hoon. Aap bataiye, kya karna hai?",
                 "english": "I'm doing well and I'm ready to help. What shall we do?",
             },
+            "activity": {
+                "hindi": "मैं आपके सवाल समझने और उपलब्ध वेबसाइटों से जानकारी खोजने में आपकी मदद कर रहा हूँ।",
+                "hinglish": "Main aapke sawal samajhne aur available websites se jankari dhoondhne mein madad kar raha hoon.",
+                "english": "I'm helping you understand questions and look up information on available websites.",
+            },
+            "language_preference": {
+                "hindi": "ठीक है। अब मैं आपसे हिन्दी में बात करूँगा।",
+                "hinglish": "Theek hai. Ab main aapse Hindi mein baat karunga.",
+                "english": "Okay. I'll speak with you in Hindi.",
+            },
+            "user_name": {
+                "hindi": "मुझे इस सत्र की बातचीत में आपका नाम पुष्टि के साथ नहीं मिला। आप अपना नाम बता दें, तो मैं आगे के संदर्भ में उसका उपयोग करूँगा।",
+                "hinglish": "Mujhe is session ki baat-cheet mein aapka naam pakke taur par nahi mila. Aap naam bata dein to main aage use karunga.",
+                "english": "I don't have your name confirmed in this session. Tell me your name and I can use it in later context.",
+            },
             "capabilities": {
                 "hindi": "आप बस अपना काम बताइए। मैं उपलब्ध tools और capabilities में से खुद सही तरीका चुनने की कोशिश करूँगा।",
                 "hinglish": "Aap bas apna kaam bataiye. Main available tools aur capabilities mein se khud sahi tareeka choose karne ki koshish karunga.",
@@ -454,7 +469,10 @@ class ResponseEngine:
             str(intent.get("conversation_type") or "").strip().lower()
             if isinstance(intent, dict) else ""
         )
-        local_chat_types = {"greeting", "status", "identity", "thanks", "acknowledge", "help", "capabilities"}
+        local_chat_types = {
+            "greeting", "status", "identity", "thanks", "acknowledge", "help", "capabilities",
+            "language_preference", "activity", "user_name",
+        }
         is_conversation_turn = (
             intent_type_for_lookup == "conversation"
             or result_stage_for_lookup == "conversation"

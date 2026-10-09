@@ -53,6 +53,13 @@ class IntentEngine:
         "राम राम": "greeting", "good morning": "greeting", "good evening": "greeting",
         "good afternoon": "greeting", "शुभ प्रभात": "greeting",
         "how are you": "status", "how are u": "status", "how are things": "status",
+        "kya kar rahe ho": "activity", "kya kar rahe hain": "activity",
+        "tumhara nam kya hai": "identity", "tumhara naam kya hai": "identity",
+        "aapka nam kya hai": "identity", "aapka naam kya hai": "identity",
+        "mera nam kya hai": "user_name", "mera naam kya hai": "user_name",
+        "hindi men bat karo": "language_preference", "hindi mein baat karo": "language_preference",
+        "hindi me baat karo": "language_preference", "hindi men baat karo": "language_preference",
+        "हिंदी में बात करो": "language_preference", "हिन्दी में बात करो": "language_preference",
         "कैसे हो": "status", "कैसा चल रहा है": "status", "क्या हाल है": "status",
         "what can you do": "capabilities", "what can you do for me": "capabilities",
         "तुम क्या कर सकते हो": "capabilities", "आप क्या कर सकते हैं": "capabilities",
@@ -92,6 +99,10 @@ class IntentEngine:
             (r"^(?:who are you|what are you).*", "identity"),
             (r"^(?:tum|aap)\s+(?:kaun ho|kaun hain).*", "identity"),
             (r"^(?:तुम कौन हो|आप कौन हैं).*", "identity"),
+            (r"^(?:tumhara|aapka|apka)\\s+(?:nam|naam)\\s+kya hai$", "identity"),
+            (r"^(?:mera|meri)\\s+(?:nam|naam)\\s+kya hai$", "user_name"),
+            (r"^(?:hindi|हिंदी|हिन्दी)(?:\\s+(?:mein|me|men|में))?\\s+(?:baat|bat)\\s+(?:karo|kijiye|kiji|करो|करें)$", "language_preference"),
+            (r"^(?:(?:tum|aap)\\s+)?kya kar rahe (?:ho|hain)$", "activity"),
         ]
         for pattern, kind in patterns:
             if re.match(pattern, text, flags=re.IGNORECASE):
