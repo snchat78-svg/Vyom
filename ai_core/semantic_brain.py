@@ -839,30 +839,30 @@ class LocalSemanticBrain:
         target = self._lower(opened.get("target"))
         # Only take over when the user's named target is recognizably a
         # calculator. App aliases are still resolved by the normal launcher.
-        if not re.search(r"calculator|kailakuletar|calculetar|kalkulator|\\bcalc\\b", target):
+        if not re.search(r"calculator|kailakuletar|calculetar|kalkulator|\bcalc\b", target):
             return None
 
-        numbers = re.findall(r"(?<![\\w.])\\d+(?:\\.\\d+)?(?![\\w.])", value)
+        numbers = re.findall(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])", value)
         if len(numbers) < 2:
             return None
 
         # A terminal operator indicates STT captured an unfinished expression;
         # don't execute a guessed calculation.
-        if re.search(r"(?:[+*/-]|\\b(?:plus|minus|times|divided|add|subtract|multiply|divide))\\s*$", value):
+        if re.search(r"(?:[+*/-]|\b(?:plus|minus|times|divided|add|subtract|multiply|divide))\s*$", value):
             return None
 
         operation_patterns = (
-            (r"\\b(?:subtract|minus|ghatao|ghata|kam karo)\\b|घटाओ|घटाना", "-"),
-            (r"\\b(?:multiply|multiplied|times|guna|gunaa)\\b|गुणा", "*"),
-            (r"\\b(?:divide|divided|bhag|bhaag)\\b|भाग", "/"),
-            (r"\\b(?:add|addition|plus|sum|jodo|joro|jod|jama)\\b|जोड़|जोड़|जमा", "+"),
+            (r"\b(?:subtract|minus|ghatao|ghata|kam karo)\b|घटाओ|घटाना", "-"),
+            (r"\b(?:multiply|multiplied|times|guna|gunaa)\b|गुणा", "*"),
+            (r"\b(?:divide|divided|bhag|bhaag)\b|भाग", "/"),
+            (r"\b(?:add|addition|plus|sum|jodo|joro|jod|jama)\b|जोड़|जोड़|जमा", "+"),
         )
         operator = None
         for pattern, symbol in operation_patterns:
             if re.search(pattern, value, flags=re.IGNORECASE):
                 operator = symbol
                 break
-        if operator is None and re.search(r"\\d\\s*[+*/-]\\s*\\d", value):
+        if operator is None and re.search(r"\d\s*[+*/-]\s*\d", value):
             # A complete symbolic expression is also valid natural input.
             symbol_match = re.search(r"([+*/-])", value)
             operator = symbol_match.group(1) if symbol_match else None
