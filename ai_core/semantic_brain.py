@@ -111,9 +111,11 @@ class LocalSemanticBrain:
     }
 
     _QUESTION_WORDS = {
-        "what", "who", "why", "when", "where", "how", "which",
+        "what", "who", "why", "when", "where", "how", "which", "whose", "whom",
         "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
-        "kitna", "kitni", "kitne", "kitney",
+        "kitna", "kitni", "kitne", "kitney", "kitana", "kitane", "kitani",
+        "kitanaa", "kitanee", "kitnay", "kis", "kise", "kiska", "kiski", "kiske",
+        "kisne", "kisko",
     }
 
     _POLITE = (
@@ -169,8 +171,6 @@ class LocalSemanticBrain:
             return False
         if "?" in value:
             return True
-        # Information requests often omit a question mark. Keep these
-        # language patterns generic and distinguish them from UI actions.
         if re.search(
             r"^(?:please\s+)?(?:tell me(?: about)?|explain|define|describe|"
             r"give me (?:some )?information about)\b|"
@@ -180,19 +180,9 @@ class LocalSemanticBrain:
             flags=re.IGNORECASE,
         ):
             return True
+        # STT can omit punctuation and put the Hindi interrogative mid-sentence.
         tokens = value.replace("-", " ").split()
-        return bool(tokens and (
-            tokens[0] in cls._QUESTION_WORDS
-            or (
-                tokens[0] in {"tum", "aap", "you"}
-                and any(item in cls._QUESTION_WORDS for item in tokens[1:])
-            )
-            or (
-                len(tokens) > 1
-                and tokens[-1] in {"hai", "hain", "is", "are", "was", "were"}
-                and any(item in cls._QUESTION_WORDS for item in tokens[:-1])
-            )
-        ))
+        return any(token in cls._QUESTION_WORDS for token in tokens)
 
     @classmethod
     def _fuzzy_phrase(cls, text: str, vocabulary, threshold: float = 0.78) -> Optional[str]:

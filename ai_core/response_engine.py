@@ -415,8 +415,8 @@ class ResponseEngine:
             return True
         question_words = (
             r"\b(?:what|who|why|when|where|how|which|whose|whom|"
-            r"kya|kaun|kyu|kyun|kab|kahan|kaise|kitna|kitni|kitne|"
-            r"kisne|kiska|kiski|kise)\b|"
+            r"kya|kaun|kyu|kyun|kab|kahan|kaise|kitna|kitni|kitne|kitney|"
+            r"kitana|kitane|kitani|kitanaa|kitanee|kitnay|kis|kise|kiska|kiski|kiske|kisne|kisko)\b|"
             r"(?:क्या|कौन|क्यों|कब|कहाँ|कहां|कैसे|कितना|कितनी|कितने|"
             r"किसने|किसका|किसकी|किसे)"
         )
@@ -477,7 +477,13 @@ class ResponseEngine:
                 log("[KNOWLEDGE] Web lookup failed: %s" % str(error)[:180])
                 lookup = {"success": False, "answer": ""}
             if isinstance(lookup, dict) and lookup.get("success") and str(lookup.get("answer") or "").strip():
+                source = lookup.get("source") if isinstance(lookup.get("source"), dict) else {}
+                log("[KNOWLEDGE] SOURCE: %s | %s" % (
+                    str(source.get("title") or source.get("site") or "unknown"),
+                    str(source.get("url") or ""),
+                ))
                 return str(lookup["answer"]).strip()
+            log("[KNOWLEDGE] NO SOURCE: %s" % str((lookup or {}).get("reason") or "empty_result"))
             if preferred_language == "en":
                 return "I couldn't find a reliable answer on the available websites. Please check your internet connection and try again."
             return (
