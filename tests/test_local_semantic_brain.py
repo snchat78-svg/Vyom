@@ -96,6 +96,13 @@ def test_local_brain_resolves_follow_up_reference_from_context():
     assert result["plan"][0]["target"] == "Current Document"
 
 
+def test_local_brain_routes_information_request_without_question_mark():
+    brain = LocalSemanticBrain()
+    result = brain.reason("rajasthan ki rajadhani batao", context={})
+    assert result["route"] == "conversation"
+    assert result["semantic_interpretation"] == "information_question"
+
+
 def test_local_brain_does_not_guess_numbered_instance():
     brain = LocalSemanticBrain()
     result = brain.reason(

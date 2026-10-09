@@ -21,9 +21,6 @@ jobs:
     env:
       VYOM_AI_ENABLED: "true"
       VYOM_AI_PROVIDER: "auto"
-      QWEN_LOCAL_ENABLED: "false"
-      QWEN_LOCAL_API_URL: "http://127.0.0.1:11434/v1/chat/completions"
-      QWEN_LOCAL_MODEL: "qwen3.5:0.8b"
       VYOM_REMOTE_REASONING: "false"
       VYOM_REMOTE_RESPONSES: "false"
 
@@ -319,84 +316,13 @@ jobs:
           Write-Host "COMPLETE PYTEST SUITE PASSED."
 
 
-      # ======================================================
-      # 11. LOCAL QWEN PROVIDER INTEGRATION SMOKE TEST
-      #
-      # Ollama hosts Qwen locally. The provider is exercised through
-      # Vyom's ModelGateway; no API key is required for the local endpoint.
-      # This test is CI-only and does not package Ollama/Qwen into Vyom.exe.
-      # ======================================================
-
-      - name: Setup Local Qwen (Ollama)
-        shell: powershell
-        env:
-          QWEN_LOCAL_MODEL: "qwen3.5:0.8b"
-        run: |
-          Write-Host "Installing/refreshing Ollama for CI..."
-          irm https://ollama.com/install.ps1 | iex
-
-          $ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
-          if (-not $ollamaCommand) {
-              $defaultPath = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
-              if (Test-Path $defaultPath) {
-                  $env:Path = ((Split-Path $defaultPath) + ";" + $env:Path)
-                  $ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
-              }
-          }
-
-          if (-not $ollamaCommand) {
-              throw "Ollama executable was not found after installation."
-          }
-
-          $healthy = $false
-          try {
-              Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:11434/api/version" -TimeoutSec 5 | Out-Null
-              $healthy = $true
-          } catch {}
-
-          if (-not $healthy) {
-              Write-Host "Starting Ollama server..."
-              Start-Process -FilePath $ollamaCommand.Source -ArgumentList "serve" -WindowStyle Hidden | Out-Null
-          }
-
-          for ($i = 1; $i -le 30; $i++) {
-              try {
-                  Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:11434/api/version" -TimeoutSec 5 | Out-Null
-                  $healthy = $true
-                  break
-              } catch {
-                  Start-Sleep -Seconds 2
-              }
-          }
-
-          if (-not $healthy) {
-              throw "Ollama server did not become ready on 127.0.0.1:11434."
-          }
-
-          Write-Host "Pulling local Qwen model: $env:QWEN_LOCAL_MODEL"
-          & $ollamaCommand.Source pull $env:QWEN_LOCAL_MODEL
-
-          if ($LASTEXITCODE -ne 0) {
-              throw "Ollama failed to pull $env:QWEN_LOCAL_MODEL."
-          }
-
-          Write-Host "LOCAL QWEN MODEL READY."
-
-
-      - name: Verify Local Qwen Through Vyom ModelGateway
-        shell: powershell
-        env:
-          VYOM_AI_ENABLED: "true"
-          VYOM_AI_PROVIDER: "local_qwen"
-          QWEN_LOCAL_ENABLED: "true"
-          QWEN_LOCAL_API_URL: "http://127.0.0.1:11434/v1/chat/completions"
-          QWEN_LOCAL_MODEL: "qwen3.5:0.8b"
-        run: |
-          python -c "from ai_core.model_gateway import ModelGateway; gateway=ModelGateway(); status=gateway.provider_status(); print('LOCAL QWEN STATUS:', status); assert status['provider']=='local_qwen'; assert gateway.is_available(); result=gateway.chat('Reply with exactly LOCAL_QWEN_OK.', {'test':'Vyom local provider smoke test'}, temperature=0); print('LOCAL QWEN RESULT:', result); assert result['success']; assert 'LOCAL_QWEN_OK' in result['text']"
+      # The optional local model provider is covered by unit tests.
+      # CI does not install/download a model: Vyom's core build must not
+      # depend on any LLM service or local model being available.
 
 
       # ======================================================
-      # 13. CLEAN OLD BUILD
+      # 11. CLEAN OLD BUILD
       # ======================================================
 
       - name: Clean Build
@@ -417,7 +343,7 @@ jobs:
 
 
       # ======================================================
-      # 14. BUILD ONE COMPLETE VYOM EXE
+      # 12. BUILD ONE COMPLETE VYOM EXE
       #
       # ENTRY POINT:
       # ai_core/main.py
@@ -453,7 +379,7 @@ jobs:
 
 
       # ======================================================
-      # 15. VERIFY EXE
+      # 13. VERIFY EXE
       # ======================================================
 
       - name: Verify Vyom EXE
@@ -479,7 +405,7 @@ jobs:
 
 
       # ======================================================
-      # 16. UPLOAD ONLY ONE EXE ARTIFACT
+      # 14. UPLOAD ONLY ONE EXE ARTIFACT
       # ======================================================
 
       - name: Upload Vyom EXE
@@ -492,7 +418,7 @@ jobs:
 
 
       # ======================================================
-      # 17. FINAL BUILD SUMMARY
+      # 15. FINAL BUILD SUMMARY
       # ======================================================
 
       - name: Build Summary

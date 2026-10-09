@@ -169,6 +169,17 @@ class LocalSemanticBrain:
             return False
         if "?" in value:
             return True
+        # Information requests often omit a question mark. Keep these
+        # language patterns generic and distinguish them from UI actions.
+        if re.search(
+            r"^(?:please\\s+)?(?:tell me(?: about)?|explain|define|describe|"
+            r"give me (?:some )?information about)\\b|"
+            r"\\b(?:batao|bataiye|samjhao|samjhaiye|explain|define|describe)\\s*(?:karo|kar do)?$|"
+            r"(?:बताओ|बताइए|समझाओ|समझाइए|समझा दो|के बारे में बताओ|के बारे में बताइए)$",
+            value,
+            flags=re.IGNORECASE,
+        ):
+            return True
         tokens = value.replace("-", " ").split()
         return bool(tokens and (
             tokens[0] in cls._QUESTION_WORDS

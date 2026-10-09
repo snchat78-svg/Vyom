@@ -148,7 +148,9 @@ class ResponseEngine:
         options,
         language: Optional[str] = None
     ) -> str:
-        language = language or self.detect_language(command)
+        language = language or (
+            "english" if self._explicit_english_request(command) else "hindi"
+        )
         names = [self._item_name(item) for item in (options or [])]
         names = [name for name in names if name]
 
@@ -402,6 +404,15 @@ class ResponseEngine:
             return False
         if re.search(r"[?？]", value):
             return True
+        if re.search(
+            r"^(?:please\\s+)?(?:tell me(?: about)?|explain|define|describe|"
+            r"give me (?:some )?information about)\\b|"
+            r"\\b(?:batao|bataiye|samjhao|samjhaiye|explain|define|describe)\\s*(?:karo|kar do)?$|"
+            r"(?:बताओ|बताइए|समझाओ|समझाइए|समझा दो|के बारे में बताओ|के बारे में बताइए)$",
+            value,
+            flags=re.IGNORECASE,
+        ):
+            return True
         question_words = (
             r"\b(?:what|who|why|when|where|how|which|whose|whom|"
             r"kya|kaun|kyu|kyun|kab|kahan|kaise|kitna|kitni|kitne|"
@@ -553,10 +564,7 @@ class ResponseEngine:
             command,
             intent if isinstance(intent, dict) else None,
         )
-        if not self._explicit_english_request(command) and (
-            (isinstance(intent, dict) and intent.get("intent") == "conversation")
-            or (isinstance(result, dict) and result.get("conversation_type"))
-        ):
+        if not self._explicit_english_request(command):
             language = "hindi"
 
         if isinstance(intent, dict) and intent.get("intent") == "conversation":

@@ -90,6 +90,30 @@ class ResponseEngineModelBudgetTests(unittest.TestCase):
         self.assertIn("बढ़िया", result)
         self.assertEqual(gateway.chat_calls, 0)
 
+    def test_computer_command_reply_defaults_to_hindi(self):
+        gateway = FakeModelGateway()
+        engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=FakeKnowledge())
+        result = engine.format(
+            command="open Notepad",
+            result={"success": True, "stage": "verified", "message": "opened successfully"},
+            intent={"intent": "open", "target": "Notepad"},
+        )
+        self.assertIn("खोल दिया है", result)
+        self.assertEqual(gateway.chat_calls, 0)
+
+    def test_information_request_without_question_mark_uses_web(self):
+        gateway = FakeModelGateway()
+        knowledge = FakeKnowledge()
+        engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+        result = engine.format(
+            command="rajasthan ki rajadhani batao",
+            result={"success": True, "stage": "conversation"},
+            intent={"intent": "unknown", "target": "rajasthan ki rajadhani batao"},
+        )
+        self.assertIn("नई दिल्ली", result)
+        self.assertEqual(knowledge.calls, [("rajasthan ki rajadhani batao", "hi")])
+        self.assertEqual(gateway.chat_calls, 0)
+
     def test_romanized_hindi_is_detected_as_hindi(self):
         engine = ResponseEngine(model_gateway=FakeModelGateway(), knowledge_lookup=FakeKnowledge())
         self.assertEqual(engine.detect_language("namaste bhaiya kaise ho"), "hindi")
