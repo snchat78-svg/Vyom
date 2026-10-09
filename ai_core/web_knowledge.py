@@ -91,7 +91,10 @@ class WebKnowledge:
     """Searches public web sources and returns extractive answers."""
 
     _ROMAN_HINDI = {
-        "bharat": "भारत", "ki": "की", "ka": "का", "ke": "के",
+        "india": "भारत", "bharat": "भारत", "rajasthan": "राजस्थान",
+        "nepal": "नेपाल", "pakistan": "पाकिस्तान", "china": "चीन",
+        "japan": "जापान", "russia": "रूस", "america": "अमेरिका",
+        "ki": "की", "ka": "का", "ke": "के",
         "kya": "क्या", "hai": "है", "hain": "हैं", "tha": "था",
         "thi": "थी", "the": "थे", "rajadhani": "राजधानी",
         "rajdhani": "राजधानी", "kaun": "कौन", "kyu": "क्यों",
@@ -120,12 +123,16 @@ class WebKnowledge:
         clean = re.sub(r"\s+", " ", str(question or "")).strip(" \t\r\n?？")
         if not clean:
             return []
+
+        translated = cls._english_question_to_hindi(clean)
         converted = re.sub(
             r"\b[A-Za-z]+\b",
             lambda match: cls._ROMAN_HINDI.get(match.group(0).lower(), match.group(0)),
             clean,
         )
         variants = []
+        if translated:
+            variants.append(translated)
         if converted and converted.lower() != clean.lower():
             variants.append(converted)
         variants.append(clean)
@@ -134,6 +141,31 @@ class WebKnowledge:
             if value and value not in result:
                 result.append(value)
         return result[:2]
+
+    @staticmethod
+    def _english_question_to_hindi(question: str) -> str:
+        value = str(question or "").strip().rstrip("?？. ").strip()
+        patterns = (
+            (r"what is (?:the )?capital of (.+)", r"\1 की राजधानी क्या है"),
+            (r"what is (.+)", r"\1 क्या है"),
+            (r"what are (.+)", r"\1 क्या हैं"),
+            (r"who is (.+)", r"\1 कौन है"),
+            (r"who was (.+)", r"\1 कौन था"),
+            (r"where is (.+)", r"\1 कहाँ है"),
+            (r"when was (.+)", r"\1 कब था"),
+            (r"why is (.+)", r"\1 क्यों है"),
+            (r"how does (.+) work", r"\1 कैसे काम करता है"),
+            (r"how to (.+)", r"\1 कैसे करें"),
+        )
+        for pattern, replacement in patterns:
+            match = re.fullmatch(pattern, value, flags=re.IGNORECASE)
+            if match:
+                return re.sub(
+                    r"\\b[A-Za-z]+\\b",
+                    lambda token: WebKnowledge._ROMAN_HINDI.get(token.group(0).lower(), token.group(0)),
+                    re.sub(pattern, replacement, value, flags=re.IGNORECASE),
+                )
+        return ""
 
     @staticmethod
     def _clean_markup(value: Any) -> str:

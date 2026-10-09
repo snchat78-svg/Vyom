@@ -912,6 +912,36 @@ class LocalSemanticBrain:
                 self.last_result = result
                 return result
 
+        if len(parts) == 1:
+            # Resolve a clear one-step semantic UI command before the legacy
+            # whole-goal compiler. This keeps "search box click karo" on the
+            # generic capability route instead of converting it to a mission.
+            generic = self._semantic_surface_action(parts[0], ctx)
+            if generic:
+                step = self._action(
+                    generic["operation"],
+                    target=generic.get("target") or "",
+                    args=generic.get("args") or {},
+                    description="Interpret the natural-language computer operation locally.",
+                )
+                self._set_ids([step])
+                result = {
+                    "success": True,
+                    "route": "capability",
+                    "goal": original,
+                    "confidence": generic.get("confidence", 0.83),
+                    "semantic_interpretation": [{
+                        "text": original,
+                        "operation": generic["operation"],
+                        "confidence": generic.get("confidence", 0.83),
+                    }],
+                    "plan": [step],
+                    "source": "local_semantic_brain",
+                    "needs_confirmation": False,
+                }
+                self.last_result = result
+                return result
+
         # Reuse the canonical contextual compiler for mixed/compound goals.
         whole_plan = self._generic_from_context_compiler(original, ctx)
         if whole_plan:
