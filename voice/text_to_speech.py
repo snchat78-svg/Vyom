@@ -362,20 +362,40 @@ class TextToSpeech:
 
         value = str(text or "")
         is_hindi = bool(re.search(r"[\u0900-\u097F]", value))
-        hindi_keywords = ("hindi", "hi-in", "hi_in", "hindi india", "kalpana", "heera", "hemant")
-        english_keywords = ("english", "en-in", "en_in", "en-us", "en_gb", "en-gb")
-        preferred = hindi_keywords if is_hindi else english_keywords
+        hindi_keywords = ("hindi", "hi-in", "hi_in", "hi-in", "hindi india", "kalpana", "heera", "hemant")
+        indian_english_keywords = ("en-in", "en_in", "indian english", "english india", "english (india)")
+        english_keywords = ("english", "en-us", "en_gb", "en-gb", "en-us")
 
-        selected = None
-        for voice in voices:
-            identity = self._voice_identity(voice)
-            if any(keyword in identity for keyword in preferred):
-                selected = voice
-                break
+        def first_matching(markers):
+            for candidate in voices:
+                identity = self._voice_identity(candidate)
+                if any(marker in identity for marker in markers):
+                    return candidate
+            return None
 
-        if selected is None and is_hindi and voices:
-            selected = voices[0]
-            self._log("Hindi SAPI voice unavailable; using installed default voice.")
+        selected = first_matching(hindi_keywords) if is_hindi else None
+        if selected is None and is_hindi:
+            # Do not silently choose the first installed voice (often US
+            # Microsoft David) when an Indian English SAPI voice is present.
+            selected = first_matching(indian_english_keywords)
+            if selected is not None:
+                self._log(
+                    "Hindi SAPI voice unavailable; using Indian English fallback: "
+                    + str(getattr(selected, "name", selected.id))
+                )
+            elif voices:
+                selected = voices[0]
+                self._log(
+                    "Hindi SAPI voice is not installed; using available fallback: "
+                    + str(getattr(selected, "name", selected.id))
+                    + ". Install a Hindi SAPI voice for native Hindi pronunciation."
+                )
+        elif selected is None:
+            # Prefer an Indian English voice for mixed Hindi-English command
+            # names; only then fall back to another installed English voice.
+            selected = first_matching(indian_english_keywords) or first_matching(english_keywords)
+            if selected is None and voices:
+                selected = voices[0]
 
         if selected is not None:
             try:

@@ -768,7 +768,7 @@ class LocalSemanticBrain:
                 "confidence": 0.90,
             }
 
-        scroll_target = cls._strip_end(lower)
+        scroll_target = self._strip_end(lower)
         if scroll_target in {
             "scroll down", "scroll neeche", "neeche scroll",
             "नीचे स्क्रॉल", "स्क्रॉल नीचे", "नीचे स्क्रोल",
@@ -943,6 +943,26 @@ class LocalSemanticBrain:
         unresolved = []
 
         for part in parts:
+            # Prefer clear semantic surface actions before the compatibility
+            # compiler; otherwise a simple UI click is incorrectly promoted
+            # to a multi-step legacy mission.
+            generic = self._semantic_surface_action(part, ctx)
+            if generic:
+                steps.append(
+                    self._action(
+                        generic["operation"],
+                        target=generic.get("target") or "",
+                        args=generic.get("args") or {},
+                        description="Interpret the natural-language computer operation locally.",
+                    )
+                )
+                interpretations.append({
+                    "text": part,
+                    "operation": generic["operation"],
+                    "confidence": generic.get("confidence", 0.83),
+                })
+                continue
+
             local_plan = self._generic_from_context_compiler(part, ctx)
             if local_plan:
                 steps.extend(local_plan)

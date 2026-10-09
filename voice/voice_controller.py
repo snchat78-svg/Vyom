@@ -17,7 +17,7 @@ from ai_core.conversation_manager import ConversationManager
 
 
 class VoiceController:
-    BUILD_ID = "VYOM_VOICE_HANDOFF_V17_FINAL"
+    BUILD_ID = "VYOM_VOICE_HANDOFF_V18_LOCAL_HINDI"
 
     def __init__(self, stt=None, tts=None, conversation_manager=None):
         self.speech_to_text = stt or SpeechToText(

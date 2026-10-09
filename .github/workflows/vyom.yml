@@ -24,8 +24,8 @@ jobs:
       QWEN_LOCAL_ENABLED: "false"
       QWEN_LOCAL_API_URL: "http://127.0.0.1:11434/v1/chat/completions"
       QWEN_LOCAL_MODEL: "qwen3.5:0.8b"
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GEMINI_MODEL: "gemini-3.6-flash"
+      VYOM_REMOTE_REASONING: "false"
+      VYOM_REMOTE_RESPONSES: "false"
 
     steps:
 
@@ -43,80 +43,15 @@ jobs:
       # 2. VERIFY EXACT BUILD SOURCE
       # ======================================================
 
-      - name: Verify AI Runtime Configuration
+      - name: Verify Local-First Runtime Configuration
         shell: powershell
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
-              Write-Host "GEMINI_API_KEY is not available in CI; EXE will use user-local vyom.env at runtime."
-          } else {
-              Write-Host "GEMINI_API_KEY is available to the build environment (secret value is never printed)."
-          }
-
-
-      - name: Verify Gemini API Connectivity
-        shell: powershell
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: "gemini-3.6-flash"
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
-              Write-Host "GEMINI API SMOKE TEST: SKIPPED - GEMINI_API_KEY secret is not configured."
-              exit 0
-          }
-
-          $uri = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-          $headers = @{
-              "Authorization" = "Bearer $env:GEMINI_API_KEY"
-              "Content-Type" = "application/json"
-              "x-goog-api-client" = "vyom-ai/1.0"
-          }
-
-          $body = @{
-              model = $env:GEMINI_MODEL
-              messages = @(
-                  @{
-                      role = "user"
-                      content = "Reply with the single word OK."
-                  }
-              )
-              temperature = 0
-          } | ConvertTo-Json -Depth 6
-
-          try {
-              $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Post -Body $body -TimeoutSec 30
-              $content = $response.choices[0].message.content
-
-              if ([string]::IsNullOrWhiteSpace([string]$content)) {
-                  Write-Error "GEMINI API SMOKE TEST: FAIL - API returned no message content."
-                  exit 1
-              }
-
-              Write-Host "GEMINI API SMOKE TEST: PASS - secure GitHub key authenticated successfully."
-              Write-Host "Gemini model: $env:GEMINI_MODEL"
-          }
-          catch {
-              $message = [string]$_.Exception.Message
-              $statusCode = $null
-              if ($_.Exception.Response) {
-                  try {
-                      $statusCode = [int]$_.Exception.Response.StatusCode
-                  } catch {}
-              }
-
-              if (($statusCode -eq 429) -or ($statusCode -ge 500 -and $statusCode -lt 600) -or ($message -match "\\b(?:429|5\\d\\d)\\b")) {
-                  Write-Host "GEMINI API SMOKE TEST: PASS-WARN - Gemini endpoint is reachable but the provider is temporarily throttled/unavailable."
-                  Write-Host ("Gemini provider status: " + $(if ($statusCode) { $statusCode } else { "transient" }))
-                  Write-Host "Gemini smoke test will not block the build on provider-side throttling or transient outages."
-                  exit 0
-              }
-
-              Write-Host "GEMINI API SMOKE TEST: FAIL - API request was rejected or unreachable."
-              Write-Host ("Gemini error: " + $message)
-              if ($statusCode) {
-                  Write-Host ("HTTP status: " + $statusCode)
-              }
+          if ($env:VYOM_REMOTE_REASONING -ne "false" -or $env:VYOM_REMOTE_RESPONSES -ne "false") {
+              Write-Error "The CI contract requires computer reasoning and answer generation to remain local-first."
               exit 1
           }
+          Write-Host "LOCAL-FIRST CONTRACT: PASS - no conversational AI API is required for build or runtime."
+          Write-Host "Factual questions use website retrieval; ordinary computer commands use the local semantic brain."
 
 
       - name: Verify Exact Build Source

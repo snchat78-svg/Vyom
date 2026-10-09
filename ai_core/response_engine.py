@@ -19,19 +19,25 @@ Security:
     This module does not create, modify, or execute code.
 """
 
+import os
 import re
 from typing import Any, Dict, Optional
 
 from ai_core.model_gateway import ModelGateway
+from ai_core.web_knowledge import WebKnowledge
 from ai_core.logger import log
 
 
 class ResponseEngine:
 
-    def __init__(self, model_gateway=None):
+    def __init__(self, model_gateway=None, knowledge_lookup=None):
         self.last_language = "hindi"
         self._reply_count = 0
         self.model_gateway = model_gateway or ModelGateway()
+        self.knowledge_lookup = knowledge_lookup or WebKnowledge()
+        self.allow_remote_responses = str(
+            os.getenv("VYOM_REMOTE_RESPONSES", "false")
+        ).strip().lower() in {"1", "true", "yes", "on"}
 
     # =========================================================
     # LANGUAGE
@@ -56,9 +62,20 @@ class ResponseEngine:
         has_devanagari = bool(re.search(r"[\u0900-\u097F]", value))
         latin_words = re.findall(r"\b[a-zA-Z]+\b", value)
 
+        roman_hindi_markers = {
+            "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
+            "kitna", "kitni", "kitne", "hai", "hain", "ho", "tha", "thi",
+            "the", "mujhe", "aap", "tum", "mera", "meri", "mere", "mein",
+            "namaste", "dhanyavaad", "shukriya", "kholo", "khol", "karo",
+            "likho", "batao", "bataiye", "band", "achha", "accha", "theek",
+            "bhaiya", "bhai", "kyon", "haan", "nahi", "nahin",
+        }
+        latin_tokens = {token.lower() for token in latin_words}
+        has_roman_hindi = bool(latin_tokens & roman_hindi_markers)
+
         if has_devanagari and latin_words:
             language = "hinglish"
-        elif has_devanagari:
+        elif has_devanagari or has_roman_hindi:
             language = "hindi"
         else:
             language = "english"
@@ -368,6 +385,40 @@ class ResponseEngine:
     # MAIN FORMATTER
     # =========================================================
 
+    @staticmethod
+    def _question_text(command: str, intent: Optional[Dict[str, Any]]) -> str:
+        if isinstance(intent, dict):
+            voice = intent.get("voice")
+            if isinstance(voice, dict):
+                raw = str(voice.get("raw_text") or "").strip()
+                if raw:
+                    return raw
+        return str(command or "").strip()
+
+    @staticmethod
+    def _is_information_question(text: str) -> bool:
+        value = str(text or "").strip().lower()
+        if not value:
+            return False
+        if re.search(r"[?？]", value):
+            return True
+        question_words = (
+            r"\b(?:what|who|why|when|where|how|which|whose|whom|"
+            r"kya|kaun|kyu|kyun|kab|kahan|kaise|kitna|kitni|kitne|"
+            r"kisne|kiska|kiski|kise)\b|"
+            r"(?:क्या|कौन|क्यों|कब|कहाँ|कहां|कैसे|कितना|कितनी|कितने|"
+            r"किसने|किसका|किसकी|किसे)"
+        )
+        return bool(re.search(question_words, value, flags=re.IGNORECASE))
+
+    @staticmethod
+    def _explicit_english_request(text: str) -> bool:
+        value = str(text or "").lower()
+        return bool(re.search(
+            r"\b(?:in english|english mein|english me|angrezi mein|angrezi me|"
+            r"answer in english|reply in english)\b", value
+        ))
+
     def format(
         self,
         command: str,
@@ -376,11 +427,62 @@ class ResponseEngine:
         selection_options=None,
         context: Optional[Dict[str, Any]] = None,
     ) -> str:
-        # A configured model gets the final conversational turn so Vyom can
+        # Factual questions use website retrieval rather than a conversational
+        # model. Hindi is the default response language, even when the user
+        # speaks Roman Hindi or asks the question in English.
+        question_text = self._question_text(command, intent)
+        intent_type_for_lookup = (
+            str(intent.get("intent") or "").strip().lower()
+            if isinstance(intent, dict) else ""
+        )
+        result_stage_for_lookup = (
+            str(result.get("stage") or "").strip().lower()
+            if isinstance(result, dict) else ""
+        )
+        conversation_type = (
+            str(intent.get("conversation_type") or "").strip().lower()
+            if isinstance(intent, dict) else ""
+        )
+        local_chat_types = {"greeting", "status", "identity", "thanks", "acknowledge", "help", "capabilities"}
+        is_conversation_turn = (
+            intent_type_for_lookup == "conversation"
+            or result_stage_for_lookup == "conversation"
+        )
+        if (
+            is_conversation_turn
+            and self._is_information_question(question_text)
+            and conversation_type not in local_chat_types
+        ):
+            preferred_language = (
+                "en" if self._explicit_english_request(command)
+                or self._explicit_english_request(question_text) else "hi"
+            )
+            try:
+                lookup = self.knowledge_lookup.answer(
+                    question_text,
+                    preferred_language=preferred_language,
+                )
+            except Exception as error:
+                log("[KNOWLEDGE] Web lookup failed: %s" % str(error)[:180])
+                lookup = {"success": False, "answer": ""}
+            if isinstance(lookup, dict) and lookup.get("success") and str(lookup.get("answer") or "").strip():
+                return str(lookup["answer"]).strip()
+            if preferred_language == "en":
+                return "I couldn't find a reliable answer on the available websites. Please check your internet connection and try again."
+            return (
+                "मुझे इस प्रश्न का भरोसेमंद उत्तर अभी वेबसाइटों से नहीं मिला। "
+                "इंटरनेट उपलब्ध होने पर दोबारा खोजें। मैं बिना स्रोत के तथ्य गढ़कर जवाब नहीं दूँगा।"
+            )
+
+        # Remote response generation is opt-in. Deterministic local responses
+        # and website-backed factual retrieval work without any AI provider.
+        # A configured model gets the final conversational turn only when the
+        # user has explicitly enabled VYOM_REMOTE_RESPONSES.
+        # respond naturally like an assistant instead of exposing executor
         # respond naturally like an assistant instead of exposing executor
         # wording. The deterministic formatter remains the safe fallback.
         try:
-            model_available = bool(self.model_gateway.is_available())
+            model_available = self.allow_remote_responses and bool(self.model_gateway.is_available())
             log("[AI] RESPONSE MODEL AVAILABLE: %s" % model_available)
 
             # Do not spend a second model request on deterministic computer
