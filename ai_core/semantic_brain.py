@@ -467,14 +467,14 @@ class LocalSemanticBrain:
         }
         value = cls._normalize(target)
         return re.sub(
-            r"\\b[A-Za-z]+\\b",
+            r"\b[A-Za-z]+\b",
             lambda match: substitutions.get(match.group(0).lower(), match.group(0)),
             value,
         )
 
     @classmethod
     def _is_ui_control_target(cls, target: str) -> bool:
-        tokens = set(re.findall(r"\\w+", cls._lower(target), flags=re.UNICODE))
+        tokens = set(re.findall(r"\w+", cls._lower(target), flags=re.UNICODE))
         return bool(tokens & {
             "button", "बटन", "box", "बॉक्स", "field", "textbox",
             "tab", "टैब", "menu", "मेन्यू", "link", "लिंक",
