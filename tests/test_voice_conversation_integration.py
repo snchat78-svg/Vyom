@@ -97,6 +97,23 @@ def test_conversation_outcomes_use_executor_structure_not_response_wording():
     assert result["success"] is False
 
 
+def test_failed_tts_still_prints_answer_to_console():
+    manager = FakeConversationManager()
+    controller = VoiceController(FakeSpeechToText(), FakeTextToSpeech(), manager)
+    printed = []
+    controller._safe_print = lambda message: printed.append(str(message))
+    controller._speak_response = lambda _message: {
+        "success": False,
+        "message": "Hindi TTS voice is not installed.",
+    }
+
+    result = controller._execute_voice_command("bharat ki rajadhani kya hai")
+
+    assert result["success"] is True
+    assert any("Done" in line for line in printed)
+    assert any("Hindi TTS voice is not installed" in line for line in printed)
+
+
 def test_voice_controller_injection_routes_through_conversation_manager():
     manager = FakeConversationManager()
     tts = FakeTextToSpeech()
