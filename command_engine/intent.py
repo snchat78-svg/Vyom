@@ -282,12 +282,12 @@ class IntentEngine:
         # Generic UI nouns only; app/file names remain runtime data.
         control_terms = {
             "button", "batan", "बटन", "box", "बॉक्स", "field", "feld",
-            "क्षेत्र", "textbox", "text box", "tab", "टैब", "menu", "मेन्यू",
+            "क्षेत्र", "textbox", "tab", "टैब", "menu", "मेन्यू",
             "link", "लिंक", "icon", "aikon", "आइकन", "checkbox",
-            "check box", "dropdown", "drop-down", "toggle", "slider",
+            "dropdown", "drop-down", "toggle", "slider",
         }
-        tokens = set(re.findall(r"[\\w\\u0900-\\u097F]+", value))
-        return any(term in tokens or term in value for term in control_terms)
+        tokens = set(re.findall(r"\w+", value, flags=re.UNICODE))
+        return any(term in tokens for term in control_terms) or "text box" in value or "check box" in value
 
     def _natural_family(self, original: str):
         text = self._normalize(original)
