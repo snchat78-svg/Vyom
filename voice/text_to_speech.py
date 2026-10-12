@@ -60,9 +60,9 @@ class TextToSpeech:
         self._current_voice = None
         self._pyttsx3 = None
 
-        # Default to the Windows/SAPI voice selected by the user. Hindi SAPI or
-        # eSpeak NG may be enabled explicitly, but neither is required to run Vyom.
-        self.tts_mode = os.environ.get("VYOM_TTS_MODE", "system").strip().lower()
+        # Prefer native Hindi speech when available without making it a startup requirement.
+        # If no Hindi voice/eSpeak is installed, retain the Windows SAPI fallback.
+        self.tts_mode = os.environ.get("VYOM_TTS_MODE", "auto").strip().lower()
 
         self._initialize()
 
