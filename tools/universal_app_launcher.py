@@ -658,7 +658,7 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=30
+                timeout=5
             )
 
             results = []
@@ -944,7 +944,7 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=45
+                timeout=7
             )
 
             results = []
@@ -1076,6 +1076,9 @@ catch {
                 self.program_files_x86
             )
 
+        scan_started = time.monotonic()
+        scan_budget_seconds = 2.5 if target_name else 8.0
+
         for base in bases:
 
             if not os.path.exists(base):
@@ -1088,6 +1091,8 @@ catch {
                     base,
                     onerror=lambda e: None
                 ):
+                    if time.monotonic() - scan_started >= scan_budget_seconds:
+                        return results
 
                     # Avoid huge cache folders
                     dirs[:] = [
@@ -1334,13 +1339,29 @@ catch {
         if strong and not force_refresh:
             return strong[:self.max_results]
 
+        # A high-confidence single quick candidate can be used directly only
+        # when no distinct app name has a similar score. This helps common STT
+        # misspellings without inventing an application alias.
+        if scored and not force_refresh:
+            top_score, top_item = scored[0]
+            top_name = self.normalize(top_item.get("name", ""))
+            competing = any(
+                self.normalize(item.get("name", "")) != top_name
+                and score >= top_score - 0.055
+                for score, item in scored[1:]
+            )
+            if top_score >= 0.84 and not competing:
+                return [top_item]
+
         # Targeted Program Files discovery comes before the expensive
         # complete AppsFolder/AppX inventory. It is generic and preserves
         # phonetic/fuzzy matching while reducing latency for installed desktop
         # applications that are not exposed by Start Menu/desktop shortcuts.
         if not force_refresh:
             try:
-                targeted = self.scan_program_files()
+                # The target must be supplied here. Scanning every EXE and
+                # filtering afterward was needlessly expensive on cold starts.
+                targeted = self.scan_program_files(target)
             except Exception:
                 targeted = []
 
@@ -2195,34 +2216,11 @@ exit 3
                     "suggestions": []
                 }
 
-            # If first launch mechanism failed,
-            # force refresh and try again.
-            refreshed = self.search(
-                target,
-                force_refresh=True
-            )
-
-            for item in refreshed:
-
-                if self.open_record(
-                    item
-                ):
-
-                    return {
-                        "success": True,
-                        "message": (
-                            "Opened successfully: "
-                            + item.get(
-                                "name",
-                                target
-                            )
-                        ),
-                        "results": [
-                            item
-                        ],
-                        "suggestions": []
-                    }
-
+            # Do not immediately repeat the full Windows application
+            # inventory after a launch attempt fails. open_record already
+            # tries path, AUMID and AppsFolder routes, and a forced full scan
+            # here could block voice mode for another 30-45 seconds. Continue
+            # to the direct AppsFolder and suggestion fallbacks below.
         # ----------------------------------------------------
         # MULTIPLE RESULTS
         # ----------------------------------------------------
