@@ -17,7 +17,7 @@ from ai_core.conversation_manager import ConversationManager
 
 
 class VoiceController:
-    BUILD_ID = "VYOM_VOICE_HANDOFF_V18_LOCAL_HINDI"
+    BUILD_ID = "VYOM_VOICE_HANDOFF_V19_RESPONSE_GUARD"
 
     def __init__(self, stt=None, tts=None, conversation_manager=None):
         self.speech_to_text = stt or SpeechToText(
@@ -398,14 +398,62 @@ class VoiceController:
 
         safe_command = command.encode("unicode_escape", errors="backslashreplace").decode("ascii")
         self._log("DISPATCHING VOICE COMMAND: " + safe_command)
-        result = self.process_text(command)
-        response = str(result.get("message", "") or "").strip()
-        if response:
-            # Voice mode also displays the actual answer. This makes a slow
-            # website lookup or a missing/bad voice observable instead of
-            # leaving only pipeline diagnostics in the console.
+        result = None
+        try:
+            result = self.process_text(command)
+            self._log("EXECUTOR RETURNED TO VOICE CONTROLLER.")
+
+            if not isinstance(result, dict):
+                result = {
+                    "success": True,
+                    "status": "success",
+                    "stage": "legacy_completed",
+                    "message": str(result or ""),
+                    "result": result,
+                }
+
+            # Read both fields because older executor adapters may expose only
+            # one of them. Do not let an empty response strand the voice loop.
+            response = str(
+                result.get("response")
+                or result.get("message")
+                or result.get("text")
+                or ""
+            ).strip()
+            success = bool(result.get("success", False))
+            self._log(
+                "RESPONSE PREPARED: success=%s stage=%s chars=%d"
+                % (
+                    success,
+                    str(result.get("stage") or result.get("status") or "unknown"),
+                    len(response),
+                )
+            )
+
+            if not response:
+                # Empty UI/tool messages should never silently terminate a
+                # turn. Report uncertainty rather than manufacturing success.
+                response = (
+                    "मुझे इस काम का स्पष्ट परिणाम नहीं मिला। "
+                    "कृपया स्क्रीन देखकर पुष्टि करें या निर्देश दोबारा बताइए।"
+                )
+                result["message"] = response
+                result["response"] = response
+                result["success"] = False
+                result["status"] = "failed"
+                result["stage"] = "empty_response_guard"
+
             self._safe_print("Vyom : " + response)
-            speech_result = self._speak_response(response)
+            self._log("RESPONSE DISPLAYED; HANDING OFF TO TTS.")
+            try:
+                speech_result = self._speak_response(response)
+            except Exception as error:
+                speech_result = {
+                    "success": False,
+                    "message": "Voice response handoff failed: " + str(error),
+                }
+                self._log("TTS HANDOFF EXCEPTION: " + str(error))
+
             if not isinstance(speech_result, dict) or not speech_result.get("success", False):
                 reason = (
                     str(speech_result.get("message") or "").strip()
@@ -413,9 +461,27 @@ class VoiceController:
                 )
                 if reason:
                     self._safe_print("Vyom TTS : " + reason)
-        else:
-            self._safe_print("Vyom : Command completed.")
-        return result
+            self._log("VOICE TURN RESPONSE HANDOFF COMPLETE.")
+            return result
+
+        except Exception as error:
+            self._log("POST-EXECUTION RESPONSE ERROR: " + str(error))
+            message = (
+                "काम करते समय उत्तर तैयार करने में समस्या हुई। "
+                "मैं सुनना जारी रखूँगा; कृपया निर्देश दोबारा बताइए।"
+            )
+            self._safe_print("Vyom : " + message)
+            try:
+                self._speak_response(message)
+            except Exception:
+                pass
+            return {
+                "success": False,
+                "status": "failed",
+                "stage": "voice_response_error",
+                "message": message,
+                "error": str(error),
+            }
 
     def _stop_audio_sessions(self):
         stop_stt = getattr(self.speech_to_text, "stop_session", None)
