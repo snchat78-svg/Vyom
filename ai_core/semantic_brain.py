@@ -1118,7 +1118,7 @@ class LocalSemanticBrain:
 
         # Reuse the precompiled canonical plan for mixed/compound goals.
         if whole_plan:
-                self._set_ids(whole_plan)
+            self._set_ids(whole_plan)
             has_legacy = any(
                 isinstance(step, dict)
                 and str(step.get("type") or "").strip().lower() == "execute_existing_intent"
