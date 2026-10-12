@@ -878,7 +878,15 @@ class ToolManager:
                 }
             launch_succeeded = bool(raw_result.get("success", False))
         else:
-            launch_succeeded = False
+            # Legacy callers return display text. Accept only explicit success
+            # wording; a foreground change alone cannot turn "not found" into
+            # a successful application launch.
+            legacy_message = str(raw_result or "").strip().lower()
+            launch_succeeded = legacy_message.startswith((
+                "opened successfully",
+                "opened windows application",
+                "opened ",
+            ))
 
         if self.selection_manager.has_results():
             return {
@@ -892,7 +900,7 @@ class ToolManager:
             }
 
         verified, after, method = self._verify_open_effect(target, before, raw_result)
-        success = bool(verified and (launch_succeeded if isinstance(raw_result, dict) else True))
+        success = bool(verified and launch_succeeded)
         if success:
             message = (
                 "हाँ, %s खोल दिया है। अब बताइए, आगे क्या करना है।"

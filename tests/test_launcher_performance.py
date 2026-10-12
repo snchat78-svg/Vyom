@@ -76,3 +76,55 @@ def test_observed_foreground_change_confirms_open_result():
     assert result["success"] is True
     assert result["stage"] == "verified"
     assert result["verification"]["verified"] is True
+
+def test_legacy_failure_text_cannot_be_promoted_by_unrelated_foreground_change():
+    manager = ToolManager.__new__(ToolManager)
+
+    class SelectionState:
+        results = []
+
+        @staticmethod
+        def has_results():
+            return False
+
+    manager.selection_manager = SelectionState()
+    manager._verify_open_effect = lambda _target, _before, _raw: (
+        True, {"hwnd": 200, "title": "Unrelated Window"},
+        "foreground_window_changed"
+    )
+
+    result = manager._open_result_contract(
+        "notepad",
+        {"hwnd": 100, "title": "Vyom Console"},
+        "I could not find 'notepad'.",
+    )
+
+    assert result["success"] is False
+    assert result["stage"] == "launch_unverified"
+    assert result["verification"]["verified"] is False
+
+
+def test_legacy_explicit_open_success_can_be_verified():
+    manager = ToolManager.__new__(ToolManager)
+
+    class SelectionState:
+        results = []
+
+        @staticmethod
+        def has_results():
+            return False
+
+    manager.selection_manager = SelectionState()
+    manager._verify_open_effect = lambda _target, _before, _raw: (
+        True, {"hwnd": 200, "title": "Untitled - Notepad"},
+        "foreground_window_changed"
+    )
+
+    result = manager._open_result_contract(
+        "notapaid",
+        {"hwnd": 100, "title": "Vyom Console"},
+        "Opened successfully: Notepad",
+    )
+
+    assert result["success"] is True
+    assert result["stage"] == "verified"
