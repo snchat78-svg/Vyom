@@ -953,7 +953,7 @@ class LocalSemanticBrain:
                 "keypress",
                 target="enter",
                 args={"key": "enter"},
-                description="Evaluate the expression in the calculator.",
+                description="Submit the arithmetic expression to the active application input surface.",
             ),
         ]
         self._set_ids(steps)
@@ -964,7 +964,7 @@ class LocalSemanticBrain:
             "confidence": 0.90,
             "semantic_interpretation": [{
                 "text": value,
-                "operation": "calculator_workflow",
+                "operation": "compound_arithmetic_workflow",
                 "expression": expression,
                 "source": "local_semantic_brain",
             }],
@@ -992,10 +992,10 @@ class LocalSemanticBrain:
             self.last_result = result
             return result
 
-        calculator_plan = self._compound_arithmetic_plan(original, ctx)
-        if calculator_plan:
-            self.last_result = calculator_plan
-            return calculator_plan
+        arithmetic_plan = self._compound_arithmetic_plan(original, ctx)
+        if arithmetic_plan:
+            self.last_result = arithmetic_plan
+            return arithmetic_plan
 
         # Compile the full goal before deciding that it is a conversation.
         # Interrogative words may be user data, e.g. "type what I say".
