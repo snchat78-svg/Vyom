@@ -75,8 +75,11 @@ IMPORTANT:
 """
 
 import os
+import time
 
 from windows_agent.process_manager import ProcessManager
+from windows_agent.window_manager import WindowManager
+from tools.phonetic_matcher import score_candidate
 
 from tools.file_manager import FileManager
 
@@ -100,6 +103,7 @@ class ToolManager:
         # -----------------------------------------------------
 
         self.process_manager = ProcessManager()
+        self.window_manager = WindowManager()
 
         self.file_manager = FileManager()
 
@@ -824,7 +828,107 @@ class ToolManager:
     # This combines the old and new behaviour.
     # =========================================================
 
-    def _open_target(
+    def _foreground_snapshot(self):
+        try:
+            return self.window_manager.get_foreground() or {}
+        except Exception:
+            return {}
+
+    def _verify_open_effect(self, target, before, raw_result):
+        """Observe the resulting foreground window after a legacy open route."""
+        source = raw_result if isinstance(raw_result, dict) else {}
+        candidates = [str(target or "").strip()]
+        records = source.get("results") if isinstance(source, dict) else None
+        if isinstance(records, list):
+            for item in records:
+                if isinstance(item, dict):
+                    name = str(item.get("name") or "").strip()
+                    if name and name not in candidates:
+                        candidates.append(name)
+
+        before_hwnd = before.get("hwnd") if isinstance(before, dict) else None
+        after = {}
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            after = self._foreground_snapshot()
+            title = str(after.get("title") or "").strip()
+            after_hwnd = after.get("hwnd")
+            if after_hwnd and title:
+                if before_hwnd and after_hwnd != before_hwnd:
+                    return True, after, "foreground_window_changed"
+                for candidate in candidates:
+                    # Compare against the observed title using generic
+                    # spelling/phonetic similarity; no app alias table.
+                    if candidate and score_candidate(candidate, title) >= 0.72:
+                        return True, after, "foreground_title_match"
+            time.sleep(0.15)
+        return False, after, "foreground_change_not_observed"
+
+    def _open_result_contract(self, target, before, raw_result):
+        if isinstance(raw_result, dict):
+            if self.selection_manager.has_results():
+                return {
+                    "success": False,
+                    "status": "needs_selection",
+                    "stage": "needs_selection",
+                    "message": str(raw_result.get("message") or "कृपया एक विकल्प चुनें।"),
+                    "selection_options": list(self.selection_manager.results),
+                    "result": raw_result,
+                    "verification": {"verified": False, "reason": "Selection is pending."},
+                }
+            launch_succeeded = bool(raw_result.get("success", False))
+        else:
+            launch_succeeded = False
+
+        if self.selection_manager.has_results():
+            return {
+                "success": False,
+                "status": "needs_selection",
+                "stage": "needs_selection",
+                "message": str(raw_result or "कृपया एक विकल्प चुनें।"),
+                "selection_options": list(self.selection_manager.results),
+                "result": raw_result,
+                "verification": {"verified": False, "reason": "Selection is pending."},
+            }
+
+        verified, after, method = self._verify_open_effect(target, before, raw_result)
+        success = bool(verified and (launch_succeeded if isinstance(raw_result, dict) else True))
+        if success:
+            message = (
+                "हाँ, %s खोल दिया है। अब बताइए, आगे क्या करना है।"
+                % str((after or {}).get("title") or target).strip()
+            )
+        else:
+            message = (
+                "मैंने खोलने का अनुरोध किया, लेकिन स्क्रीन पर उसका खुलना verify नहीं कर पाया। "
+                "कृपया देखें कि ऐप खुला है या नहीं।"
+            )
+        return {
+            "success": success,
+            "status": "success" if success else "failed",
+            "stage": "verified" if success else "launch_unverified",
+            "message": message,
+            "result": raw_result,
+            "verification": {
+                "verified": success,
+                "verification_level": "foreground_state",
+                "method": method,
+                "window_before": before or {},
+                "window_after": after or {},
+            },
+        }
+
+    def _open_target(self, target, structured=False):
+        # Preserve the established string-returning contract for old callers.
+        # The unified executor opts into a structured, observation-backed
+        # result so a missing app cannot be reported as a false success.
+        if not structured:
+            return self._open_target_legacy(target)
+        before = self._foreground_snapshot()
+        raw_result = self._open_target_legacy(target)
+        return self._open_result_contract(target, before, raw_result)
+
+    def _open_target_legacy(
         self,
         target
     ):
@@ -1328,7 +1432,8 @@ class ToolManager:
 
     def execute(
         self,
-        intent
+        intent,
+        structured=False,
     ):
 
         if not isinstance(
@@ -1384,7 +1489,8 @@ class ToolManager:
         if intent_type == "open":
 
             return self._open_target(
-                target
+                target,
+                structured=structured,
             )
 
         # =====================================================
