@@ -888,21 +888,19 @@ class LocalSemanticBrain:
             }
         return None
 
-    def _calculator_compound_plan(
+    def _compound_arithmetic_plan(
         self,
         text: str,
         context: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Compile a spoken calculator workflow into verified, ordered UI steps."""
+        """Compile a generic target-first arithmetic goal into ordered UI steps."""
         value = self._normalize(text)
         opened = self._open_close(value, context=context)
         if not isinstance(opened, dict) or opened.get("operation") != "open_application":
             return None
 
-        target = self._lower(opened.get("target"))
-        # Only take over when the user's named target is recognizably a
-        # calculator. App aliases are still resolved by the normal launcher.
-        if not re.search(r"calculator|kailakuletar|calculetar|kalkulator|\bcalc\b", target):
+        target = self._normalize(opened.get("target"))
+        if not target:
             return None
 
         numbers = re.findall(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])", value)
@@ -937,19 +935,19 @@ class LocalSemanticBrain:
             self._action(
                 "open_application",
                 target=str(opened.get("target") or "").strip(),
-                description="Open the calculator requested by the user and verify its window.",
+                description="Open the runtime-selected application and verify its window.",
             ),
             self._action(
                 "wait",
                 target="",
                 args={"seconds": 0.8},
-                description="Allow the newly opened calculator to finish loading.",
+                description="Allow the requested application to finish loading.",
             ),
             self._action(
                 "type_text",
                 target="focused_element",
                 args={"text": expression},
-                description="Enter the arithmetic expression into the foreground calculator.",
+                description="Enter the user-requested arithmetic expression into the foreground app.",
             ),
             self._action(
                 "keypress",
@@ -994,7 +992,7 @@ class LocalSemanticBrain:
             self.last_result = result
             return result
 
-        calculator_plan = self._calculator_compound_plan(original, ctx)
+        calculator_plan = self._compound_arithmetic_plan(original, ctx)
         if calculator_plan:
             self.last_result = calculator_plan
             return calculator_plan

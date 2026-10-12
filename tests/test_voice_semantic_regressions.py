@@ -186,3 +186,16 @@ def test_genuine_open_ended_question_still_uses_knowledge_route():
     assert result["route"] == "conversation"
     assert result["semantic_interpretation"] == "information_question"
 
+def test_compound_arithmetic_workflow_does_not_require_a_known_app_alias():
+    result = LocalSemanticBrain().reason(
+        "my custom workspace open karo aur 25 aur 25 joro",
+        context={},
+    )
+
+    assert result["route"] == "mission"
+    steps = result["plan"]
+    assert steps[0]["action"] == "open_application"
+    assert steps[0]["target"] == "my custom workspace"
+    assert steps[2]["action"] == "type_text"
+    assert steps[2]["args"]["text"] == "25+25"
+    assert steps[3]["action"] == "keypress"
