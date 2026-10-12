@@ -32,7 +32,7 @@ Status is evidence-based: a module existing in the repository does not mean the 
 
 **2.6 Acceptance gate.** Test varying labels, ambiguous candidates, unavailable UIA and generic targets without app-specific command maps.
 
-**Assessment:** Generic UIA discovery/grounding and control patterns exist. More Windows-desktop integration tests are needed; runtime verification was expanded so low-level input cannot be VERIFIED solely because dispatch returned.
+**Assessment:** Generic UIA discovery/grounding and control patterns exist. Compound arithmetic is compiled against the runtime-supplied target rather than a fixed calculator-alias list. More Windows-desktop integration tests are needed; runtime verification was expanded so low-level input cannot be VERIFIED solely because dispatch returned.
 
 ## Phase 3 — Real Verification
 
