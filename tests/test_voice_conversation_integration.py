@@ -253,3 +253,38 @@ def test_executor_unknown_goal_uses_existing_autonomous_agent(monkeypatch):
     executor.execute("prepare my monthly report")
 
     assert calls == [("prepare my monthly report", {"intent": "unknown", "target": "prepare my monthly report"})]
+
+def test_active_command_capture_is_bounded_for_noisy_microphone():
+    stt = ScriptedSpeechToText(["open Notepad"])
+    controller = VoiceController(stt, FakeTextToSpeech(), FakeConversationManager())
+    controller.running = True
+
+    command = controller._listen_active_command()
+
+    assert command == "open Notepad"
+    assert stt.listen_calls[0]["phrase_time_limit"] == 15
+
+
+def test_console_display_romanizes_hindi_instead_of_writing_devanagari(monkeypatch):
+    import sys
+
+    class ASCIIOnlyStream:
+        encoding = "utf-8"
+
+        def __init__(self):
+            self.parts = []
+
+        def write(self, value):
+            assert value.isascii(), "legacy console output must remain ASCII-safe"
+            self.parts.append(value)
+
+        def flush(self):
+            return None
+
+    stream = ASCIIOnlyStream()
+    monkeypatch.setattr(sys, "stdout", stream)
+
+    VoiceController._safe_print("Vyom : हाँ, बताइए।")
+
+    assert stream.parts
+    assert "Vyom :" in stream.parts[0]

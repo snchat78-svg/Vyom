@@ -17,7 +17,7 @@ from ai_core.conversation_manager import ConversationManager
 
 
 class VoiceController:
-    BUILD_ID = "VYOM_VOICE_HANDOFF_V19_RESPONSE_GUARD"
+    BUILD_ID = "VYOM_VOICE_HANDOFF_V20_SAFE_OUTPUT_WAKE_PRECISION"
 
     def __init__(self, stt=None, tts=None, conversation_manager=None):
         self.speech_to_text = stt or SpeechToText(
@@ -48,6 +48,18 @@ class VoiceController:
             stream = getattr(sys, "stdout", None)
             if stream is None:
                 return
+            # Old Windows/PyInstaller consoles can hang or garble on a
+            # Unicode write even when their wrapper claims UTF-8. Romanize
+            # only the displayed copy; TTS still receives the real Hindi text.
+            if re.search(r"[\u0900-\u097F]", text):
+                try:
+                    display = normalize_voice_text(text)
+                    if display and not re.search(r"[\u0900-\u097F]", display):
+                        text = display
+                    else:
+                        text = text.encode("unicode_escape", errors="backslashreplace").decode("ascii")
+                except Exception:
+                    text = text.encode("unicode_escape", errors="backslashreplace").decode("ascii")
             encoding = getattr(stream, "encoding", None) or "utf-8"
             try:
                 text.encode(encoding)
@@ -118,7 +130,7 @@ class VoiceController:
                 if ratio > score:
                     score = ratio
                     best = self._normalize(wake_word)
-            if score >= 0.72:
+            if score >= 0.86:
                 return best
         return None
 
@@ -278,7 +290,7 @@ class VoiceController:
                     self._normalize(text).replace(" ", ""),
                     self._normalize(wake_word).replace(" ", "")
                 ).ratio()
-                if score >= 0.72:
+                if score >= 0.86:
                     command = ""
                     self._log("Wake-only utterance consumed after fuzzy match (%.2f)." % score)
             except Exception:
@@ -299,7 +311,9 @@ class VoiceController:
             result = self.listen_once(
                 announce=False,
                 timeout=8,
-                phrase_time_limit=None,
+                # Bound capture even if the microphone hears continuous room
+                # noise. This keeps the active loop from waiting indefinitely.
+                phrase_time_limit=15,
                 wake_mode=False,
             )
         except Exception as error:
@@ -443,8 +457,9 @@ class VoiceController:
                 result["status"] = "failed"
                 result["stage"] = "empty_response_guard"
 
+            self._log("RESPONSE CONSOLE DISPLAY BEGIN (ASCII-SAFE).")
             self._safe_print("Vyom : " + response)
-            self._log("RESPONSE DISPLAYED; HANDING OFF TO TTS.")
+            self._log("RESPONSE CONSOLE DISPLAY COMPLETE; HANDING OFF TO TTS.")
             try:
                 speech_result = self._speak_response(response)
             except Exception as error:
