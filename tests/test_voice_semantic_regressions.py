@@ -120,3 +120,41 @@ def test_existing_application_open_fast_path_is_preserved():
     intent = IntentEngine().detect("notepad kholo")
     assert intent["intent"] == "open"
     assert intent["target"] == "notepad"
+
+
+def test_empty_executor_response_does_not_silently_end_voice_turn():
+    from voice.voice_controller import VoiceController
+
+    class TTS:
+        def is_available(self):
+            return True
+
+        def speak(self, _text):
+            return {"success": True}
+
+    controller = VoiceController(
+        stt=type("STT", (), {"is_available": lambda self: True})(),
+        tts=TTS(),
+        conversation_manager=object(),
+    )
+    controller.process_text = lambda _command: {
+        "success": True,
+        "status": "success",
+        "stage": "success",
+        "message": "",
+        "response": "",
+    }
+    printed = []
+    spoken = []
+    controller._safe_print = lambda message: printed.append(str(message))
+    controller._speak_response = lambda message: (
+        spoken.append(str(message)) or {"success": True}
+    )
+
+    result = controller._execute_voice_command("notapaid open")
+
+    assert result["success"] is False
+    assert result["stage"] == "empty_response_guard"
+    assert any("स्पष्ट परिणाम नहीं मिला" in line for line in printed)
+    assert spoken and "स्पष्ट परिणाम नहीं मिला" in spoken[0]
+
