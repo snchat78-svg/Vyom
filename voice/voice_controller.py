@@ -54,6 +54,9 @@ class VoiceController:
             if re.search(r"[\u0900-\u097F]", text):
                 try:
                     display = normalize_voice_text(text)
+                    # Romanizer preserves Devanagari danda punctuation; map
+                    # those sentence marks to ASCII before checking leftovers.
+                    display = display.replace("।", ".").replace("॥", ".")
                     if display and not re.search(r"[\u0900-\u097F]", display):
                         text = display
                     else:
