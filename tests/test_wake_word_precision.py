@@ -50,5 +50,10 @@ def test_lower_ranked_fuzzy_alternative_does_not_override_primary_transcript():
 
 def test_voice_controller_does_not_fuzzily_activate_from_vivo():
     controller = VoiceController.__new__(VoiceController)
+    controller.wake_words = (
+        "hey vyom", "हे व्योम", "vyom ji", "व्योम जी",
+        "vyom", "व्योम", "viyom", "viom", "वियोम", "वियम",
+        "vyam", "veom", "vyoam", "viyam", "biom", "beyom", "vyoum",
+    )
     assert controller._find_wake_word("Vivo") is None
     assert controller._find_wake_word("Vyom") == "vyom"
