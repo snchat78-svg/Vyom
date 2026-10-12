@@ -1021,9 +1021,28 @@ def execute(
                     raw_result = None
 
             if raw_result is None:
-                raw_result = tool_manager.execute(
-                    intent
-                )
+                if intent_type == "open" and isinstance(tool_manager, ToolManager):
+                    log(
+                        "[EXEC] STRUCTURED APP OPEN START: %s"
+                        % str(intent.get("target") or "").encode(
+                            "unicode_escape", errors="backslashreplace"
+                        ).decode("ascii")
+                    )
+                    raw_result = tool_manager.execute(
+                        intent,
+                        structured=True,
+                    )
+                    log(
+                        "[EXEC] STRUCTURED APP OPEN END: success=%s stage=%s"
+                        % (
+                            str(raw_result.get("success", False))
+                            if isinstance(raw_result, dict) else "unknown",
+                            str(raw_result.get("stage", "legacy"))
+                            if isinstance(raw_result, dict) else "legacy",
+                        )
+                    )
+                else:
+                    raw_result = tool_manager.execute(intent)
 
             # -------------------------------------------------
             # Sync selection state immediately.
