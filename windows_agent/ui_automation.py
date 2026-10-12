@@ -65,13 +65,14 @@ class WindowsUICapability:
         clipboard_manager: Optional[ClipboardManager] = None,
         screen_observer: Optional[ScreenObserver] = None,
         ui_grounder: Optional[UIElementGrounder] = None,
+        ui_observer: Optional[Any] = None,
     ):
         self.window_manager = window_manager or WindowManager()
         self.input_controller = input_controller or InputController()
         self.clipboard_manager = clipboard_manager or ClipboardManager()
         self.screen_observer = screen_observer or ScreenObserver()
         self.ui_grounder = ui_grounder or UIElementGrounder()
-        self.ui_observer = UIStateObserver()
+        self.ui_observer = ui_observer or UIStateObserver()
         self.ui_verifier = UIVerificationEngine(observer=self.ui_observer)
         self.app_launcher = UniversalAppLauncher()
 
@@ -124,6 +125,7 @@ class WindowsUICapability:
             "type_text", "find_ui_element", "focus_ui_element", "click_ui_element",
             "invoke_ui_element", "set_ui_value", "select_ui_element",
             "toggle_ui_element", "expand_ui_element", "collapse_ui_element",
+            "click", "double_click", "keypress", "hotkey", "scroll",
         }
         metadata = action.get("metadata")
         explicit_verification = (

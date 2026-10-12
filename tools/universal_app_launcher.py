@@ -453,6 +453,21 @@ class UniversalAppLauncher:
 
         results.append(item)
 
+    @staticmethod
+    def _stop_child_process(process):
+        """Terminate a timed-out discovery child and drain its pipes."""
+        if process is None:
+            return
+        try:
+            if process.poll() is None:
+                process.kill()
+        except Exception:
+            pass
+        try:
+            process.communicate(timeout=1)
+        except Exception:
+            pass
+
     # ========================================================
     # START MENU SCAN
     # ========================================================
@@ -658,7 +673,7 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=5
+                timeout=4
             )
 
             results = []
@@ -707,7 +722,7 @@ catch {
             OSError,
             Exception
         ):
-
+            self._stop_child_process(locals().get("process"))
             return []
 
     # ========================================================
@@ -792,7 +807,7 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=30
+                timeout=4
             )
 
             results = []
@@ -843,7 +858,7 @@ catch {
             OSError,
             Exception
         ):
-
+            self._stop_child_process(locals().get("process"))
             return []
 
     # ========================================================
@@ -944,7 +959,7 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=7
+                timeout=5
             )
 
             results = []
@@ -994,7 +1009,7 @@ catch {
             OSError,
             Exception
         ):
-
+            self._stop_child_process(locals().get("process"))
             return []
 
     # ========================================================
@@ -1797,7 +1812,7 @@ exit 3
             )
 
             stdout, stderr = process.communicate(
-                timeout=30
+                timeout=4
             )
 
             if process.returncode != 0:
@@ -1845,7 +1860,7 @@ exit 3
             )
 
         except Exception:
-
+            self._stop_child_process(locals().get("process"))
             return False
 
 

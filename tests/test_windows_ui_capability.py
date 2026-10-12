@@ -42,6 +42,35 @@ class FakeInputController:
         return {"success": True, "stage": "scrolled", "verification": {"verified": True, "verification_level": "dispatch"}, "amount": amount}
 
 
+class FakeUIStateObserver:
+    def __init__(self):
+        self.calls = {}
+
+    def snapshot(self, action=None):
+        name = str((action or {}).get("action") or "")
+        self.calls[name] = self.calls.get(name, 0) + 1
+        after = self.calls[name] % 2 == 0
+        args = (action or {}).get("args") or {}
+        text = str(args.get("text", (action or {}).get("target", "")) or "")
+        value = text if after and name == "type_text" else ""
+        return {
+            "available": True,
+            "active_window": {
+                "exists": True, "hwnd": 42, "title": "Test Window"
+            },
+            "focused_element": {
+                "exists": True, "focused": True, "name": "Editor",
+                "value": value, "text": value,
+            },
+            "selected_element": {"exists": after, "selected": after},
+            "target_element": {
+                "exists": True, "focused": after, "selected": after,
+                "name": str((action or {}).get("target") or "Control"),
+            },
+            "ui_tree_signature": [{"revision": self.calls[name]}],
+        }
+
+
 class FakeClipboard:
     def set_text(self, text):
         return {"success": True, "stage": "clipboard_set", "verification": {"verified": True, "verification_level": "dispatch"}, "text_length": len(str(text))}
@@ -62,6 +91,7 @@ class WindowsUICapabilityTests(unittest.TestCase):
             input_controller=FakeInputController(),
             clipboard_manager=FakeClipboard(),
             screen_observer=FakeScreen(),
+            ui_observer=FakeUIStateObserver(),
         )
 
     def test_capability_surface_is_generic(self):

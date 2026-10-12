@@ -164,6 +164,15 @@ class UIVerificationEngine:
         if name == "find_ui_element":
             return [{"kind": "element_exists", "source": "target_element"}]
 
+        if name in ("click", "double_click", "keypress", "hotkey", "scroll"):
+            # Dispatch is not proof that the desktop reacted. A real state,
+            # focus, window or UI-tree change is required for VERIFIED.
+            return [
+                {"kind": "ui_tree_changed"},
+                {"kind": "window_changed", "source": "window"},
+                {"kind": "focused_changed"},
+            ]
+
         if name == "focus_ui_element":
             return [{
                 "kind": "property",
@@ -276,7 +285,10 @@ class UIVerificationEngine:
             mode = (
                 "any"
                 if self._norm(action.get("action"))
-                in ("click_ui_element", "invoke_ui_element", "toggle_ui_element")
+                in (
+                    "click_ui_element", "invoke_ui_element", "toggle_ui_element",
+                    "click", "double_click", "keypress", "hotkey", "scroll",
+                )
                 else "all"
             )
 

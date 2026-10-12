@@ -158,3 +158,31 @@ def test_empty_executor_response_does_not_silently_end_voice_turn():
     assert any("स्पष्ट परिणाम नहीं मिला" in line for line in printed)
     assert spoken and "स्पष्ट परिणाम नहीं मिला" in spoken[0]
 
+
+def test_action_data_containing_question_word_stays_on_action_route():
+    result = LocalSemanticBrain().reason("type what I say", context={})
+
+    assert result["route"] == "capability"
+    assert result["plan"][0]["action"] == "type_text"
+    assert result["plan"][0]["args"]["text"] == "what I say"
+
+
+def test_compound_typing_goal_is_not_swallowed_by_question_classifier():
+    result = LocalSemanticBrain().reason(
+        "open Notepad and type what I say",
+        context={},
+    )
+
+    assert result["route"] == "mission"
+    assert result["plan"][-1]["action"] == "type_text"
+    assert result["plan"][-1]["args"]["text"] == "what I say"
+
+
+def test_genuine_open_ended_question_still_uses_knowledge_route():
+    result = LocalSemanticBrain().reason(
+        "what is the capital of India",
+        context={},
+    )
+    assert result["route"] == "conversation"
+    assert result["semantic_interpretation"] == "information_question"
+

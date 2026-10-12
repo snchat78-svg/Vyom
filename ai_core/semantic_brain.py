@@ -681,6 +681,28 @@ class LocalSemanticBrain:
             return cls._strip_end(match.group(1)).strip(" ,.!?")
         return ""
 
+    @classmethod
+    def _has_action_shape(cls, text: str) -> bool:
+        """Recognize generic imperative morphology, not application names."""
+        value = cls._lower(text)
+        verbs = (
+            cls._OPEN + cls._CLOSE + cls._TYPE + cls._CLICK
+            + cls._DOUBLE_CLICK + cls._INVOKE + cls._FOCUS
+            + cls._SCROLL + cls._SEARCH
+        )
+        for phrase in sorted(set(verbs), key=len, reverse=True):
+            if value == phrase or value.startswith(phrase + " "):
+                return True
+
+        command_suffixes = (
+            "khol do", "kholdo", "kholo", "kholna", "kholiye", "kholen",
+            "band karo", "band kar do", "likho", "likhen", "likh do",
+            "type karo", "click karo", "select karo", "dabao", "daba do",
+            "खोलो", "खोल दो", "लिखो", "लिखें", "दबाओ", "क्लिक करो",
+            "चुनो", "खोजो", "ढूंढो",
+        )
+        return any(value.endswith(" " + suffix) for suffix in command_suffixes)
+
     def _semantic_surface_action(
         self,
         text: str,
@@ -977,7 +999,25 @@ class LocalSemanticBrain:
             self.last_result = calculator_plan
             return calculator_plan
 
-        if self._is_question(original):
+        # Compile the full goal before deciding that it is a conversation.
+        # Interrogative words may be user data, e.g. "type what I say".
+        whole_plan = self._generic_from_context_compiler(original, ctx)
+        clauses = [
+            self._normalize(item)
+            for item in self._CONNECTOR_RE.split(original)
+            if self._normalize(item)
+        ] or [original]
+        action_shaped_clause = any(self._has_action_shape(item) for item in clauses)
+        explicit_info_request = bool(re.match(
+            r"^(?:please\s+)?(?:tell me|explain|define|describe|give me (?:some )?information about)\b",
+            original,
+            flags=re.IGNORECASE,
+        ))
+
+        if self._is_question(original) and (
+            explicit_info_request
+            or (not whole_plan and not action_shaped_clause)
+        ):
             result = {
                 "success": True,
                 "route": "conversation",
@@ -1076,10 +1116,9 @@ class LocalSemanticBrain:
                 self.last_result = result
                 return result
 
-        # Reuse the canonical contextual compiler for mixed/compound goals.
-        whole_plan = self._generic_from_context_compiler(original, ctx)
+        # Reuse the precompiled canonical plan for mixed/compound goals.
         if whole_plan:
-            self._set_ids(whole_plan)
+                self._set_ids(whole_plan)
             has_legacy = any(
                 isinstance(step, dict)
                 and str(step.get("type") or "").strip().lower() == "execute_existing_intent"
