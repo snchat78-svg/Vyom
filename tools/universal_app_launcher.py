@@ -1400,7 +1400,10 @@ catch {
             )
             add_candidate(app, score)
 
-        if not exact and not scored:
+        # A normal search already performed the bounded, target-scoped
+        # Program Files scan above. Repeat it only for an explicit forced
+        # refresh; doing it twice made a no-match voice command feel frozen.
+        if not exact and not scored and force_refresh:
             try:
                 for variant in target_variants:
                     for item in self.scan_program_files(variant):
