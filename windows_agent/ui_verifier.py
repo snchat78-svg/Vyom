@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typing import Any, Dict, List, Optional
 
 
@@ -137,6 +139,41 @@ class UIVerificationEngine:
             source = str(check.get("source", "focused_element"))
             return cls._field(before, source, "text") != cls._field(after, source, "text")
 
+        if kind == "contains_visible_text":
+            expected = str(check.get("value") or "").strip()
+            if not expected:
+                return False
+            visible_values = []
+            tree = after.get("ui_tree_signature", [])
+            if isinstance(tree, list):
+                for item in tree:
+                    if isinstance(item, dict):
+                        for field in ("name", "text", "value"):
+                            candidate = str(item.get(field) or "").strip()
+                            if candidate:
+                                visible_values.append(candidate)
+            for source in ("active_window", "focused_element", "target_element"):
+                item = after.get(source)
+                if isinstance(item, dict):
+                    for field in ("name", "title", "text", "value"):
+                        candidate = str(item.get(field) or "").strip()
+                        if candidate:
+                            visible_values.append(candidate)
+            numeric_expected = bool(re.fullmatch(r"-?\d+(?:\.\d+)?", expected))
+            for candidate in visible_values:
+                if not numeric_expected:
+                    if expected.casefold() in candidate.casefold():
+                        return True
+                    continue
+                for token in re.findall(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])", candidate):
+                    try:
+                        from decimal import Decimal
+                        if Decimal(token) == Decimal(expected):
+                            return True
+                    except Exception:
+                        continue
+            return False
+
         if kind == "ui_tree_changed":
             return cls._tree_changed(before, after)
 
@@ -241,13 +278,16 @@ class UIVerificationEngine:
             args = action.get("args")
             args = dict(args) if isinstance(args, dict) else {}
             value = args.get("text", action.get("target", ""))
-            return [{
-                "kind": "property",
-                "source": "focused_element",
-                "field": "value",
-                "operator": "contains",
-                "value": value,
-            }]
+            return [
+                {
+                    "kind": "property",
+                    "source": "focused_element",
+                    "field": "value",
+                    "operator": "contains",
+                    "value": value,
+                },
+                {"kind": "ui_tree_changed"},
+            ]
 
         return []
 
@@ -287,7 +327,7 @@ class UIVerificationEngine:
                 if self._norm(action.get("action"))
                 in (
                     "click_ui_element", "invoke_ui_element", "toggle_ui_element",
-                    "click", "double_click", "keypress", "hotkey", "scroll",
+                    "click", "double_click", "keypress", "hotkey", "scroll", "type_text",
                 )
                 else "all"
             )

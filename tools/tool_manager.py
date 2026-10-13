@@ -75,6 +75,7 @@ IMPORTANT:
 """
 
 import os
+import re
 import time
 
 from windows_agent.process_manager import ProcessManager
@@ -834,6 +835,30 @@ class ToolManager:
         except Exception:
             return {}
 
+    @staticmethod
+    def _title_segments(title):
+        value = str(title or "").strip()
+        if not value:
+            return []
+        pieces = [piece.strip() for piece in re.split(r"\s+(?:-|—|–|\|)\s+", value) if piece.strip()]
+        return pieces or [value]
+
+    @staticmethod
+    def _same_runtime_target(target, candidate):
+        target_text = str(target or "").strip().lower()
+        candidate_text = str(candidate or "").strip().lower()
+        if not target_text or not candidate_text:
+            return False
+        if target_text == candidate_text:
+            return True
+        if target_text in candidate_text or candidate_text in target_text:
+            return False
+        return score_candidate(target_text, candidate_text) >= 0.80
+
+    def _foreground_matches_target(self, target, window):
+        title = str(window.get("title") or "").strip() if isinstance(window, dict) else ""
+        return any(self._same_runtime_target(target, segment) for segment in self._title_segments(title))
+
     def _verify_open_effect(self, target, before, raw_result):
         """Observe the resulting foreground window after a legacy open route."""
         source = raw_result if isinstance(raw_result, dict) else {}
@@ -857,9 +882,8 @@ class ToolManager:
                 if before_hwnd and after_hwnd != before_hwnd:
                     return True, after, "foreground_window_changed"
                 for candidate in candidates:
-                    # Compare against the observed title using generic
-                    # spelling/phonetic similarity; no app alias table.
-                    if candidate and score_candidate(candidate, title) >= 0.72:
+                    # Match each caption segment so app captions remain discoverable.
+                    if candidate and self._foreground_matches_target(candidate, after):
                         return True, after, "foreground_title_match"
             time.sleep(0.15)
         return False, after, "foreground_change_not_observed"
@@ -933,6 +957,23 @@ class ToolManager:
         if not structured:
             return self._open_target_legacy(target)
         before = self._foreground_snapshot()
+        if self._foreground_matches_target(target, before):
+            title = str(before.get("title") or target).strip()
+            message = "%s is already active; reusing the existing window." % title
+            return {
+                "success": True,
+                "status": "success",
+                "stage": "verified",
+                "message": message,
+                "result": {"success": True, "reused_existing_window": True, "message": message},
+                "verification": {
+                    "verified": True,
+                    "verification_level": "foreground_state",
+                    "method": "existing_foreground_match",
+                    "window_before": before,
+                    "window_after": before,
+                },
+            }
         raw_result = self._open_target_legacy(target)
         return self._open_result_contract(target, before, raw_result)
 

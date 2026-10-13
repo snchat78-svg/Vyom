@@ -8,6 +8,7 @@ source title/domain is returned with the answer.
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import re
 import urllib.parse
@@ -86,6 +87,83 @@ class _DuckDuckGoResults(HTMLParser):
             item for item in self.results
             if item.get("title") and item.get("snippet")
         ]
+
+
+class _ReadablePageParser(HTMLParser):
+    """Extract readable title, description, headings, and paragraphs."""
+
+    _SKIP_TAGS = {"script", "style", "noscript", "svg", "nav", "footer", "header", "form"}
+    _VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.title = ""
+        self.description = ""
+        self.headings: List[str] = []
+        self.paragraphs: List[str] = []
+        self._capture: Optional[str] = None
+        self._capture_depth = 0
+        self._capture_parts: List[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = str(tag or "").lower()
+        attributes = dict(attrs)
+        if self._skip_depth:
+            if tag not in self._VOID_TAGS:
+                self._skip_depth += 1
+            return
+        if tag in self._SKIP_TAGS:
+            self._skip_depth = 1
+            return
+        if tag == "meta":
+            key = str(attributes.get("name") or attributes.get("property") or "").lower()
+            content = re.sub(r"\s+", " ", str(attributes.get("content") or "")).strip()
+            if key in {"description", "og:description", "twitter:description"} and content and not self.description:
+                self.description = content
+            return
+        if self._capture:
+            if tag not in self._VOID_TAGS:
+                self._capture_depth += 1
+            return
+        if tag in {"title", "h1", "h2", "p"}:
+            self._capture = tag
+            self._capture_depth = 1
+            self._capture_parts = []
+
+    def handle_endtag(self, tag):
+        tag = str(tag or "").lower()
+        if self._skip_depth:
+            if tag not in self._VOID_TAGS:
+                self._skip_depth -= 1
+            return
+        if not self._capture or tag in self._VOID_TAGS:
+            return
+        self._capture_depth -= 1
+        if self._capture_depth > 0:
+            return
+        value = re.sub(r"\s+", " ", html.unescape("".join(self._capture_parts))).strip()
+        if value:
+            if self._capture == "title":
+                self.title = value
+            elif self._capture in {"h1", "h2"} and value not in self.headings:
+                self.headings.append(value)
+            elif self._capture == "p" and value not in self.paragraphs:
+                self.paragraphs.append(value)
+        self._capture = None
+        self._capture_parts = []
+
+    def handle_data(self, data):
+        if self._capture and not self._skip_depth:
+            self._capture_parts.append(data)
+
+    def extract(self) -> str:
+        parts = []
+        for value in [self.description] + self.headings + self.paragraphs[:5]:
+            clean = re.sub(r"\s+", " ", str(value or "")).strip()
+            if clean and clean not in parts:
+                parts.append(clean)
+        return " ".join(parts)
 
 
 class WebKnowledge:
@@ -189,6 +267,60 @@ class WebKnowledge:
             return text
         shortened = text[:limit].rsplit(" ", 1)[0].strip()
         return shortened + "…"
+
+    @staticmethod
+    def _is_public_web_url(url: str) -> bool:
+        """Reject non-web schemes, credential URLs, and obvious private targets."""
+        try:
+            parsed = urllib.parse.urlparse(str(url or "").strip())
+            if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+                return False
+            if parsed.username or parsed.password:
+                return False
+            host = parsed.hostname.lower().rstrip(".")
+            if host in {"localhost", "localhost.localdomain"} or host.endswith(
+                (".localhost", ".local", ".internal", ".test")
+            ):
+                return False
+            try:
+                address = ipaddress.ip_address(host)
+                if not address.is_global:
+                    return False
+            except ValueError:
+                pass
+            return True
+        except Exception:
+            return False
+
+    def _extract_webpage(self, url: str, preferred_language: str) -> Optional[Dict[str, Any]]:
+        """Extract a bounded summary from a public search result."""
+        if not self._is_public_web_url(url):
+            return None
+        if self._deadline is not None and time.monotonic() >= self._deadline:
+            return None
+        try:
+            page = self._read_url(url)
+            parser = _ReadablePageParser()
+            parser.feed(page)
+            summary = self._trim_summary(parser.extract(), 1200)
+        except Exception:
+            return None
+        if len(summary) < 40:
+            return None
+        parsed = urllib.parse.urlparse(url)
+        title = parser.title or (parsed.hostname or "Web page")
+        has_hindi = bool(re.search(r"[\u0900-\u097F]", summary))
+        answer = summary
+        if preferred_language == "hi" and not has_hindi:
+            answer = "वेबसाइट का मूल अंग्रेज़ी अंश: " + summary
+        answer += "\nस्रोत: " + title
+        return {
+            "success": True,
+            "answer": answer,
+            "query": url,
+            "language": "hi" if has_hindi else "en",
+            "source": {"title": title, "url": url, "site": parsed.hostname or "वेबसाइट"},
+        }
 
     def _read_url(self, url: str) -> str:
         request = urllib.request.Request(
@@ -306,6 +438,12 @@ class WebKnowledge:
         title = self._clean_markup(selected.get("title"))
         snippet = self._trim_summary(self._clean_markup(selected.get("snippet")), 700)
         source_url = str(selected.get("url") or "").strip()
+        if not snippet and not source_url:
+            return None
+        # Prefer readable text from a public result page when available.
+        page_result = self._extract_webpage(source_url, preferred_language) if source_url else None
+        if page_result:
+            return page_result
         if not snippet:
             return None
 

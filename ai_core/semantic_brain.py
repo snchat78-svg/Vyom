@@ -23,6 +23,7 @@ Rules:
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
@@ -563,89 +564,61 @@ class LocalSemanticBrain:
 
     def _search(self, text: str, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         value = self._normalize(text)
-
         phrases = "|".join(re.escape(item) for item in sorted(self._SEARCH, key=len, reverse=True))
-        leading = re.match(
-            rf"^(?:please\s+)?(?:{phrases})\s+(?:for\s+|ko\s+|को\s+)?(.+)$",
-            value,
-            re.IGNORECASE,
-        )
+        leading = re.match(rf"^(?:please\s+)?(?:{phrases})\s+(?:for\s+|ko\s+|को\s+)?(.+)$", value, re.IGNORECASE)
         trailing = re.match(
             rf"^(?:{re.escape(' '.join(self._REFERENCE_PREFIXES))})\s+(.+?)\s+(?:{phrases})(?:\s+(?:karo|kar|करो|कर))?$",
-            value,
-            re.IGNORECASE,
+            value, re.IGNORECASE,
         )
-
         candidate = ""
         if leading:
             candidate = leading.group(1)
         elif trailing:
             candidate = trailing.group(1)
-
         if not candidate:
-            # Flexible trailing verb pattern including ordinary user phrasing:
-            # "youtube search karo", "report dhundo", "isme youtube sarch karo".
             generic = re.search(
-                rf"(.+?)\s+(?:{phrases})(?:\s+(?:karo|kar|karo|करो|कर))?\s*$",
-                value,
-                flags=re.IGNORECASE,
+                rf"(.+?)\s+(?:{phrases})(?:\s+(?:karo|kar|करो|कर))?\s*$",
+                value, flags=re.IGNORECASE,
             )
             if generic:
-                candidate = generic.group(1)
-                candidate = self._strip_reference_prefix(candidate)
-
+                candidate = self._strip_reference_prefix(generic.group(1))
         candidate = self._strip_end(candidate)
         candidate = self._strip_reference_prefix(candidate)
         candidate = re.sub(
             r"^(?:please\s+|mujhe\s+|mere\s+liye\s+|for\s+|ko\s+|के\s+)",
-            "",
-            candidate,
-            flags=re.IGNORECASE,
+            "", candidate, flags=re.IGNORECASE,
         ).strip(" ,.!?")
-
+        # Treat an explicit multi-word phrase before "me/men" as a runtime
+        # app qualifier. No application-name alias table is used.
+        explicit_application = ""
+        app_match = re.match(r"^(.+?)\s+(?:men|mein|me|में)\s+(.+)$", candidate, flags=re.IGNORECASE)
+        if app_match:
+            possible_app = self._normalize(app_match.group(1)).strip(" ,.!?")
+            possible_query = self._normalize(app_match.group(2)).strip(" ,.!?")
+            context_app = str(context.get("current_app") or context.get("current_target") or "").strip()
+            is_context_target = bool(context_app and score_candidate(possible_app, context_app) >= 0.82)
+            if possible_app and possible_query and (len(possible_app.split()) >= 2 or is_context_target):
+                explicit_application = possible_app
+                candidate = possible_query
         if not candidate:
             return None
-
-        if not self._browser_context(context):
-            # Searching in a non-browser UI is still possible through the
-            # semantic UI compiler, but an address-bar workflow would be an
-            # unsafe guess. Ask the existing UI layer to ground a search field.
-            return {
-                "operation": "ui_search",
-                "query": candidate,
-                "confidence": 0.78,
-                "browser": False,
-            }
-
-        steps = [
-            self._action(
-                "hotkey",
-                target="ctrl+l",
-                args={"keys": ["ctrl", "l"]},
-                description="Focus the current browser navigation/search surface.",
-            ),
-            self._action(
-                "type_text",
-                target=candidate,
-                args={"text": candidate},
-                description="Enter the user's search query without rewriting it.",
-            ),
-            self._action(
-                "keypress",
-                target="enter",
-                args={"key": "enter"},
-                description="Submit the current search/navigation query.",
-            ),
-        ]
-        # Keyboard dispatch is verified by the input controller. Type text
-        # additionally receives the normal focused-value verification.
+        if not self._browser_context(context) and not explicit_application:
+            return {"operation": "ui_search", "query": candidate, "confidence": 0.78, "browser": False}
+        steps = []
+        if explicit_application:
+            steps.extend([
+                self._action("open_application", target=explicit_application, description="Open or reuse the user-selected application for the search."),
+                self._action("wait", target="", args={"seconds": 0.8}, description="Wait for the selected application's window to become ready."),
+            ])
+        steps.extend([
+            self._action("hotkey", target="ctrl+l", args={"keys": ["ctrl", "l"]}, description="Focus the current browser navigation/search surface."),
+            self._action("type_text", target=candidate, args={"text": candidate}, description="Enter the user's search query without rewriting it."),
+            self._action("keypress", target="enter", args={"key": "enter"}, description="Submit the current search/navigation query."),
+        ])
         self._set_ids(steps)
         return {
-            "operation": "web_search",
-            "query": candidate,
-            "confidence": 0.88,
-            "steps": steps,
-            "browser": True,
+            "operation": "web_search", "query": candidate, "confidence": 0.88,
+            "steps": steps, "browser": True, "application_target": explicit_application or None,
         }
 
     def _generic_from_context_compiler(self, text: str, context: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -893,25 +866,21 @@ class LocalSemanticBrain:
         text: str,
         context: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Compile a generic target-first arithmetic goal into ordered UI steps."""
+        """Compile an application-first arithmetic workflow with a verifiable result."""
         value = self._normalize(text)
         opened = self._open_close(value, context=context)
         if not isinstance(opened, dict) or opened.get("operation") != "open_application":
             return None
-
         target = self._normalize(opened.get("target"))
         if not target:
             return None
-
-        numbers = re.findall(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])", value)
+        # Application names can contain digits; remove the resolved target first.
+        operation_text = re.sub(re.escape(target), " ", value, count=1, flags=re.IGNORECASE)
+        numbers = re.findall(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])", operation_text)
         if len(numbers) < 2:
             return None
-
-        # A terminal operator indicates STT captured an unfinished expression;
-        # don't execute a guessed calculation.
-        if re.search(r"(?:[+*/-]|\b(?:plus|minus|times|divided|add|subtract|multiply|divide))\s*$", value):
+        if re.search(r"(?:[+*/-]|\b(?:plus|minus|times|divided|add|subtract|multiply|divide))\s*$", operation_text, flags=re.IGNORECASE):
             return None
-
         operation_patterns = (
             (r"\b(?:subtract|minus|ghatao|ghata|kam karo)\b|घटाओ|घटाना", "-"),
             (r"\b(?:multiply|multiplied|times|guna|gunaa)\b|गुणा", "*"),
@@ -920,40 +889,48 @@ class LocalSemanticBrain:
         )
         operator = None
         for pattern, symbol in operation_patterns:
-            if re.search(pattern, value, flags=re.IGNORECASE):
+            if re.search(pattern, operation_text, flags=re.IGNORECASE):
                 operator = symbol
                 break
-        if operator is None and re.search(r"\d\s*[+*/-]\s*\d", value):
-            # A complete symbolic expression is also valid natural input.
-            symbol_match = re.search(r"([+*/-])", value)
+        if operator is None and re.search(r"\d\s*[+*/-]\s*\d", operation_text):
+            symbol_match = re.search(r"([+*/-])", operation_text)
             operator = symbol_match.group(1) if symbol_match else None
         if operator is None:
             return None
-
         expression = operator.join(numbers)
+        expected_result = None
+        try:
+            calculated = Decimal(numbers[0])
+            for operand in numbers[1:]:
+                number = Decimal(operand)
+                if operator == "+":
+                    calculated += number
+                elif operator == "-":
+                    calculated -= number
+                elif operator == "*":
+                    calculated *= number
+                elif operator == "/":
+                    if number == 0:
+                        calculated = None
+                        break
+                    calculated /= number
+            if calculated is not None and calculated.is_finite():
+                expected_result = format(calculated.normalize(), "f")
+        except (InvalidOperation, ZeroDivisionError, ValueError):
+            expected_result = None
         steps = [
-            self._action(
-                "open_application",
-                target=str(opened.get("target") or "").strip(),
-                description="Open the runtime-selected application and verify its window.",
-            ),
-            self._action(
-                "wait",
-                target="",
-                args={"seconds": 0.8},
-                description="Allow the requested application to finish loading.",
-            ),
-            self._action(
-                "type_text",
-                target="focused_element",
-                args={"text": expression},
-                description="Enter the user-requested arithmetic expression into the foreground app.",
-            ),
+            self._action("open_application", target=target, description="Open or reuse the runtime-resolved application."),
+            self._action("wait", target="", args={"seconds": 0.8}, description="Allow the requested application to finish loading."),
+            self._action("type_text", target="focused_element", args={"text": expression}, description="Enter the user-requested arithmetic expression into the foreground app."),
             self._action(
                 "keypress",
                 target="enter",
                 args={"key": "enter"},
-                description="Submit the arithmetic expression to the active application input surface.",
+                description="Submit the arithmetic expression and verify the displayed result.",
+                verification={
+                    "mode": "all",
+                    "checks": [{"kind": "contains_visible_text", "value": expected_result}],
+                } if expected_result is not None else None,
             ),
         ]
         self._set_ids(steps)
@@ -966,6 +943,7 @@ class LocalSemanticBrain:
                 "text": value,
                 "operation": "compound_arithmetic_workflow",
                 "expression": expression,
+                "expected_result": expected_result,
                 "source": "local_semantic_brain",
             }],
             "plan": steps,
