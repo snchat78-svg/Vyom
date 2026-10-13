@@ -3,6 +3,7 @@ import unittest
 from ai_core.semantic_brain import LocalSemanticBrain
 from tools.tool_manager import ToolManager
 from windows_agent.ui_verifier import UIVerificationEngine
+from windows_agent.ui_automation import WindowsUICapability
 from ai_core.web_knowledge import WebKnowledge
 
 
@@ -73,6 +74,66 @@ class VyomBrainRegressionTests(unittest.TestCase):
     def test_noisy_app_target_matches_a_title_segment_without_an_alias_table(self):
         manager = ToolManager.__new__(ToolManager)
         self.assertTrue(manager._foreground_matches_target("gugal krom", {"title": "New Tab - Google Chrome"}))
+
+    def test_generic_capability_reuses_the_already_active_window(self):
+        manager = WindowsUICapability.__new__(WindowsUICapability)
+        manager.window_manager = _WindowManager({"title": "Calculator", "hwnd": 42})
+        class Launcher:
+            def open(self, _target):
+                raise AssertionError("An already active app must not be launched again.")
+        manager.app_launcher = Launcher()
+        result = manager._open_application({"target": "Calculator"})
+        self.assertTrue(result["success"])
+        self.assertEqual(result["verification"]["method"], "existing_foreground_match")
+
+    def test_generic_capability_activates_a_matching_running_window(self):
+        class RunningWindows(_WindowManager):
+            def __init__(self):
+                super().__init__({"title": "Notepad", "hwnd": 10})
+                self.windows = [
+                    {"title": "Notepad", "hwnd": 10},
+                    {"title": "New Tab - Google Chrome", "hwnd": 20},
+                ]
+                self.activated = []
+            def list_windows(self, max_results=200):
+                return list(self.windows[:max_results])
+            def activate(self, hwnd):
+                self.activated.append(hwnd)
+                self.window = next(item for item in self.windows if item["hwnd"] == hwnd)
+                return {"success": True}
+        wm = RunningWindows()
+        manager = WindowsUICapability.__new__(WindowsUICapability)
+        manager.window_manager = wm
+        class Launcher:
+            def open(self, _target):
+                raise AssertionError("Existing browser window should be reused.")
+        manager.app_launcher = Launcher()
+        result = manager._open_application({"target": "gugal krom"})
+        self.assertTrue(result["success"])
+        self.assertEqual(wm.activated, [20])
+        self.assertEqual(result["verification"]["method"], "existing_window_activated")
+
+    def test_generic_capability_does_not_accept_an_unrelated_foreground_change(self):
+        class ChangingWindows(_WindowManager):
+            def __init__(self):
+                super().__init__({"title": "Notepad", "hwnd": 10})
+                self.reads = 0
+            def get_foreground(self):
+                self.reads += 1
+                if self.reads == 1:
+                    return {"title": "Notepad", "hwnd": 10}
+                return {"title": "Unrelated Window", "hwnd": 20}
+            def list_windows(self, max_results=200):
+                return []
+        manager = WindowsUICapability.__new__(WindowsUICapability)
+        manager.window_manager = ChangingWindows()
+        class Launcher:
+            def open(self, _target):
+                return {"success": True, "message": "Launch requested.", "results": []}
+        manager.app_launcher = Launcher()
+        result = manager._open_application({"target": "gugal krom"})
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "launch_not_verified")
 
     def test_webpage_extraction_is_bounded_and_cites_the_source(self):
         paragraph = (

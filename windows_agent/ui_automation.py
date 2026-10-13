@@ -39,6 +39,7 @@ fallbacks. OCR/visual grounding remains a separate future capability.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -51,6 +52,7 @@ from windows_agent import ui_patterns
 from windows_agent.ui_state_observer import UIStateObserver
 from windows_agent.ui_verifier import UIVerificationEngine
 from tools.universal_app_launcher import UniversalAppLauncher
+from tools.phonetic_matcher import score_candidate
 
 
 class WindowsUICapability:
@@ -292,48 +294,149 @@ class WindowsUICapability:
         value = action.get("args")
         return dict(value) if isinstance(value, dict) else {}
 
+    @staticmethod
+    def _window_title_segments(title: Any) -> List[str]:
+        value = str(title or "").strip()
+        if not value:
+            return []
+        return [
+            piece.strip()
+            for piece in re.split(r"\s+(?:-|—|–|\|)\s+", value)
+            if piece.strip()
+        ] or [value]
+
+    @classmethod
+    def _window_matches_target(
+        cls,
+        target: str,
+        window: Dict[str, Any],
+        runtime_names: Optional[List[str]] = None,
+    ) -> bool:
+        """Match observed title segments to a runtime target without app aliases."""
+        if not isinstance(window, dict):
+            return False
+        names = [str(target or "").strip()]
+        names.extend(str(name or "").strip() for name in (runtime_names or []))
+        segments = cls._window_title_segments(window.get("title"))
+        for name in names:
+            if not name:
+                continue
+            lowered_name = name.lower()
+            for segment in segments:
+                lowered_segment = segment.lower()
+                if lowered_name == lowered_segment:
+                    return True
+                # Prevent "Notepad" from matching the distinct "Notepad++".
+                if lowered_name in lowered_segment or lowered_segment in lowered_name:
+                    continue
+                if score_candidate(lowered_name, lowered_segment) >= 0.80:
+                    return True
+        return False
+
+    @staticmethod
+    def _verified_open_result(
+        target: str,
+        before: Dict[str, Any],
+        after: Dict[str, Any],
+        method: str,
+        message: str,
+    ) -> Dict[str, Any]:
+        return {
+            "success": True,
+            "stage": "verified",
+            "message": message,
+            "target": target,
+            "window_before": before or {},
+            "window_after": after or {},
+            "verification": {
+                "verified": True,
+                "verification_level": "state",
+                "method": method,
+            },
+        }
+
     def _open_application(self, action: Dict[str, Any]) -> Dict[str, Any]:
         target = str(action.get("target") or "").strip()
         if not target:
             return {"success": False, "stage": "missing_target", "message": "No application target was supplied."}
 
         before = self.window_manager.get_foreground() or {}
-        result = self.app_launcher.open(target)
-        if not isinstance(result, dict) or not result.get("success"):
+        if self._window_matches_target(target, before):
+            return self._verified_open_result(
+                target, before, before, "existing_foreground_match",
+                "Reusing the already active application window.",
+            )
+
+        # Search currently visible runtime windows first. Activate a matching
+        # existing window rather than launching another copy of the same app.
+        try:
+            running_windows = self.window_manager.list_windows(max_results=500)
+        except Exception:
+            running_windows = []
+        for candidate in running_windows if isinstance(running_windows, list) else []:
+            if not isinstance(candidate, dict) or not self._window_matches_target(target, candidate):
+                continue
+            hwnd = candidate.get("hwnd")
+            if not hwnd:
+                continue
+            if before.get("hwnd") and int(before.get("hwnd") or 0) == int(hwnd):
+                continue
+            try:
+                activation = self.window_manager.activate(hwnd)
+            except Exception:
+                activation = {"success": False}
+            after_activation = self.window_manager.get_foreground() or {}
+            if activation.get("success") and self._window_matches_target(target, after_activation):
+                return self._verified_open_result(
+                    target, before, after_activation, "existing_window_activated",
+                    "Activated the existing application window.",
+                )
+
+        launch = self.app_launcher.open(target)
+        if not isinstance(launch, dict) or not launch.get("success"):
             return {
                 "success": False,
                 "stage": "application_launch_failed",
-                "message": (result or {}).get("message", "Application could not be opened."),
+                "message": (launch or {}).get("message", "Application could not be opened."),
                 "target": target,
-                "launcher_result": result,
+                "launcher_result": launch,
             }
 
-        after = self.window_manager.get_foreground() or {}
-        selected = ""
-        results = result.get("results") if isinstance(result, dict) else None
-        if isinstance(results, list) and results and isinstance(results[0], dict):
-            selected = str(results[0].get("name") or "").strip()
+        runtime_names = []
+        records = launch.get("results")
+        if isinstance(records, list):
+            runtime_names.extend(
+                str(item.get("name") or "").strip()
+                for item in records if isinstance(item, dict) and item.get("name")
+            )
 
-        before_hwnd = before.get("hwnd")
-        after_hwnd = after.get("hwnd")
-        title = str(after.get("title") or "").strip().lower()
-        target_words = [w for w in target.lower().split() if len(w) > 1]
-        identity_match = bool(selected and selected.lower() in title)
-        if not identity_match and target_words:
-            identity_match = all(word in title for word in target_words[:3])
+        # Window creation can lag behind process launch. Accept only an
+        # observed window whose title matches the spoken target or a runtime-
+        # discovered application record; a random foreground change is not proof.
+        deadline = time.monotonic() + 2.0
+        after = {}
+        while time.monotonic() < deadline:
+            after = self.window_manager.get_foreground() or {}
+            if self._window_matches_target(target, after, runtime_names):
+                return self._verified_open_result(
+                    target, before, after, "foreground_title_match",
+                    launch.get("message", "Application opened and verified."),
+                )
+            time.sleep(0.10)
 
-        verified = bool(after and (after_hwnd != before_hwnd or identity_match))
         return {
-            "success": verified,
-            "stage": "verified" if verified else "launch_not_verified",
-            "message": result.get("message", "Application launch requested."),
+            "success": False,
+            "stage": "launch_not_verified",
+            "message": "Launch was requested, but the requested application window could not be verified.",
             "target": target,
+            "launcher_result": launch,
             "window_before": before,
             "window_after": after,
             "verification": {
-                "verified": verified,
+                "verified": False,
                 "verification_level": "state",
-                "method": "foreground_window_after_launch",
+                "method": "foreground_target_match",
+                "reason": "No foreground title matched the target or its runtime-discovered name.",
             },
         }
 
