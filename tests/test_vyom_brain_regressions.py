@@ -26,6 +26,48 @@ class _FakeResponse:
 
 
 class VyomBrainRegressionTests(unittest.TestCase):
+
+    def test_noisy_command_ending_is_recovered_before_semantic_compilation(self):
+        result = LocalSemanticBrain().reason("notepad kolo", context={})
+        self.assertEqual(result["plan"][0]["action"], "open_application")
+        self.assertEqual(result["plan"][0]["target"], "notepad")
+        self.assertEqual(result["raw_transcript"], "notepad kolo")
+        self.assertTrue(result["transcript_recovery"]["changed"])
+        self.assertEqual(result["transcript_recovery"]["corrections"][0]["kind"], "operation_marker")
+
+    def test_noisy_leading_operation_is_recovered_without_app_aliases(self):
+        result = LocalSemanticBrain().reason("opne notepad", context={})
+        self.assertEqual(result["plan"][0]["action"], "open_application")
+        self.assertEqual(result["plan"][0]["target"], "notepad")
+        self.assertEqual(result["raw_transcript"], "opne notepad")
+
+    def test_runtime_target_typo_is_recovered_from_a_clear_dynamic_candidate(self):
+        result = LocalSemanticBrain().reason(
+            "notapaid kholo",
+            context={"runtime_candidates": ["Notepad"]},
+        )
+        self.assertEqual(result["plan"][0]["target"], "Notepad")
+        self.assertTrue(any(
+            item["kind"] == "runtime_target"
+            for item in result["transcript_recovery"]["corrections"]
+        ))
+
+    def test_ambiguous_runtime_target_is_not_guessed(self):
+        result = LocalSemanticBrain().reason(
+            "notapaid kholo",
+            context={"runtime_candidates": ["Notepad", "Notepad++"]},
+        )
+        self.assertEqual(result["plan"][0]["target"], "notapaid")
+        self.assertFalse(any(
+            item["kind"] == "runtime_target"
+            for item in result["transcript_recovery"]["corrections"]
+        ))
+
+    def test_transcript_recovery_does_not_rewrite_middle_payload(self):
+        result = LocalSemanticBrain().reason("type my naem", context={"current_app": "Notepad"})
+        self.assertEqual(result["plan"][0]["args"]["text"], "my naem")
+        self.assertEqual(result["raw_transcript"], "type my naem")
+
     def test_explicit_multiword_application_search_is_compiled_generically(self):
         result = LocalSemanticBrain().reason("gugal krom men yutyub sarch karo", context={})
         self.assertEqual(result["route"], "mission")

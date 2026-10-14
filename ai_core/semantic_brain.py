@@ -28,6 +28,7 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
 from ai_core.context_action_compiler import ContextActionCompiler
+from ai_core.transcript_recovery import TranscriptRecovery
 
 
 class LocalSemanticBrain:
@@ -956,8 +957,24 @@ class LocalSemanticBrain:
         goal: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        original = self._normalize(goal)
+        raw_original = self._normalize(goal)
         ctx = dict(context or {})
+        operation_phrases = {
+            "open": self._OPEN,
+            "close": self._CLOSE,
+            "search": self._SEARCH,
+            "type": self._TYPE,
+            "click": self._CLICK,
+            "double_click": self._DOUBLE_CLICK,
+            "invoke": self._INVOKE,
+            "focus": self._FOCUS,
+            "scroll": self._SCROLL,
+            "shortcut": tuple(self._SHORTCUTS),
+        }
+        transcript_recovery = TranscriptRecovery().recover(
+            raw_original, operation_phrases, context=ctx
+        )
+        original = transcript_recovery["text"]
 
         if not original:
             result = {
@@ -967,6 +984,8 @@ class LocalSemanticBrain:
                 "confidence": 0.0,
                 "source": "local_semantic_brain",
             }
+            result["raw_transcript"] = raw_original
+            result["transcript_recovery"] = transcript_recovery
             self.last_result = result
             return result
 
@@ -1003,6 +1022,8 @@ class LocalSemanticBrain:
                 "plan": [],
                 "source": "local_semantic_brain",
             }
+            result["raw_transcript"] = raw_original
+            result["transcript_recovery"] = transcript_recovery
             self.last_result = result
             return result
 
@@ -1114,6 +1135,8 @@ class LocalSemanticBrain:
                 "source": "local_semantic_brain",
                 "needs_confirmation": False,
             }
+            result["raw_transcript"] = raw_original
+            result["transcript_recovery"] = transcript_recovery
             self.last_result = result
             return result
 
@@ -1303,6 +1326,8 @@ class LocalSemanticBrain:
                 "terminal": route == "clarification",
                 "needs_model": route == "escalate",
             }
+            result["raw_transcript"] = raw_original
+            result["transcript_recovery"] = transcript_recovery
             self.last_result = result
             return result
 
@@ -1330,5 +1355,7 @@ class LocalSemanticBrain:
             "source": "local_semantic_brain",
             "needs_confirmation": False,
         }
+        result["raw_transcript"] = raw_original
+        result["transcript_recovery"] = transcript_recovery
         self.last_result = result
         return result

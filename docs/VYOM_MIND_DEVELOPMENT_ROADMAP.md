@@ -1,0 +1,101 @@
+# Vyom Mind Development Roadmap
+
+## Goal
+
+Build a general-purpose desktop assistant that interprets meaning rather than depending on exact command strings. Voice and typed input must share the same intent, planning, execution, verification, and response pipeline. App and file names come from runtime discovery or user input, not a growing hard-coded alias catalogue.
+
+This roadmap is incremental. Each phase ships tests and an explicit acceptance gate; a phase is not complete merely because its module exists.
+
+## M0 — Baseline and observable contracts
+
+**Purpose:** Make failures diagnosable before adding more intelligence.
+
+- Preserve raw transcript, recognized/normalized text, language/session context, chosen intent, confidence, planned steps, observations, verification and final response.
+- Use the same goal compiler, capability registry, result schema and context owner across voice and text paths.
+- Keep logs bounded and redact sensitive content.
+- **Gate:** regression suite proves voice/text enter the same executor and that a dispatched action cannot be reported as verified success without evidence.
+
+**Status:** Existing Phase 1–5 work is in the repository; end-to-end acceptance still requires testing on the user's Windows PC.
+
+## M1 — Noisy speech recovery (current implementation phase)
+
+**Purpose:** Recover likely command intent when STT misspells operation words or a target name.
+
+- Only repair command-boundary operation markers using a generic grammar vocabulary.
+- Correct target names only from runtime/context-supplied candidates and only when the score and margin are sufficiently clear.
+- Keep the original transcript and every correction in the result for diagnostics.
+- Never rewrite arbitrary text that the user intends to type or search for.
+- Ambiguous matches remain unresolved and must be clarified, not guessed.
+- **Gate:** misspelled leading/trailing operation tokens recover; dynamic target candidate can recover a clear typo; tied candidates remain unchanged; user payload remains unchanged.
+
+## M2 — Meaning and intent hypotheses
+
+- Separate task intent from entities, target, payload, constraints, references, and desired result.
+- Score multiple plausible interpretations with context; expose alternatives when scores are close.
+- Use correction history only when user-approved and scoped to that user/device.
+- Do not execute low-confidence guesses.
+- **Gate:** paraphrases and noisy transcripts resolve to the same structured goal; ambiguity reliably asks a concise question.
+
+## M3 — Complex goal decomposition and planning
+
+- Convert compound requests into ordered steps with dependencies, preconditions, postconditions and a completion criterion.
+- Identify missing details, irreversible effects and steps requiring confirmation before acting.
+- Keep the plan generic; app names and controls are runtime entities.
+- **Gate:** compound workflows preserve ordering and do not execute dependent steps after a failed prerequisite.
+
+## M4 — Live world state and contextual reference resolution
+
+- Build fresh snapshots of active window, focused/selected control, visible UIA elements, running windows, clipboard only when needed, and the latest verified task state.
+- Resolve references such as "in it", "that window", "same file", and follow-ups against recent observed state.
+- Give observations timestamps and bounded history; observer failure must not stop listening.
+- **Gate:** stale/ambiguous references are clarified; latest observations survive retry and re-planning.
+
+## M5 — Generic action grounding
+
+- Rank visible UI Automation candidates using live Name, AutomationId, ControlType, class, window identity and available control patterns.
+- Use Invoke/Value/Selection/Toggle/Focus before coordinate clicks when supported.
+- Treat app and file names as runtime data and avoid app-specific action lists.
+- **Gate:** different labels and layouts work through discovered UI properties; close candidates do not trigger unsafe actions.
+
+## M6 — Execute, verify, recover
+
+- Execute one validated action at a time and verify its actual postcondition.
+- After a failure, refresh observation, classify the failure, and retry/re-plan only within a strict budget.
+- Never repeat completed side effects during re-planning.
+- **Gate:** delayed effects, absent observers, wrong foreground windows and failed steps end in verified recovery or honest failure.
+
+## M7 — Web research and source-grounded answers
+
+- Use configurable search/retrieval providers and public-source fetchers with URL safety, timeouts, page limits, and source attribution.
+- Distinguish source facts, inference, conflicting reports and unknowns.
+- Treat web content as untrusted data; never follow instructions embedded in a page as commands to the desktop.
+- **Gate:** relevant source links accompany supported answers; unavailable/weak sources produce an honest limitation instead of fabricated facts.
+
+## M8 — General conversation and reasoning
+
+- Support a configurable local/remote model provider for open-domain paraphrases and multi-step reasoning when available.
+- Keep deterministic local handling for common safe operations, with a model-independent structured-goal interface.
+- If all reasoning providers are unavailable, say so clearly and use only verified local or retrieved knowledge.
+- **Gate:** provider outages do not break basic desktop commands or the voice loop; responses distinguish known, sourced, inferred and unknown information.
+
+## M9 — Personalization and safe learning
+
+- Store opt-in, user-approved corrections, preferences and previously verified workflows in versioned local memory.
+- Provide provenance, confidence, expiry, export and deletion.
+- Generate capability specifications only; validate and test them in isolation, and require explicit approval before enabling new capabilities.
+- **Gate:** no automatic global grammar changes from one noisy transcript; no arbitrary generated code is executed.
+
+## M10 — Release evaluation
+
+- Maintain a representative Hindi, Roman Hindi, Hinglish, English, accents, STT-noise, ambiguity, compound-task, web-grounding and failure-recovery benchmark.
+- Track intent accuracy, unsafe-guess rate, action verification rate, task completion rate, recovery rate and latency.
+- Release only when acceptance thresholds pass on CI and representative Windows hardware.
+- **Gate:** CI is green and Windows integration scenarios have evidence; passing unit tests alone is not proof that every app works.
+
+## Development order
+
+M1 -> M2 -> M3 -> M4 -> M5 -> M6. M7 and M8 are integrated with the shared goal/result contracts. M9 remains opt-in and gated. M10 runs throughout the roadmap.
+
+## Explicit limitation
+
+No system can guarantee correct interpretation of every possible sentence or badly corrupted audio. Vyom should use context and safe hypotheses to maximize correct recovery, but ask when meaning is ambiguous, report missing model/network capability honestly, and never claim an unverified desktop action succeeded.
