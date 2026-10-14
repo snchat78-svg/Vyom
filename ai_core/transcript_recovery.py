@@ -88,6 +88,27 @@ class TranscriptRecovery:
         return best_phrase, best_score, best_score - second_score
 
     @classmethod
+    def _has_exact_marker(
+        cls,
+        text: str,
+        operation_phrases: Mapping[str, Sequence[str]],
+        side: str,
+    ) -> bool:
+        tokens = text.split()
+        if not tokens:
+            return False
+        phrases = [phrase for group in operation_phrases.values() for phrase in group]
+        for phrase in phrases:
+            parts = cls._phrase_tokens(phrase)
+            if len(parts) > len(tokens):
+                continue
+            edge = tokens[:len(parts)] if side == "start" else tokens[-len(parts):]
+            observed = " ".join(cls._clean_token(token) for token in edge)
+            if observed.casefold() == phrase.casefold():
+                return True
+        return False
+
+    @classmethod
     def _repair_boundary(
         cls,
         text: str,
@@ -257,8 +278,16 @@ class TranscriptRecovery:
         ctx = context if isinstance(context, Mapping) else {}
         corrections: List[Dict[str, Any]] = []
         all_phrases = [phrase for phrases in operation_phrases.values() for phrase in phrases]
-        text = self._repair_boundary(raw, all_phrases, "start", corrections)
-        text = self._repair_boundary(text, all_phrases, "end", corrections)
+        start_marker = self._has_exact_marker(raw, operation_phrases, "start")
+        end_marker = self._has_exact_marker(raw, operation_phrases, "end")
+        text = raw
+        # A known marker tells us the opposite edge is likely target or payload;
+        # never reinterpret that edge as a second command verb.
+        if not end_marker:
+            text = self._repair_boundary(text, all_phrases, "start", corrections)
+        repaired_start_marker = self._has_exact_marker(text, operation_phrases, "start")
+        if not start_marker and not repaired_start_marker and not end_marker:
+            text = self._repair_boundary(text, all_phrases, "end", corrections)
         text = self._repair_runtime_target(text, operation_phrases, ctx, corrections)
         confidence_values = [item["confidence"] for item in corrections]
         return {
