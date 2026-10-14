@@ -178,6 +178,25 @@ class MeaningIntentEngine:
         for operation in ambiguity_operations:
             self._append_unique(operations, operation)
 
+        # When the action addresses a focused input rather than naming an
+        # app in its own action schema, retain the observed context target.
+        # Do this only when the plan did not already name an explicit entity.
+        ctx = context if isinstance(context, Mapping) else {}
+        if steps and not targets and not target_alternatives:
+            for key in ("current_target", "current_app", "current_file"):
+                value = ctx.get(key)
+                if isinstance(value, Mapping):
+                    value = value.get("title") or value.get("name") or value.get("path")
+                value = self._text(value, 300)
+                if value:
+                    self._append_unique(targets, value)
+            ui = ctx.get("ui")
+            active = ui.get("active_window") if isinstance(ui, Mapping) else None
+            if not targets and isinstance(active, Mapping):
+                value = self._text(active.get("title") or active.get("name"), 300)
+                if value:
+                    self._append_unique(targets, value)
+
         references = self._references(raw)
         try:
             confidence = max(0.0, min(1.0, float(result.get("confidence", 0.0))))
