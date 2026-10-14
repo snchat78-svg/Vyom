@@ -986,6 +986,8 @@ class LocalSemanticBrain:
             }
             result["raw_transcript"] = raw_original
             result["transcript_recovery"] = transcript_recovery
+            result["raw_transcript"] = raw_original
+            result["transcript_recovery"] = transcript_recovery
             self.last_result = result
             return result
 
@@ -1024,6 +1026,8 @@ class LocalSemanticBrain:
             }
             result["raw_transcript"] = raw_original
             result["transcript_recovery"] = transcript_recovery
+            result["raw_transcript"] = raw_original
+            result["transcript_recovery"] = transcript_recovery
             self.last_result = result
             return result
 
@@ -1059,6 +1063,8 @@ class LocalSemanticBrain:
                     "source": "local_semantic_brain",
                     "needs_confirmation": False,
                 }
+                result["raw_transcript"] = raw_original
+                result["transcript_recovery"] = transcript_recovery
                 self.last_result = result
                 return result
 
@@ -1080,6 +1086,8 @@ class LocalSemanticBrain:
                     "source": "local_semantic_brain",
                     "needs_confirmation": False,
                 }
+                result["raw_transcript"] = raw_original
+                result["transcript_recovery"] = transcript_recovery
                 self.last_result = result
                 return result
 
@@ -1110,6 +1118,8 @@ class LocalSemanticBrain:
                     "source": "local_semantic_brain",
                     "needs_confirmation": False,
                 }
+                result["raw_transcript"] = raw_original
+                result["transcript_recovery"] = transcript_recovery
                 self.last_result = result
                 return result
 
@@ -1135,6 +1145,8 @@ class LocalSemanticBrain:
                 "source": "local_semantic_brain",
                 "needs_confirmation": False,
             }
+            result["raw_transcript"] = raw_original
+            result["transcript_recovery"] = transcript_recovery
             result["raw_transcript"] = raw_original
             result["transcript_recovery"] = transcript_recovery
             self.last_result = result
@@ -1328,6 +1340,8 @@ class LocalSemanticBrain:
             }
             result["raw_transcript"] = raw_original
             result["transcript_recovery"] = transcript_recovery
+            result["raw_transcript"] = raw_original
+            result["transcript_recovery"] = transcript_recovery
             self.last_result = result
             return result
 
@@ -1355,6 +1369,8 @@ class LocalSemanticBrain:
             "source": "local_semantic_brain",
             "needs_confirmation": False,
         }
+        result["raw_transcript"] = raw_original
+        result["transcript_recovery"] = transcript_recovery
         result["raw_transcript"] = raw_original
         result["transcript_recovery"] = transcript_recovery
         self.last_result = result

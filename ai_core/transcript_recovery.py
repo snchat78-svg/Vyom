@@ -24,7 +24,7 @@ class TranscriptRecovery:
 
     @classmethod
     def _normalize(cls, value: Any) -> str:
-        return re.sub(r"\\s+", " ", str(value or "").strip())
+        return re.sub(r"\s+", " ", str(value or "").strip())
 
     @classmethod
     def _clean_token(cls, value: str) -> str:
@@ -32,8 +32,8 @@ class TranscriptRecovery:
 
     @classmethod
     def _similarity(cls, left: str, right: str) -> float:
-        a = re.sub(r"[^\\w]+", "", cls._normalize(left).casefold(), flags=re.UNICODE)
-        b = re.sub(r"[^\\w]+", "", cls._normalize(right).casefold(), flags=re.UNICODE)
+        a = re.sub(r"[^\w]+", "", cls._normalize(left).casefold(), flags=re.UNICODE)
+        b = re.sub(r"[^\w]+", "", cls._normalize(right).casefold(), flags=re.UNICODE)
         if not a or not b:
             return 0.0
         score = SequenceMatcher(None, a, b).ratio()
@@ -46,7 +46,7 @@ class TranscriptRecovery:
 
     @staticmethod
     def _phrase_tokens(phrase: str) -> List[str]:
-        return [token for token in re.split(r"\\s+", str(phrase or "").strip()) if token]
+        return [token for token in re.split(r"\s+", str(phrase or "").strip()) if token]
 
     @classmethod
     def _best_phrase(
@@ -147,7 +147,7 @@ class TranscriptRecovery:
                     if not name:
                         continue
                     choices = [name]
-                    choices.extend(part.strip() for part in re.split(r"\\s+[—–-]\\s+", name) if part.strip())
+                    choices.extend(part.strip() for part in re.split(r"\s+[—–-]\s+", name) if part.strip())
                     for choice in choices:
                         if choice and choice.casefold() not in {item.casefold() for item in found}:
                             found.append(choice)
@@ -199,7 +199,7 @@ class TranscriptRecovery:
         context: Mapping[str, Any],
         corrections: List[Dict[str, Any]],
     ) -> str:
-        if re.search(r"\\s+(?:and|then|aur|phir|fir|और|फिर)\\s+", text, flags=re.IGNORECASE):
+        if re.search(r"\s+(?:and|then|aur|phir|fir|और|फिर)\s+", text, flags=re.IGNORECASE):
             return text
         surface = cls._surface_operation(text, operation_phrases)
         if not surface:
