@@ -82,7 +82,7 @@ class TranscriptRecovery:
             return None
         best_score, best_phrase = ranked[0]
         second_score = ranked[1][0] if len(ranked) > 1 else 0.0
-        threshold = 0.72 if len(observed.replace(" ", "")) >= 4 else 0.88
+        threshold = 0.86 if len(token_span) > 1 else (0.72 if len(observed.replace(" ", "")) >= 4 else 0.88)
         if best_score < threshold or (best_score - second_score) < 0.035:
             return None
         return best_phrase, best_score, best_score - second_score
