@@ -52,12 +52,20 @@ class VyomBrainRegressionTests(unittest.TestCase):
             for item in result["transcript_recovery"]["corrections"]
         ))
 
-    def test_ambiguous_runtime_target_is_not_guessed(self):
+    def test_ambiguous_runtime_target_requires_clarification_before_dispatch(self):
         result = LocalSemanticBrain().reason(
             "notapaid kholo",
             context={"runtime_candidates": ["Notepad", "Notepad++"]},
         )
-        self.assertEqual(result["plan"][0]["target"], "notapaid")
+        self.assertEqual(result["route"], "clarification")
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["meaning"]["requires_clarification"])
+        candidates = result["meaning"]["entities"]["target_candidates"]
+        self.assertGreaterEqual(len(candidates), 2)
+        self.assertIn("Notepad", [item["target"] for item in candidates])
+        self.assertIn("Notepad++", [item["target"] for item in candidates])
+        self.assertIn("Notepad", result["message"])
+        self.assertIn("Notepad++", result["message"])
         self.assertFalse(any(
             item["kind"] == "runtime_target"
             for item in result["transcript_recovery"]["corrections"]
@@ -205,6 +213,57 @@ class VyomBrainRegressionTests(unittest.TestCase):
         client = WebKnowledge(opener=opener)
         self.assertIsNone(client._extract_webpage("http://localhost/private", "en"))
         self.assertEqual(calls, [])
+
+
+    def test_m2_meaning_frame_keeps_user_payload_and_separates_it_from_intent(self):
+        result = LocalSemanticBrain().reason(
+            "type my naem",
+            context={"current_app": "Notepad"},
+        )
+        frame = result["meaning"]
+        self.assertEqual(frame["schema_version"], "m2.1")
+        self.assertEqual(frame["intent"]["kind"], "computer_action")
+        self.assertIn("type_text", frame["intent"]["operations"])
+        self.assertIn("Notepad", frame["entities"]["targets"])
+        self.assertIn("my naem", [item["value"] for item in frame["payloads"]])
+        self.assertEqual(result["raw_transcript"], "type my naem")
+        self.assertEqual(result["plan"][0]["args"]["text"], "my naem")
+
+    def test_m2_frame_extracts_compound_task_postconditions_and_references(self):
+        result = LocalSemanticBrain().reason(
+            "Calculator kholo aur usme 25 + 25 add karo",
+            context={},
+        )
+        frame = result["meaning"]
+        self.assertEqual(frame["intent"]["kind"], "computer_action")
+        self.assertIn("Calculator", frame["entities"]["targets"])
+        self.assertIn("usme", [item.lower() for item in frame["references"]])
+        self.assertIn("25+25", [item["value"] for item in frame["payloads"]])
+        self.assertTrue(any(
+            check.get("kind") == "contains_visible_text" and check.get("value") == "50"
+            for check in frame["constraints"]["verification_checks"]
+        ))
+
+    def test_m2_clear_runtime_candidate_remains_selected_without_aliases(self):
+        result = LocalSemanticBrain().reason(
+            "notapaid kholo",
+            context={"runtime_candidates": ["Notepad"]},
+        )
+        frame = result["meaning"]
+        self.assertEqual(result["route"], "capability")
+        self.assertEqual(frame["entities"]["targets"], ["Notepad"])
+        self.assertFalse(frame["requires_clarification"])
+        self.assertEqual(frame["hypotheses"][0]["status"], "selected")
+
+    def test_m2_information_question_is_a_question_intent_not_a_desktop_action(self):
+        result = LocalSemanticBrain().reason(
+            "What is photosynthesis?",
+            context={},
+        )
+        self.assertEqual(result["route"], "conversation")
+        self.assertEqual(result["meaning"]["intent"]["kind"], "answer_question")
+        self.assertEqual(result["meaning"]["desired_result"],
+                         "Answer the user's question using available, supportable knowledge.")
 
 
 if __name__ == "__main__":

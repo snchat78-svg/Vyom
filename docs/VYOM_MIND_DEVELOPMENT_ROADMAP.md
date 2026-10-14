@@ -17,7 +17,7 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **Status:** Existing Phase 1–5 work is in the repository; end-to-end acceptance still requires testing on the user's Windows PC.
 
-## M1 — Noisy speech recovery (current implementation phase)
+## M1 — Noisy speech recovery
 
 **Purpose:** Recover likely command intent when STT misspells operation words or a target name.
 
@@ -26,7 +26,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Keep the original transcript and every correction in the result for diagnostics.
 - Never rewrite arbitrary text that the user intends to type or search for.
 - Ambiguous matches remain unresolved and must be clarified, not guessed.
-- **Gate:** misspelled leading/trailing operation tokens recover; dynamic target candidate can recover a clear typo; tied candidates remain unchanged; user payload remains unchanged.
+- **Gate:** misspelled leading/trailing operation tokens recover; dynamic target candidate can recover a clear typo; tied candidates remain unchanged and require clarification; user payload remains unchanged.
+
+**Status:** The recovery unit-test gate is implemented in CI. Real microphone/accent testing on Windows remains necessary.
 
 ## M2 — Meaning and intent hypotheses
 
@@ -35,6 +37,10 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Use correction history only when user-approved and scoped to that user/device.
 - Do not execute low-confidence guesses.
 - **Gate:** paraphrases and noisy transcripts resolve to the same structured goal; ambiguity reliably asks a concise question.
+
+**Current implementation:** `ai_core/meaning_intent_engine.py` derives a provider-independent meaning frame from the existing action plan (intent, targets, payloads, constraints, references, desired result and competing hypotheses). It does not replace the existing execution/planning route. Close runtime-target candidates force a clarification and an empty plan rather than dispatching a guessed target.
+
+**Status:** Foundation implemented; CI and regression tests are the current acceptance gate. Windows end-to-end behavior remains unverified until tested with the user's microphone and desktop.
 
 ## M3 — Complex goal decomposition and planning
 

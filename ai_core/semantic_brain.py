@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional
 
 from ai_core.context_action_compiler import ContextActionCompiler
 from ai_core.transcript_recovery import TranscriptRecovery
+from ai_core.meaning_intent_engine import MeaningIntentEngine
 
 
 class LocalSemanticBrain:
@@ -952,7 +953,7 @@ class LocalSemanticBrain:
             "needs_confirmation": False,
         }
 
-    def reason(
+    def _reason_existing_pipeline(
         self,
         goal: str,
         context: Optional[Dict[str, Any]] = None,
@@ -1373,5 +1374,97 @@ class LocalSemanticBrain:
         result["transcript_recovery"] = transcript_recovery
         result["raw_transcript"] = raw_original
         result["transcript_recovery"] = transcript_recovery
+        self.last_result = result
+        return result
+
+    def reason(
+        self,
+        goal: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Run the established planner, then enrich it with M2 meaning hypotheses.
+
+        The existing route/action selection remains the fast path. M2 adds a
+        structured frame and blocks dispatch only when runtime target evidence
+        contains multiple similarly plausible matches.
+        """
+        raw_original = self._normalize(goal)
+        ctx = dict(context or {})
+        result = self._reason_existing_pipeline(goal, context=ctx)
+        if not isinstance(result, dict):
+            result = {
+                "success": False,
+                "route": "clarification",
+                "message": "The request could not be interpreted safely.",
+                "confidence": 0.0,
+                "plan": [],
+                "source": "local_semantic_brain",
+            }
+
+        operation_phrases = {
+            "open": self._OPEN,
+            "close": self._CLOSE,
+            "search": self._SEARCH,
+            "type": self._TYPE,
+            "click": self._CLICK,
+            "double_click": self._DOUBLE_CLICK,
+            "invoke": self._INVOKE,
+            "focus": self._FOCUS,
+            "scroll": self._SCROLL,
+            "shortcut": tuple(self._SHORTCUTS),
+        }
+        recovery = result.get("transcript_recovery")
+        if not isinstance(recovery, dict):
+            recovery = TranscriptRecovery().recover(
+                raw_original, operation_phrases, context=ctx
+            )
+        result.setdefault("raw_transcript", raw_original)
+        result.setdefault("transcript_recovery", recovery)
+
+        meaning_engine = MeaningIntentEngine()
+        meaning = meaning_engine.analyze(
+            raw_original, result, context=ctx, recovery=recovery
+        )
+        if (
+            meaning.get("requires_clarification")
+            and recovery.get("ambiguities")
+            and str(result.get("route") or "").lower() in {"capability", "mission"}
+        ):
+            ambiguity = recovery["ambiguities"][0]
+            observed = str(ambiguity.get("observed") or "").strip()
+            candidates = ambiguity.get("candidates")
+            names = [
+                str(item.get("value") or "").strip()
+                for item in (candidates if isinstance(candidates, list) else [])
+                if isinstance(item, dict) and str(item.get("value") or "").strip()
+            ][:3]
+            operation = str(ambiguity.get("operation") or "open").lower()
+            verb = "बंद करना" if operation == "close" else "खोलना"
+            choices = " या ".join(names)
+            message = (
+                f'मैंने "{observed}" सुना, लेकिन एक से अधिक संभावित target मिले'
+                f'{": " + choices if choices else ""}। कृपया स्पष्ट करें कि किसे {verb} है।'
+            )
+            result.update({
+                "success": True,
+                "route": "clarification",
+                "message": message,
+                "confidence": min(float(result.get("confidence", 0.4) or 0.4), 0.45),
+                "plan": [],
+                "needs_confirmation": True,
+                "terminal": True,
+                "needs_model": False,
+                "semantic_interpretation": [{
+                    "operation": operation,
+                    "target": observed,
+                    "alternatives": names,
+                    "reason": "ambiguous_runtime_target",
+                }],
+            })
+            meaning = meaning_engine.analyze(
+                raw_original, result, context=ctx, recovery=recovery
+            )
+
+        result["meaning"] = meaning
         self.last_result = result
         return result

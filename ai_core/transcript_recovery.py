@@ -260,6 +260,57 @@ class TranscriptRecovery:
         })
         return " ".join(repaired)
 
+
+    @classmethod
+    def _ambiguous_runtime_targets(
+        cls,
+        text: str,
+        operation_phrases: Mapping[str, Sequence[str]],
+        context: Mapping[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Report close target candidates instead of silently choosing one."""
+        if re.search(r"\s+(?:and|then|aur|phir|fir|और|फिर)\s+", text, flags=re.IGNORECASE):
+            return []
+        surface = cls._surface_operation(text, operation_phrases)
+        if not surface:
+            return []
+        operation, phrase, side = surface
+        candidates = cls._candidate_values(context)
+        tokens = text.split()
+        marker_size = len(cls._phrase_tokens(phrase))
+        target_tokens = tokens[marker_size:] if side == "start" else tokens[:-marker_size]
+        observed = " ".join(target_tokens).strip(cls._PUNCTUATION + " ")
+        if not observed or not candidates:
+            return []
+        if any(observed.casefold() == candidate.casefold() for candidate in candidates):
+            return []
+
+        ranked = sorted(
+            ((cls._similarity(observed, candidate), candidate) for candidate in candidates),
+            key=lambda item: (-item[0], item[1].casefold()),
+        )
+        if len(ranked) < 2:
+            return []
+        best_score = ranked[0][0]
+        second_score = ranked[1][0]
+        # Only report ambiguity when the spoken target resembles multiple
+        # known runtime entities. Unrelated candidates must not block a task.
+        if best_score < 0.62 or (best_score - second_score) >= 0.10:
+            return []
+        plausible = [
+            {"value": name, "confidence": round(score, 4)}
+            for score, name in ranked
+            if score >= best_score - 0.10
+        ][:3]
+        if len(plausible) < 2:
+            return []
+        return [{
+            "kind": "runtime_target",
+            "operation": operation,
+            "observed": observed,
+            "candidates": plausible,
+        }]
+
     def recover(
         self,
         transcript: Any,
@@ -289,11 +340,13 @@ class TranscriptRecovery:
         if not start_marker and not repaired_start_marker and not end_marker:
             text = self._repair_boundary(text, all_phrases, "end", corrections)
         text = self._repair_runtime_target(text, operation_phrases, ctx, corrections)
+        ambiguities = self._ambiguous_runtime_targets(text, operation_phrases, ctx)
         confidence_values = [item["confidence"] for item in corrections]
         return {
             "raw_transcript": raw,
             "text": text,
             "corrections": corrections,
+            "ambiguities": ambiguities,
             "changed": text != raw,
             "confidence": round(min(confidence_values), 4) if confidence_values else None,
         }
