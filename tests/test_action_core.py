@@ -170,5 +170,56 @@ class ActionCoreTests(unittest.TestCase):
         assert result["capability"] == "windows_ui"
         assert result["stage"] == "capability_resolved_with_correction"
 
+
+    def test_mission_planner_rejects_partial_plan_when_one_step_is_invalid(self):
+        planner = MissionPlanner(max_steps=5)
+        plan = planner.plan("open workspace and continue task", analysis={"plan": [
+            {"type": "action", "id": "open_1", "action": "open_application", "capability": "windows_ui", "target": "workspace", "args": {}, "depends_on": []},
+            {"type": "action", "id": "invalid_2", "capability": "windows_ui", "target": "missing-action-name", "args": {}, "depends_on": ["open_1"]},
+        ]})
+        self.assertEqual(plan, [])
+        self.assertIn("partial plan", planner.last_error)
+        self.assertEqual(planner.last_plan, [])
+
+    def test_mission_planner_rejects_over_limit_instead_of_truncating(self):
+        planner = MissionPlanner(max_steps=2)
+        plan = planner.plan("perform three dependent operations", analysis={"plan": [
+            {"type": "action", "id": "a", "action": "first", "capability": "cap"},
+            {"type": "action", "id": "b", "action": "second", "capability": "cap"},
+            {"type": "action", "id": "c", "action": "third", "capability": "cap"},
+        ]})
+        self.assertEqual(plan, [])
+        self.assertIn("safety limit", planner.last_error)
+
+    def test_mission_planner_rejects_unknown_dependency_before_execution(self):
+        planner = MissionPlanner(max_steps=3)
+        plan = planner.plan("perform a dependent task", analysis={"plan": [{
+            "type": "action", "id": "write", "action": "type_text", "capability": "windows_ui",
+            "target": "focused_element", "args": {"text": "hello"}, "depends_on": ["missing_step"],
+        }]})
+        self.assertEqual(plan, [])
+        self.assertIn("unknown id", planner.last_error)
+
+    def test_mission_planner_keeps_valid_dependency_chain_and_contracts(self):
+        planner = MissionPlanner(max_steps=3)
+        plan = planner.plan("open a target then type text", analysis={"plan": [
+            {
+                "type": "action", "id": "open_1", "action": "open_application", "capability": "windows_ui",
+                "target": "runtime target", "args": {}, "preconditions": ["target is available"],
+                "postconditions": ["target window is observed"], "depends_on": [],
+            },
+            {
+                "type": "action", "id": "type_2", "action": "type_text", "capability": "windows_ui",
+                "target": "focused_element", "args": {"text": "hello"}, "preconditions": ["target window is observed"],
+                "postconditions": ["hello is visible"], "depends_on": ["open_1"],
+            },
+        ]})
+        self.assertEqual([step["id"] for step in plan], ["open_1", "type_2"])
+        self.assertEqual(plan[1]["depends_on"], ["open_1"])
+        self.assertEqual(plan[0]["preconditions"], ["target is available"])
+        self.assertEqual(plan[1]["postconditions"], ["hello is visible"])
+        self.assertEqual(planner.last_error, "")
+
+
 if __name__ == "__main__":
     unittest.main()

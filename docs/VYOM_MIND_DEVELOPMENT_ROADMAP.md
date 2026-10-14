@@ -49,6 +49,10 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Keep the plan generic; app names and controls are runtime entities.
 - **Gate:** compound workflows preserve ordering and do not execute dependent steps after a failed prerequisite.
 
+**Current implementation:** `ai_core/mission_planner.py` validates the complete mixed legacy/generic dependency graph before release to runtime. Supplied plans are atomic: invalid steps and plans over the safety limit are rejected instead of silently dropping/truncating steps and running a partial subset. Validation is data-driven and adds no action-name allowlist.
+
+**Status:** Implementation and CI regression gate started; runtime integration and real Windows multi-step scenarios remain to be checked.
+
 ## M4 — Live world state and contextual reference resolution
 
 - Build fresh snapshots of active window, focused/selected control, visible UIA elements, running windows, clipboard only when needed, and the latest verified task state.
