@@ -43,6 +43,78 @@ class Phase5ObservationTests(unittest.TestCase):
             "",
         )
 
+    def test_proposed_open_intent_does_not_mutate_session_context(self):
+        agent = AutonomousAgent(max_steps=3)
+        agent._compile_goal = lambda goal, intent=None: {
+            "suggested_intents": [
+                {"intent": "open", "target": "New App", "source": "test"}
+            ]
+        }
+        agent._run_mission = lambda **kwargs: {
+            "success": False,
+            "stage": "simulated_failure",
+            "message": "Not opened",
+        }
+
+        result = agent.run("open New App")
+
+        self.assertFalse(result["success"])
+        self.assertIsNone(agent.context.current_app)
+        self.assertIsNone(agent.context.current_target)
+        self.assertIsNone(agent.context.current_file)
+
+    def test_failed_verification_does_not_replace_last_verified_app(self):
+        class ToolManager:
+            def execute(self, intent):
+                return {"success": True, "stage": "opened"}
+
+        class Verifier:
+            def verify(self, intent, result):
+                return {"verified": False, "reason": "target window not observed"}
+
+        agent = AutonomousAgent(tool_manager=ToolManager(), max_steps=3)
+        agent.verifier = Verifier()
+        agent.context.set_current_app("Previous App")
+        agent.context.set_current_target("Previous App")
+
+        result = agent._execute_step({
+            "step": 1,
+            "id": "open_new",
+            "type": "execute_existing_intent",
+            "intent": {"intent": "open", "target": "New App"},
+            "depends_on": [],
+            "status": "pending",
+        })
+
+        self.assertFalse(result["success"])
+        self.assertEqual(agent.context.current_app, "Previous App")
+        self.assertEqual(agent.context.current_target, "Previous App")
+
+    def test_verified_open_updates_session_context(self):
+        class ToolManager:
+            def execute(self, intent):
+                return {"success": True, "stage": "opened"}
+
+        class Verifier:
+            def verify(self, intent, result):
+                return {"verified": True, "state": "observed"}
+
+        agent = AutonomousAgent(tool_manager=ToolManager(), max_steps=3)
+        agent.verifier = Verifier()
+
+        result = agent._execute_step({
+            "step": 1,
+            "id": "open_app",
+            "type": "execute_existing_intent",
+            "intent": {"intent": "open", "target": "New App"},
+            "depends_on": [],
+            "status": "pending",
+        })
+
+        self.assertTrue(result["success"])
+        self.assertEqual(agent.context.current_app, "New App")
+        self.assertEqual(agent.context.current_target, "New App")
+
 
     def test_replan_reuses_verified_logical_step_with_new_id(self):
         runtime = MissionRuntime(max_retries=1, max_steps=5)

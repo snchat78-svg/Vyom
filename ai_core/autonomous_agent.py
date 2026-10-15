@@ -892,9 +892,8 @@ class AutonomousAgent:
         # UPDATE CURRENT CONTEXT
         # =========================================================
 
-        self._update_context_from_intent(
-            current_intent
-        )
+        if successful:
+            self._update_context_from_intent(current_intent)
 
         # =========================================================
         # HISTORY
@@ -2020,9 +2019,8 @@ class AutonomousAgent:
             else compiled_intent
         )
 
-        self._update_context_from_intent(
-            effective_intent
-        )
+        # Do not pre-populate app/file context from a proposed intent.
+        # _execute_step updates it only after observed verification succeeds.
 
         # =========================================================
         # SIMPLE FAST LANE

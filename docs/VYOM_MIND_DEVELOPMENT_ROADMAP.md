@@ -64,7 +64,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.2 progress:** Generic references such as “it”, “that window” and “same file” resolve only when a fresh runtime snapshot supports one unambiguous target. Conflicting focus/selection, stale observations, unavailable UIA state, or an active-window title that does not confirm the current file now produce a clarification instead of an ungrounded action.
 
-**Status:** M4 remains in progress. Automated tests cover reference freshness and ambiguity. Real desktop focus/window behavior still requires end-to-end validation on Windows.
+**M4.3 progress:** Session current-app/current-file/current-target context is no longer updated from a proposed intent before execution. Legacy context is committed only after ObservationVerifier confirms the action; failed execution or verification preserves the last verified context.
+
+**Status:** M4 remains in progress. Automated tests cover reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding
 
