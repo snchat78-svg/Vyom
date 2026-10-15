@@ -49,9 +49,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Keep the plan generic; app names and controls are runtime entities.
 - **Gate:** compound workflows preserve ordering and do not execute dependent steps after a failed prerequisite.
 
-**Current implementation:** `ai_core/mission_planner.py` validates the complete mixed legacy/generic dependency graph before release to runtime. Supplied plans are atomic: invalid steps and plans over the safety limit are rejected instead of silently dropping/truncating steps and running a partial subset. Validation is data-driven and adds no action-name allowlist.
+**Current implementation:** `ai_core/mission_planner.py` validates the complete mixed legacy/generic dependency graph. `ai_core/mission_runtime.py` now independently rejects malformed plans at mission start/re-plan, resets any caller-supplied completion claims, and allows step completion only when the current step's postcondition is verified. Re-planning carries forward only previously verified steps. Validation remains data-driven and adds no action-name allowlist.
 
-**Status:** Implementation and CI regression gate started; runtime integration and real Windows multi-step scenarios remain to be checked.
+**Status:** CI regression coverage added for malformed plans, dependency cycles, unverified completion and untrusted re-plan status. Real Windows multi-step scenarios still require desktop validation.
 
 ## M4 — Live world state and contextual reference resolution
 
