@@ -62,7 +62,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.1 progress:** UIA snapshots now include a bounded list of visible top-level windows; recorded observations retain timestamps in bounded history; the autonomous loop does not read clipboard contents unless explicitly requested; contextual text entry from a runtime snapshot requires fresh UIA focus evidence instead of trusting a stale session application label.
 
-**Status:** M4 is in progress. Automated regression coverage validates freshness gates, clipboard opt-in, window inventory contracts and bounded observation history. Real active-window/focus behavior and reference resolution still require end-to-end validation on Windows.
+**M4.2 progress:** Generic references such as “it”, “that window” and “same file” resolve only when a fresh runtime snapshot supports one unambiguous target. Conflicting focus/selection, stale observations, unavailable UIA state, or an active-window title that does not confirm the current file now produce a clarification instead of an ungrounded action.
+
+**Status:** M4 remains in progress. Automated tests cover reference freshness and ambiguity. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding
 

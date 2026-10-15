@@ -110,6 +110,68 @@ class ContextActionCompilerTests(unittest.TestCase):
         self.assertEqual(result["plan"], [])
         self.assertTrue(result["clarification"])
 
+    def test_click_it_resolves_matching_live_focus_and_selection(self):
+        context = self._runtime_context()
+        target = {
+            "exists": True,
+            "name": "Search",
+            "control_type": "Button",
+            "visible": True,
+            "enabled": True,
+        }
+        context["focused_control"] = dict(target)
+        context["selected_control"] = dict(target)
+        context["ui"]["focused_element"] = dict(target)
+        context["ui"]["selected_element"] = dict(target)
+
+        result = self.compiler.compile("click it", context)
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["plan"][0]["action"], "click_ui_element")
+        self.assertEqual(result["plan"][0]["target"], "Search")
+
+    def test_click_it_clarifies_when_focus_and_selection_disagree(self):
+        context = self._runtime_context()
+        context["focused_control"] = {
+            "exists": True, "name": "Editor input", "control_type": "Edit"
+        }
+        context["selected_control"] = {
+            "exists": True, "name": "Search", "control_type": "Button"
+        }
+        context["ui"]["focused_element"] = dict(context["focused_control"])
+        context["ui"]["selected_element"] = dict(context["selected_control"])
+
+        result = self.compiler.compile("click it", context)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["plan"], [])
+        self.assertIn("Focus", result["clarification"])
+
+    def test_focus_that_window_resolves_to_fresh_active_window(self):
+        context = self._runtime_context()
+        result = self.compiler.compile("focus that window", context)
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["plan"][0]["action"], "focus_window")
+        self.assertEqual(result["plan"][0]["target"], "Current window")
+
+    def test_open_same_file_requires_filename_match_in_active_window(self):
+        context = self._runtime_context()
+        context["current_file"] = r"C:\Docs\notes.txt"
+        context["current_window"] = {
+            "exists": True, "name": "notes.txt - Notepad"
+        }
+        context["ui"]["active_window"] = dict(context["current_window"])
+
+        result = self.compiler.compile("open same file", context)
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["plan"][0]["intent"]["intent"], "open_file")
+        self.assertEqual(result["plan"][0]["intent"]["target"], r"C:\Docs\notes.txt")
+
+    def test_click_it_does_not_use_a_stale_observation(self):
+        context = self._runtime_context(timestamp=time.time() - 60)
+        result = self.compiler.compile("click it", context)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["clarification"])
+
 
 if __name__ == "__main__":
     unittest.main()

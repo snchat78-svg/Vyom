@@ -82,22 +82,27 @@ class ContextActionCompiler:
         )
 
     @staticmethod
-    def _live_focused_control(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Return focus only when a recent runtime snapshot confirms it."""
+    def _fresh_ui_snapshot(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Return UI data only from a recent, available runtime observation."""
         if not ContextActionCompiler._is_world_snapshot(context):
             return None
-
         try:
             age = time.time() - float(context.get("timestamp"))
         except (TypeError, ValueError):
             return None
         if age < -2 or age > 10:
             return None
-
         ui = context.get("ui")
         if not isinstance(ui, dict) or ui.get("available") is not True:
             return None
+        return ui
 
+    @staticmethod
+    def _live_focused_control(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Return focus only when a recent runtime snapshot confirms it."""
+        ui = ContextActionCompiler._fresh_ui_snapshot(context)
+        if ui is None:
+            return None
         focused = context.get("focused_control")
         if not isinstance(focused, dict):
             focused = ui.get("focused_element")
@@ -106,6 +111,127 @@ class ContextActionCompiler:
         if focused.get("visible") is False or focused.get("enabled") is False:
             return None
         return focused
+
+    @staticmethod
+    def _reference_kind(value: Any) -> Optional[str]:
+        """Classify generic pronouns without embedding application aliases."""
+        text = " ".join(str(value or "").casefold().split())
+        window_refs = {
+            "that window", "this window", "the same window", "same window",
+            "current window", "active window", "वही विंडो", "उस विंडो",
+            "इस विंडो", "वर्तमान विंडो", "वही window", "उस window", "इस window",
+        }
+        file_refs = {
+            "same file", "the same file", "this file", "that file", "current file",
+            "वही फाइल", "उसी फाइल", "इस फाइल", "उस फाइल",
+            "वही फ़ाइल", "उसी फ़ाइल", "इस फ़ाइल", "उस फ़ाइल",
+        }
+        element_refs = {
+            "it", "this", "that", "same one", "the same one", "this one",
+            "that one", "same element", "the same element", "that element",
+            "this element", "itself", "wahi", "wo", "vo", "isko", "usko",
+            "usi ko", "ussi ko", "ye wala", "yeh wala", "wo wala", "vo wala",
+            "वही", "इसे", "उसे", "इसको", "उसको", "यह वाला", "वही वाला",
+            "वह वाला", "वो वाला", "उसी को", "इसी को", "वही element",
+        }
+        if text in window_refs:
+            return "window"
+        if text in file_refs:
+            return "file"
+        if text in element_refs:
+            return "element"
+        return None
+
+    @classmethod
+    def _resolve_reference_target(
+        cls,
+        target: str,
+        context: Dict[str, Any],
+        allowed_kinds: tuple,
+    ) -> Dict[str, Any]:
+        """Resolve only references supported by fresh, unambiguous observations."""
+        value = cls._normalize(target)
+        kind = cls._reference_kind(value)
+        if kind is None:
+            return {"resolved": True, "value": value, "reference": None}
+        if kind not in allowed_kinds:
+            return {
+                "resolved": False,
+                "clarification": "यह reference इस action के लिए स्पष्ट नहीं है। कृपया target का नाम बताएँ।",
+            }
+
+        ui = cls._fresh_ui_snapshot(context)
+        if ui is None:
+            return {
+                "resolved": False,
+                "clarification": "वर्तमान UI की ताज़ा जानकारी उपलब्ध नहीं है। कृपया window या control का नाम बताएँ।",
+            }
+
+        if kind == "window":
+            window = context.get("current_window")
+            if not isinstance(window, dict) or window.get("exists") is False or not (
+                window.get("name") or window.get("title")
+            ):
+                window = ui.get("active_window")
+            if isinstance(window, dict) and window.get("exists") is not False:
+                name = cls._normalize(window.get("name") or window.get("title"))
+                if name:
+                    return {"resolved": True, "value": name, "reference": "world_state.active_window"}
+            return {
+                "resolved": False,
+                "clarification": "मैं current active window का नाम verify नहीं कर पाया। कृपया window का नाम बताएँ।",
+            }
+
+        if kind == "file":
+            current_file = cls._normalize(context.get("current_file"))
+            window = context.get("current_window")
+            if not isinstance(window, dict):
+                window = ui.get("active_window")
+            window_name = cls._normalize(
+                window.get("name") or window.get("title")
+                if isinstance(window, dict)
+                else ""
+            )
+            basename = re.split(r"[\\/]", current_file)[-1] if current_file else ""
+            if current_file and basename and window_name and basename.casefold() in window_name.casefold():
+                return {
+                    "resolved": True,
+                    "value": current_file,
+                    "reference": "world_state.current_file",
+                }
+            return {
+                "resolved": False,
+                "clarification": "मैं current active window से same file की पुष्टि नहीं कर पाया। कृपया file का नाम या path बताएँ।",
+            }
+
+        selected = context.get("selected_control")
+        if not isinstance(selected, dict):
+            selected = ui.get("selected_element")
+        focused = context.get("focused_control")
+        if not isinstance(focused, dict):
+            focused = ui.get("focused_element")
+
+        candidates = []
+        for item in (selected, focused):
+            if not isinstance(item, dict) or item.get("exists") is not True:
+                continue
+            if item.get("visible") is False or item.get("enabled") is False:
+                continue
+            name = cls._normalize(item.get("name") or item.get("text"))
+            if name and name.casefold() not in [entry.casefold() for entry in candidates]:
+                candidates.append(name)
+
+        if len(candidates) == 1:
+            return {"resolved": True, "value": candidates[0], "reference": "world_state.focus_or_selection"}
+        if len(candidates) > 1:
+            return {
+                "resolved": False,
+                "clarification": "Focus और selection अलग-अलग controls पर हैं। कृपया जिस control पर action करना है उसका नाम बताएँ।",
+            }
+        return {
+            "resolved": False,
+            "clarification": "मैं current focus या selection से target resolve नहीं कर पाया। कृपया UI control का नाम बताएँ।",
+        }
 
     @staticmethod
     def _context_target(context: Dict[str, Any]) -> str:
@@ -380,6 +506,15 @@ class ContextActionCompiler:
         match = re.match(r"^(?:please\s+)?(?:focus|फोकस)\s+(.+)$", value, re.IGNORECASE)
         if match:
             target = self._normalize(match.group(1))
+            resolution = self._resolve_reference_target(
+                target, context, ("window",)
+            )
+            if not resolution.get("resolved"):
+                return {
+                    "kind": "clarification",
+                    "message": str(resolution.get("clarification") or "कृपया window का नाम बताएँ।"),
+                }
+            target = str(resolution["value"])
             base.update({
                 "action": "focus_window",
                 "target": target,
@@ -399,6 +534,15 @@ class ContextActionCompiler:
         if match:
             target = self._normalize(match.group(1))
             if not re.fullmatch(r"-?\d+\s*[, ]\s*-?\d+", target):
+                resolution = self._resolve_reference_target(
+                    target, context, ("element", "window")
+                )
+                if not resolution.get("resolved"):
+                    return {
+                        "kind": "clarification",
+                        "message": str(resolution.get("clarification") or "कृपया UI control का नाम बताएँ।"),
+                    }
+                target = str(resolution["value"])
                 base.update({
                     "action": "click_ui_element",
                     "target": target,
@@ -414,6 +558,15 @@ class ContextActionCompiler:
         )
         if match:
             target = self._normalize(match.group(1))
+            resolution = self._resolve_reference_target(
+                target, context, ("element",)
+            )
+            if not resolution.get("resolved"):
+                return {
+                    "kind": "clarification",
+                    "message": str(resolution.get("clarification") or "कृपया UI control का नाम बताएँ।"),
+                }
+            target = str(resolution["value"])
             base.update({
                 "action": "invoke_ui_element",
                 "target": target,
@@ -502,6 +655,33 @@ class ContextActionCompiler:
         for index, part in enumerate(parts, start=1):
             legacy = self._legacy_intent(part)
             if legacy and legacy.get("intent") and legacy.get("target"):
+                legacy_name = str(legacy.get("intent")).strip().lower()
+                legacy_target = str(legacy.get("target")).strip()
+                reference_kind = self._reference_kind(legacy_target)
+                if reference_kind:
+                    if reference_kind == "file" and legacy_name in {
+                        "open", "open_file", "search_file", "search_and_open_file"
+                    }:
+                        allowed = ("file",)
+                    elif reference_kind == "window" and legacy_name == "close_app":
+                        allowed = ("window",)
+                    else:
+                        unresolved_parts.append(part)
+                        if not clarification:
+                            clarification = "इस action में reference सुरक्षित रूप से resolve नहीं हुआ। कृपया target का नाम बताएँ।"
+                        continue
+                    resolution = self._resolve_reference_target(
+                        legacy_target, ctx, allowed
+                    )
+                    if not resolution.get("resolved"):
+                        unresolved_parts.append(part)
+                        if not clarification:
+                            clarification = str(resolution.get("clarification") or "कृपया target का नाम बताएँ।")
+                        continue
+                    legacy_target = str(resolution["value"])
+                    if reference_kind == "file" and legacy_name == "open":
+                        legacy_name = "open_file"
+
                 step_id = f"context_{index}"
                 step = {
                     "step": index,
@@ -509,8 +689,8 @@ class ContextActionCompiler:
                     "type": "execute_existing_intent",
                     "goal": value,
                     "intent": {
-                        "intent": str(legacy.get("intent")).strip().lower(),
-                        "target": str(legacy.get("target")).strip(),
+                        "intent": legacy_name,
+                        "target": legacy_target,
                     },
                     "depends_on": [previous_id] if previous_id else [],
                     "status": "pending",
