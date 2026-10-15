@@ -1067,6 +1067,13 @@ class AutonomousAgent:
 
         try:
             self.world_state.record_observation(observation)
+            if isinstance(snapshot, dict):
+                # Include the observation just recorded. History entries are
+                # compact summaries, so this cannot create recursive snapshots.
+                snapshot["observation_history"] = [
+                    dict(item) for item in self.world_state.observation_history
+                ]
+                self.world_state.last_snapshot = snapshot
         except Exception:
             # Observation persistence must never break execution.
             pass
@@ -1429,19 +1436,23 @@ class AutonomousAgent:
                 # re-reasoning. The new plan must be grounded in the state
                 # that exists after the failed/retried execution, not the
                 # stale state from the original plan.
-                self._observe_cycle(
+                replan_observation = self._observe_cycle(
                     phase="before_replan",
                     result=self.context.last_result,
                 )
-
                 refreshed_state = (
-                    self.world_state.snapshot(
-                        self.context.snapshot(),
-                        mission_state=self.mission_runtime.snapshot(),
-                        include_ui=True,
-                        include_clipboard=False,
-                    )
+                    replan_observation.get("world_state")
+                    if isinstance(replan_observation, dict)
+                    else None
                 )
+                if (
+                    not isinstance(refreshed_state, dict)
+                    or not isinstance(refreshed_state.get("timestamp"), (int, float))
+                    or refreshed_state.get("observation_error")
+                ):
+                    raise RuntimeError(
+                        "Fresh world-state observation is unavailable; re-planning stopped safely."
+                    )
 
                 re_reasoning = (
                     self.reasoning_engine.reason(

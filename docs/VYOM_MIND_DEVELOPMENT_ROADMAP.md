@@ -66,7 +66,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.3 progress:** Session current-app/current-file/current-target context is no longer updated from a proposed intent before execution. Legacy context is committed only after ObservationVerifier confirms the action; failed execution or verification preserves the last verified context.
 
-**Status:** M4 remains in progress. Automated tests cover reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
+**M4.4 progress:** Observation history now stores compact target/verification summaries instead of full nested world snapshots. The newest observation is attached to the same snapshot passed into re-planning, avoiding a second inconsistent UIA read; if the fresh snapshot cannot be produced, re-planning stops instead of using stale state.
+
+**Status:** M4 remains in progress. Automated tests cover compact history, single-snapshot re-planning, reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding
 

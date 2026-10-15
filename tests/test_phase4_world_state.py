@@ -136,6 +136,37 @@ class Phase4WorldStateTests(unittest.TestCase):
         world.snapshot(include_clipboard=True)
         self.assertEqual(clipboard.reads, 1)
 
+    def test_observation_history_is_compact_and_not_recursive(self):
+        world = WorldStateModel()
+        source = {
+            "timestamp": 111.0,
+            "phase": "after_action",
+            "step_id": "open_app",
+            "step_type": "execute_existing_intent",
+            "result": {"success": True, "stage": "opened", "debug_blob": "not for history"},
+            "verification": {"verified": True, "state": "observed", "details": "large payload"},
+            "world_state": {
+                "timestamp": 110.0,
+                "current_window": {"exists": True, "name": "Editor", "value": "sensitive typed input"},
+                "focused_control": {"exists": True, "name": "Search box", "value": "secret query"},
+                "selected_control": {"exists": True, "name": "Search", "control_type": "Button"},
+                "observation_history": [{"phase": "previous", "world_state": {"observation_history": ["deep"]}}],
+                "mission_state": {"mission_state": "running", "current_step": "open_app", "debug": "drop"},
+            },
+        }
+
+        world.record_observation(source)
+        saved = world.observation_history[-1]
+
+        self.assertEqual(saved["timestamp"], 111.0)
+        self.assertEqual(saved["phase"], "after_action")
+        self.assertEqual(saved["world_state"]["current_window"]["name"], "Editor")
+        self.assertNotIn("observation_history", saved["world_state"])
+        self.assertNotIn("value", saved["world_state"]["focused_control"])
+        self.assertNotIn("debug_blob", saved["result"])
+        self.assertNotIn("details", saved["verification"])
+        self.assertEqual(saved["world_state"]["mission_state"]["mission_state"], "running")
+
     def test_legacy_snapshot_signature_remains_usable(self):
         world = WorldStateModel()
         state = world.snapshot({"current_target": "example"})

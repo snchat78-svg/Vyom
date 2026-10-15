@@ -167,14 +167,83 @@ class WorldStateModel:
 
         return state
 
+    @staticmethod
+    def _observation_entity_summary(value: Any) -> Dict[str, Any]:
+        """Retain target identity only; omit entered text, values and UI trees."""
+        if not isinstance(value, dict):
+            return {}
+        summary: Dict[str, Any] = {}
+        for field in (
+            "exists", "name", "title", "control_type",
+            "automation_id", "class_name", "visible", "enabled",
+        ):
+            item = value.get(field)
+            if isinstance(item, (str, bool, int, float)):
+                summary[field] = str(item)[:160] if isinstance(item, str) else item
+        return summary
+
+    @classmethod
+    def _compact_observation(cls, observation: Dict[str, Any], timestamp: float) -> Dict[str, Any]:
+        """Avoid recursively storing full world snapshots inside observation history."""
+        recorded: Dict[str, Any] = {"timestamp": timestamp}
+        for field, limit in (("phase", 80), ("step_id", 100), ("step_type", 80)):
+            value = observation.get(field)
+            if value is not None:
+                recorded[field] = str(value)[:limit]
+
+        result = observation.get("result")
+        if isinstance(result, dict):
+            result_summary = {}
+            for field in ("success", "stage", "status"):
+                if isinstance(result.get(field), (bool, int, float, str)):
+                    value = result[field]
+                    result_summary[field] = str(value)[:120] if isinstance(value, str) else value
+            if result_summary:
+                recorded["result"] = result_summary
+        elif isinstance(result, (str, bool, int, float)):
+            recorded["result"] = str(result)[:160] if isinstance(result, str) else result
+
+        verification = observation.get("verification")
+        if isinstance(verification, dict):
+            verification_summary = {}
+            for field in ("verified", "state", "verification_level"):
+                if isinstance(verification.get(field), (bool, int, float, str)):
+                    value = verification[field]
+                    verification_summary[field] = str(value)[:120] if isinstance(value, str) else value
+            if verification_summary:
+                recorded["verification"] = verification_summary
+
+        world = observation.get("world_state")
+        if isinstance(world, dict):
+            world_summary: Dict[str, Any] = {}
+            for field in ("timestamp", "platform", "task_state", "last_success"):
+                value = world.get(field)
+                if isinstance(value, (str, bool, int, float)):
+                    world_summary[field] = value
+            for field in ("current_window", "focused_control", "selected_control"):
+                summary = cls._observation_entity_summary(world.get(field))
+                if summary:
+                    world_summary[field] = summary
+            mission = world.get("mission_state")
+            if isinstance(mission, dict):
+                mission_summary = {}
+                for field in ("mission_state", "current_step", "completed_steps", "failed_steps"):
+                    value = mission.get(field)
+                    if isinstance(value, (str, bool, int, float)):
+                        mission_summary[field] = value
+                if mission_summary:
+                    world_summary["mission_state"] = mission_summary
+            recorded["world_state"] = world_summary
+        return recorded
+
     def record_observation(self, observation: Dict[str, Any]) -> None:
-        """Store bounded observation history without polluting execution history."""
+        """Store bounded, compact observations without recursive world snapshots."""
         if not isinstance(observation, dict):
             return
-        recorded = dict(observation)
-        timestamp = recorded.get("timestamp")
+        timestamp = observation.get("timestamp")
         if not isinstance(timestamp, (int, float)) or timestamp <= 0:
-            recorded["timestamp"] = time.time()
+            timestamp = time.time()
+        recorded = self._compact_observation(observation, float(timestamp))
         self.observation_history.append(recorded)
         del self.observation_history[:-self.max_observation_history]
 

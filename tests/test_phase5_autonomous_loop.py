@@ -18,6 +18,10 @@ class Phase5ObservationTests(unittest.TestCase):
         self.assertIn("world_state", observation)
         self.assertGreater(observation["timestamp"], 0)
         self.assertTrue(observation["world_state"]["clipboard"]["skipped"])
+        latest = observation["world_state"]["observation_history"][-1]
+        self.assertEqual(latest["phase"], "test")
+        self.assertEqual(latest["timestamp"], observation["timestamp"])
+        self.assertNotIn("observation_history", latest["world_state"])
         self.assertFalse(
             any(
                 item.get("stage") == "observation"
@@ -42,6 +46,37 @@ class Phase5ObservationTests(unittest.TestCase):
             observation["world_state"]["current_target"],
             "",
         )
+
+    def test_replan_uses_recorded_snapshot_without_a_second_world_read(self):
+        agent = AutonomousAgent(max_steps=3)
+        calls = []
+
+        class World:
+            observation_history = []
+
+            last_snapshot = None
+
+            def snapshot(self, *args, **kwargs):
+                calls.append("snapshot")
+                return {
+                    "timestamp": 200.0,
+                    "ui": {"available": True},
+                    "current_window": {"name": "Window A"},
+                    "observation_history": [],
+                }
+
+            def record_observation(self, observation):
+                self.observation_history.append({
+                    "phase": observation["phase"],
+                    "timestamp": observation["timestamp"],
+                })
+
+        agent.world_state = World()
+        recorded = agent._observe_cycle(phase="before_replan")
+
+        self.assertEqual(calls, ["snapshot"])
+        self.assertIs(recorded["world_state"], agent.world_state.last_snapshot)
+        self.assertEqual(recorded["world_state"]["observation_history"][-1]["phase"], "before_replan")
 
     def test_proposed_open_intent_does_not_mutate_session_context(self):
         agent = AutonomousAgent(max_steps=3)
