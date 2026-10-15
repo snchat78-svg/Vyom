@@ -2178,7 +2178,7 @@ class AutonomousAgent:
                     self.context.snapshot(),
                     mission_state=self.mission_runtime.snapshot(),
                     include_ui=True,
-                    include_clipboard=True,
+                    include_clipboard=False,
                 )
             )
 
