@@ -50,6 +50,8 @@ import json
 
 from typing import Any, Dict, List, Optional
 
+from ai_core.mission_plan_guard import MissionPlanGuard
+
 
 class MissionRuntime:
 
@@ -162,24 +164,25 @@ class MissionRuntime:
             goal or ""
         ).strip()
 
+        validation_error = MissionPlanGuard.validate(plan, self.max_steps)
+        if not self.goal:
+            validation_error = "Mission goal is empty."
+
         self.plan = []
-
-        if isinstance(
-            plan,
-            list
-        ):
-
+        if validation_error is None:
             for step in plan:
-
-                if not isinstance(
-                    step,
-                    dict
+                clean = dict(step)
+                clean["status"] = "pending"
+                for field in (
+                    "result", "verification", "reused_verified_step_id",
+                    "last_result", "last_error", "retries",
                 ):
-                    continue
-
-                self.plan.append(
-                    dict(step)
-                )
+                    clean.pop(field, None)
+                clean["depends_on"] = [
+                    str(value).strip()
+                    for value in clean.get("depends_on", [])
+                ]
+                self.plan.append(clean)
 
         self.current_step = None
 
@@ -203,17 +206,22 @@ class MissionRuntime:
 
         self.blocked_capability = None
 
-        if not self.goal:
-
+        if validation_error:
             self.mission_state = "blocked"
-
+            self.last_error = validation_error
+            self.history.append({
+                "event": "mission_rejected",
+                "reason": validation_error,
+            })
         elif not self.plan:
-
             self.mission_state = "blocked"
-
+            self.last_error = "Mission plan is empty."
         else:
-
             self.mission_state = "ready"
+            self.history.append({
+                "event": "mission_started",
+                "plan_size": len(self.plan),
+            })
 
         return self.snapshot()
 
@@ -444,7 +452,47 @@ class MissionRuntime:
         )
 
         if step is None:
+            return False
 
+        is_current = (
+            isinstance(self.current_step, dict)
+            and str(self.current_step.get("id") or "") == str(step_id)
+            and str(step.get("status") or "") == "executing"
+        )
+        if not is_current:
+            reason = "Only the currently executing mission step can be completed."
+            self.last_error = reason
+            self.history.append({
+                "event": "step_completion_rejected",
+                "id": str(step_id),
+                "reason": reason,
+            })
+            return False
+
+        verified = (
+            isinstance(verification, dict)
+            and verification.get("verified") is True
+        )
+        if not verified:
+            reason = "Step completion rejected because its postcondition was not verified."
+            self.last_result = result
+            self.last_verification = (
+                dict(verification) if isinstance(verification, dict) else {}
+            )
+            self.last_error = reason
+            step["status"] = "failed"
+            step["result"] = result
+            step["verification"] = self.last_verification
+            step["last_error"] = reason
+            self.failed_steps += 1
+            self.current_step = None
+            self.history.append({
+                "event": "step_completion_rejected",
+                "id": str(step_id),
+                "reason": reason,
+                "verification": self.last_verification,
+            })
+            self.request_replan(reason=reason)
             return False
 
         # -----------------------------------------------------
@@ -729,11 +777,17 @@ class MissionRuntime:
         ]
     ) -> bool:
 
-        if not isinstance(
-            plan,
-            list
-        ):
-
+        validation_error = MissionPlanGuard.validate(plan, self.max_steps)
+        if validation_error:
+            self.mission_state = "blocked"
+            self.last_error = "Re-planning rejected: " + validation_error
+            self.current_step = None
+            self.replan_requested = False
+            self.replan_reason = ""
+            self.history.append({
+                "event": "replan_rejected",
+                "reason": self.last_error,
+            })
             return False
 
         # Preserve already verified logical steps across a re-plan even
@@ -742,6 +796,12 @@ class MissionRuntime:
         verified_by_fingerprint = {}
         for previous_step in self.plan:
             if previous_step.get("status") != "completed":
+                continue
+            previous_verification = previous_step.get("verification")
+            if not (
+                isinstance(previous_verification, dict)
+                and previous_verification.get("verified") is True
+            ):
                 continue
             fingerprint = self._step_fingerprint(previous_step)
             if fingerprint is None:
@@ -758,29 +818,28 @@ class MissionRuntime:
             ):
                 continue
 
-            new_step = dict(
-                step
-            )
-
-            # -------------------------------------------------
-            # Reuse a prior verified logical step when the
-            # replanned step is semantically identical.
-            # -------------------------------------------------
-
-            if new_step.get(
-                "status"
-            ) not in (
-                "completed",
-                "failed"
+            new_step = dict(step)
+            # Ignore status/result claims from reasoners. Only matching verified
+            # history owned by this runtime can mark a replanned step completed.
+            new_step["status"] = "pending"
+            for field in (
+                "result", "verification", "reused_verified_step_id",
+                "last_result", "last_error", "retries",
             ):
-                fingerprint = self._step_fingerprint(new_step)
-                matches = verified_by_fingerprint.get(fingerprint, [])
-                if fingerprint is not None and matches:
-                    previous = matches.pop(0)
-                    new_step["status"] = "completed"
-                    new_step.setdefault("result", previous.get("result"))
-                    new_step.setdefault("verification", previous.get("verification", {}))
-                    new_step["reused_verified_step_id"] = previous.get("id")
+                new_step.pop(field, None)
+            new_step["depends_on"] = [
+                str(value).strip()
+                for value in new_step.get("depends_on", [])
+            ]
+
+            fingerprint = self._step_fingerprint(new_step)
+            matches = verified_by_fingerprint.get(fingerprint, [])
+            if fingerprint is not None and matches:
+                previous = matches.pop(0)
+                new_step["status"] = "completed"
+                new_step["result"] = previous.get("result")
+                new_step["verification"] = dict(previous.get("verification") or {})
+                new_step["reused_verified_step_id"] = previous.get("id")
 
             new_plan.append(
                 new_step
