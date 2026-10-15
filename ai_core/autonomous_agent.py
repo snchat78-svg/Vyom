@@ -71,6 +71,7 @@ Important:
     - Compound missions are controlled by MissionRuntime.
 """
 
+import time
 from typing import Any, Dict, Optional, List
 
 from ai_core.brain import Brain
@@ -1023,7 +1024,15 @@ class AutonomousAgent:
             "step": self.step_count
         }
 
-    def _observe_cycle(self, *, phase: str, step: Optional[Dict[str, Any]] = None, result: Any = None, verification: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _observe_cycle(
+        self,
+        *,
+        phase: str,
+        step: Optional[Dict[str, Any]] = None,
+        result: Any = None,
+        verification: Optional[Dict[str, Any]] = None,
+        include_clipboard: bool = False,
+    ) -> Dict[str, Any]:
         """Capture a fresh, serializable world/context observation.
 
         Observation is deliberately provider-agnostic. UI/file/process details
@@ -1035,7 +1044,7 @@ class AutonomousAgent:
                 self.context.snapshot(),
                 mission_state=self.mission_runtime.snapshot(),
                 include_ui=True,
-                include_clipboard=True,
+                include_clipboard=include_clipboard,
             )
         except Exception as error:
             snapshot = {
@@ -1044,6 +1053,11 @@ class AutonomousAgent:
             }
 
         observation = {
+            "timestamp": (
+                snapshot.get("timestamp", time.time())
+                if isinstance(snapshot, dict)
+                else time.time()
+            ),
             "phase": str(phase or ""),
             "step_id": (step or {}).get("id") if isinstance(step, dict) else None,
             "step_type": (step or {}).get("type") if isinstance(step, dict) else None,
@@ -1426,7 +1440,7 @@ class AutonomousAgent:
                         self.context.snapshot(),
                         mission_state=self.mission_runtime.snapshot(),
                         include_ui=True,
-                        include_clipboard=True,
+                        include_clipboard=False,
                     )
                 )
 

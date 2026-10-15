@@ -13,6 +13,9 @@ class FakeUIObserver:
             "ui_tree_signature": [
                 {"name": "Search", "control_type": "Button"}
             ],
+            "running_windows": [
+                {"name": "Test Window", "control_type": "Window", "visible": True}
+            ],
         }
 
 
@@ -71,6 +74,7 @@ class Phase4WorldStateTests(unittest.TestCase):
         self.assertEqual(state["focused_control"]["name"], "SearchBox")
         self.assertEqual(state["selected_control"]["name"], "Search")
         self.assertEqual(state["visible_ui_elements"][0]["name"], "Search")
+        self.assertEqual(state["running_windows"][0]["name"], "Test Window")
         self.assertEqual(state["clipboard"]["text"], "copied text")
         self.assertEqual(state["screen"]["size"]["width"], 1920)
         self.assertTrue(state["screen"]["snapshot"]["available"])
@@ -96,6 +100,41 @@ class Phase4WorldStateTests(unittest.TestCase):
         self.assertEqual(state["current_app"], "Notepad")
         self.assertFalse(state["ui"]["available"])
         self.assertIn("error", state["ui"])
+
+    def test_observation_history_is_timestamped_and_bounded(self):
+        world = WorldStateModel()
+        world.max_observation_history = 2
+        source = {"phase": "first"}
+
+        world.record_observation(source)
+        world.record_observation({"phase": "second", "timestamp": 123.0})
+        world.record_observation({"phase": "third"})
+
+        self.assertNotIn("timestamp", source)
+        self.assertGreater(world.observation_history[0]["timestamp"], 0)
+        self.assertEqual(
+            [item["phase"] for item in world.observation_history],
+            ["second", "third"],
+        )
+        self.assertEqual(world.observation_history[0]["timestamp"], 123.0)
+
+    def test_clipboard_is_not_read_when_not_requested(self):
+        class TrackingClipboard(FakeClipboard):
+            def __init__(self):
+                self.reads = 0
+
+            def get_text(self):
+                self.reads += 1
+                return super().get_text()
+
+        clipboard = TrackingClipboard()
+        world = WorldStateModel(clipboard_manager=clipboard)
+        state = world.snapshot(include_clipboard=False)
+        self.assertEqual(clipboard.reads, 0)
+        self.assertTrue(state["clipboard"]["skipped"])
+
+        world.snapshot(include_clipboard=True)
+        self.assertEqual(clipboard.reads, 1)
 
     def test_legacy_snapshot_signature_remains_usable(self):
         world = WorldStateModel()

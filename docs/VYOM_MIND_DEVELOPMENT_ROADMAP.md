@@ -60,6 +60,10 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Give observations timestamps and bounded history; observer failure must not stop listening.
 - **Gate:** stale/ambiguous references are clarified; latest observations survive retry and re-planning.
 
+**M4.1 progress:** UIA snapshots now include a bounded list of visible top-level windows; recorded observations retain timestamps in bounded history; the autonomous loop does not read clipboard contents unless explicitly requested; contextual text entry from a runtime snapshot requires fresh UIA focus evidence instead of trusting a stale session application label.
+
+**Status:** M4 is in progress. Automated regression coverage validates freshness gates, clipboard opt-in, window inventory contracts and bounded observation history. Real active-window/focus behavior and reference resolution still require end-to-end validation on Windows.
+
 ## M5 — Generic action grounding
 
 - Rank visible UI Automation candidates using live Name, AutomationId, ControlType, class, window identity and available control patterns.

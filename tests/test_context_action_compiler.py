@@ -1,3 +1,4 @@
+import time
 import unittest
 
 from ai_core.context_action_compiler import ContextActionCompiler
@@ -63,6 +64,51 @@ class ContextActionCompilerTests(unittest.TestCase):
         result = self.compiler.compile("open Another Application", self.context)
         self.assertTrue(result["complete"])
         self.assertEqual(result["plan"][0]["intent"]["target"], "Another Application")
+
+    @staticmethod
+    def _runtime_context(timestamp=None, ui_available=True, focused=True):
+        focus = {
+            "exists": bool(focused),
+            "name": "Editor input",
+            "control_type": "Edit",
+            "visible": True,
+            "enabled": True,
+        }
+        return {
+            "timestamp": time.time() if timestamp is None else timestamp,
+            "current_app": "Stale application",
+            "current_target": "Stale application",
+            "current_window": {"exists": True, "name": "Current window"},
+            "focused_control": focus,
+            "ui": {
+                "available": bool(ui_available),
+                "active_window": {"exists": True, "name": "Current window"},
+                "focused_element": focus,
+            },
+            "conversation_history": [
+                {"role": "user", "text": "My name is Shambhu Lal", "metadata": {}}
+            ],
+        }
+
+    def test_runtime_follow_up_uses_fresh_observed_focus(self):
+        result = self.compiler.compile("type Hello World", self._runtime_context())
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["plan"][0]["action"], "type_text")
+        self.assertEqual(result["plan"][0]["args"]["text"], "Hello World")
+
+    def test_runtime_follow_up_rejects_stale_focus_and_old_session_target(self):
+        stale = self._runtime_context(timestamp=time.time() - 60)
+        result = self.compiler.compile("type Hello World", stale)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["clarification"])
+
+    def test_runtime_follow_up_rejects_unavailable_ui_even_when_session_has_old_app(self):
+        unavailable = self._runtime_context(ui_available=False, focused=False)
+        result = self.compiler.compile("type Hello World", unavailable)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["clarification"])
 
 
 if __name__ == "__main__":

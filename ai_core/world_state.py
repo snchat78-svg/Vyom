@@ -171,7 +171,11 @@ class WorldStateModel:
         """Store bounded observation history without polluting execution history."""
         if not isinstance(observation, dict):
             return
-        self.observation_history.append(dict(observation))
+        recorded = dict(observation)
+        timestamp = recorded.get("timestamp")
+        if not isinstance(timestamp, (int, float)) or timestamp <= 0:
+            recorded["timestamp"] = time.time()
+        self.observation_history.append(recorded)
         del self.observation_history[:-self.max_observation_history]
 
     def record_execution(
@@ -234,12 +238,19 @@ class WorldStateModel:
         if include_ui:
             ui = self._ui_state(self.last_action)
             state["ui"] = ui
+            windows = ui.get("running_windows", [])
+            state["running_windows"] = (
+                [dict(item) for item in windows if isinstance(item, dict)]
+                if isinstance(windows, list)
+                else []
+            )
             state["current_window"] = ui.get("active_window", {})
             state["focused_control"] = ui.get("focused_element", {})
             state["selected_control"] = ui.get("selected_element", {})
             state["visible_ui_elements"] = ui.get("ui_tree_signature", [])
         else:
             state["ui"] = {"available": False, "skipped": True}
+            state["running_windows"] = []
 
         if include_clipboard:
             state["clipboard"] = self._clipboard_state()

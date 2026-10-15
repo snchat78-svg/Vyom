@@ -20,6 +20,7 @@ Key design rules:
 from __future__ import annotations
 
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 from ai_core.goal_compiler import GoalCompiler
@@ -72,7 +73,53 @@ class ContextActionCompiler:
         return [self._normalize(part) for part in self._SEPARATORS.split(text) if self._normalize(part)]
 
     @staticmethod
+    def _is_world_snapshot(context: Dict[str, Any]) -> bool:
+        timestamp = context.get("timestamp")
+        return (
+            isinstance(timestamp, (int, float))
+            and timestamp > 0
+            and any(key in context for key in ("ui", "current_window", "focused_control"))
+        )
+
+    @staticmethod
+    def _live_focused_control(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Return focus only when a recent runtime snapshot confirms it."""
+        if not ContextActionCompiler._is_world_snapshot(context):
+            return None
+
+        try:
+            age = time.time() - float(context.get("timestamp"))
+        except (TypeError, ValueError):
+            return None
+        if age < -2 or age > 10:
+            return None
+
+        ui = context.get("ui")
+        if not isinstance(ui, dict) or ui.get("available") is not True:
+            return None
+
+        focused = context.get("focused_control")
+        if not isinstance(focused, dict):
+            focused = ui.get("focused_element")
+        if not isinstance(focused, dict) or focused.get("exists") is not True:
+            return None
+        if focused.get("visible") is False or focused.get("enabled") is False:
+            return None
+        return focused
+
+    @staticmethod
     def _context_target(context: Dict[str, Any]) -> str:
+        # Runtime snapshots are authoritative only when a fresh UIA focus is
+        # observable. Do not fall back to stale session app/file labels.
+        if ContextActionCompiler._is_world_snapshot(context):
+            return (
+                "focused_element"
+                if ContextActionCompiler._live_focused_control(context)
+                else ""
+            )
+
+        # Compatibility for older direct callers that pass session-only
+        # dictionaries without a timestamped WorldState snapshot.
         direct = str(
             context.get("current_target")
             or context.get("current_app")
@@ -94,6 +141,9 @@ class ContextActionCompiler:
 
     @staticmethod
     def _has_execution_context(context: Dict[str, Any]) -> bool:
+        if ContextActionCompiler._is_world_snapshot(context):
+            return ContextActionCompiler._live_focused_control(context) is not None
+
         if ContextActionCompiler._context_target(context):
             return True
 

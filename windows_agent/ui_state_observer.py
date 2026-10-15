@@ -331,6 +331,50 @@ class UIStateObserver:
         )
         return result.get("element") if result else None
 
+    def running_windows_state(self) -> List[Dict[str, Any]]:
+        """Return a bounded, JSON-safe list of currently discoverable windows."""
+        desktop = self._desktop()
+        if desktop is None:
+            return []
+
+        try:
+            windows = desktop.windows()
+        except Exception:
+            return []
+
+        result: List[Dict[str, Any]] = []
+        try:
+            candidates = windows[: self.max_tree_elements]
+        except Exception:
+            try:
+                candidates = list(windows)[: self.max_tree_elements]
+            except Exception:
+                return []
+
+        for window in candidates:
+            state = self.element_state(window)
+            if not state.get("exists"):
+                continue
+            item = {
+                key: state.get(key, "")
+                for key in (
+                    "name", "control_type", "automation_id",
+                    "class_name", "visible", "enabled",
+                )
+            }
+            if not any(item.get(key) for key in ("name", "automation_id", "class_name")):
+                continue
+            result.append(item)
+
+        result.sort(
+            key=lambda item: (
+                item.get("name", ""),
+                item.get("control_type", ""),
+                item.get("automation_id", ""),
+            )
+        )
+        return result
+
     def snapshot(
         self,
         action: Optional[Dict[str, Any]] = None,
@@ -347,6 +391,7 @@ class UIStateObserver:
             "focused_element": self.focused_element_state(),
             "selected_element": self.selected_element_state(),
             "target_element": self.element_state(target_element),
+            "running_windows": self.running_windows_state(),
             "ui_tree_signature": self._tree_signature(),
         }
 

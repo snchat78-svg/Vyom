@@ -16,6 +16,8 @@ class Phase5ObservationTests(unittest.TestCase):
         self.assertEqual(observation["phase"], "test")
         self.assertEqual(observation["step_id"], "a1")
         self.assertIn("world_state", observation)
+        self.assertGreater(observation["timestamp"], 0)
+        self.assertTrue(observation["world_state"]["clipboard"]["skipped"])
         self.assertFalse(
             any(
                 item.get("stage") == "observation"
