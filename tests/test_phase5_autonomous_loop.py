@@ -527,6 +527,24 @@ class Phase5ObservationTests(unittest.TestCase):
             for item in runtime.history
         ))
 
+    def test_explicit_runtime_reset_clears_session_scoped_replay_lock(self):
+        runtime = MissionRuntime(max_retries=1, max_steps=5)
+        runtime.start("send message", [{
+            "id": "send_once", "type": "action", "action": "invoke_ui_element",
+            "capability": "windows_ui", "target": "Send", "args": {}, "depends_on": [],
+        }])
+        step = runtime.get_next_step()
+        runtime.mark_failed(
+            step_id=step["id"], result={"success": False, "stage": "verification_failed"},
+            reason="uncertain", verification={"verified": False}, retryable=False,
+            failure_policy={"category": "outcome_uncertain", "user_message": "uncertain"},
+            stop_mission=True,
+        )
+        self.assertTrue(runtime.snapshot()["replay_lock"]["active"])
+        runtime.reset()
+        self.assertIsNone(runtime.snapshot()["replay_lock"])
+        self.assertEqual(runtime.snapshot()["mission_state"], "idle")
+
     def test_start_cannot_reset_an_active_replay_lock(self):
         runtime = MissionRuntime(max_retries=1, max_steps=5)
         runtime.start("send message", [{

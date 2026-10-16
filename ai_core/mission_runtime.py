@@ -1338,3 +1338,5 @@ class MissionRuntime:
         self.replan_reason = ""
 
         self.blocked_capability = None
+        # Explicit session reset clears the session-scoped recovery lock.
+        self.replay_lock = None

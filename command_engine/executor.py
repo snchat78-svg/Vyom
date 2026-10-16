@@ -636,9 +636,15 @@ def execute(
         )
 
     # Resolve any uncertain prior action before normal intent/goal routing.
-    recovery = autonomous_agent.handle_recovery_confirmation(command)
-    if recovery is not None:
-        return _recovery_confirmation_response(command, recovery, metadata)
+    recovery_handler = getattr(
+        autonomous_agent,
+        "handle_recovery_confirmation",
+        None,
+    )
+    if callable(recovery_handler):
+        recovery = recovery_handler(command)
+        if recovery is not None:
+            return _recovery_confirmation_response(command, recovery, metadata)
 
     # =========================================================
     # GOAL / COMMAND ROUTING
