@@ -68,6 +68,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.4 progress:** Observation history now stores compact target/verification summaries instead of full nested world snapshots. The newest observation is attached to the same snapshot passed into re-planning, avoiding a second inconsistent UIA read; if the fresh snapshot cannot be produced, re-planning stops instead of using stale state.
 
+**M4.5 progress:** Contextual references now use focus, selection and active-window fields from the same nested UI observation as their canonical source. When a nested UI timestamp is present, it must also be fresh; a recent outer world snapshot cannot disguise stale UI data. Regression tests cover changed active windows, conflicting mirrored focus/selection, missing live focus and stale nested UI timestamps.
+
 **Status:** M4 remains in progress. Automated tests cover compact history, single-snapshot re-planning, reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding

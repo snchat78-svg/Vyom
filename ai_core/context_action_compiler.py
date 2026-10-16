@@ -95,6 +95,18 @@ class ContextActionCompiler:
         ui = context.get("ui")
         if not isinstance(ui, dict) or ui.get("available") is not True:
             return None
+
+        # The nested UI observation is the source of truth for controls. A
+        # fresh outer world snapshot must not make an old nested UI payload
+        # appear fresh when contexts are combined or partially refreshed.
+        ui_timestamp = ui.get("timestamp")
+        if ui_timestamp is not None:
+            try:
+                ui_age = time.time() - float(ui_timestamp)
+            except (TypeError, ValueError):
+                return None
+            if ui_age < -2 or ui_age > 10:
+                return None
         return ui
 
     @staticmethod
@@ -103,9 +115,13 @@ class ContextActionCompiler:
         ui = ContextActionCompiler._fresh_ui_snapshot(context)
         if ui is None:
             return None
-        focused = context.get("focused_control")
-        if not isinstance(focused, dict):
+        # Prefer the control captured inside the same UI snapshot. The
+        # mirrored world-state field is only a fallback for older observers
+        # that did not expose the nested field at all.
+        if "focused_element" in ui:
             focused = ui.get("focused_element")
+        else:
+            focused = context.get("focused_control")
         if not isinstance(focused, dict) or focused.get("exists") is not True:
             return None
         if focused.get("visible") is False or focused.get("enabled") is False:
@@ -168,11 +184,12 @@ class ContextActionCompiler:
             }
 
         if kind == "window":
-            window = context.get("current_window")
-            if not isinstance(window, dict) or window.get("exists") is False or not (
-                window.get("name") or window.get("title")
-            ):
+            # Resolve the active window from the same fresh UI observation,
+            # not from a potentially stale mirrored field.
+            if "active_window" in ui:
                 window = ui.get("active_window")
+            else:
+                window = context.get("current_window")
             if isinstance(window, dict) and window.get("exists") is not False:
                 name = cls._normalize(window.get("name") or window.get("title"))
                 if name:
@@ -184,9 +201,10 @@ class ContextActionCompiler:
 
         if kind == "file":
             current_file = cls._normalize(context.get("current_file"))
-            window = context.get("current_window")
-            if not isinstance(window, dict):
+            if "active_window" in ui:
                 window = ui.get("active_window")
+            else:
+                window = context.get("current_window")
             window_name = cls._normalize(
                 window.get("name") or window.get("title")
                 if isinstance(window, dict)
@@ -204,12 +222,19 @@ class ContextActionCompiler:
                 "clarification": "मैं current active window से same file की पुष्टि नहीं कर पाया। कृपया file का नाम या path बताएँ।",
             }
 
-        selected = context.get("selected_control")
-        if not isinstance(selected, dict):
-            selected = ui.get("selected_element")
-        focused = context.get("focused_control")
-        if not isinstance(focused, dict):
-            focused = ui.get("focused_element")
+        # Focus and selection must come from one observation generation.
+        # Mixing freshly observed UI data with stale mirrored controls can
+        # create false ambiguity or resolve a reference to the wrong target.
+        selected = (
+            ui.get("selected_element")
+            if "selected_element" in ui
+            else context.get("selected_control")
+        )
+        focused = (
+            ui.get("focused_element")
+            if "focused_element" in ui
+            else context.get("focused_control")
+        )
 
         candidates = []
         for item in (selected, focused):

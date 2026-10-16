@@ -165,6 +165,66 @@ class ContextActionCompilerTests(unittest.TestCase):
         self.assertEqual(result["plan"][0]["intent"]["intent"], "open_file")
         self.assertEqual(result["plan"][0]["intent"]["target"], r"C:\Docs\notes.txt")
 
+    def test_nested_ui_timestamp_rejects_stale_observation(self):
+        context = self._runtime_context()
+        context["ui"]["timestamp"] = time.time() - 60
+
+        result = self.compiler.compile("click it", context)
+
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["clarification"])
+
+    def test_click_it_prefers_coherent_fresh_ui_focus_and_selection(self):
+        context = self._runtime_context()
+        fresh_target = {
+            "exists": True,
+            "name": "Search",
+            "control_type": "Button",
+            "visible": True,
+            "enabled": True,
+        }
+        context["focused_control"] = {
+            "exists": True, "name": "Old Editor", "control_type": "Edit"
+        }
+        context["selected_control"] = {
+            "exists": True, "name": "Old Selection", "control_type": "ListItem"
+        }
+        context["ui"]["focused_element"] = dict(fresh_target)
+        context["ui"]["selected_element"] = dict(fresh_target)
+
+        result = self.compiler.compile("click it", context)
+
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["plan"][0]["target"], "Search")
+
+    def test_click_it_does_not_fallback_to_stale_mirror_when_ui_has_no_focus(self):
+        context = self._runtime_context()
+        context["focused_control"] = {
+            "exists": True, "name": "Old Editor", "control_type": "Edit"
+        }
+        context["selected_control"] = {
+            "exists": True, "name": "Old Selection", "control_type": "ListItem"
+        }
+        context["ui"]["focused_element"] = {"exists": False}
+        context["ui"]["selected_element"] = {"exists": False}
+
+        result = self.compiler.compile("click it", context)
+
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["clarification"])
+
+    def test_focus_that_window_prefers_fresh_ui_active_window(self):
+        context = self._runtime_context()
+        context["current_window"] = {"exists": True, "name": "Old Window"}
+        context["ui"]["active_window"] = {"exists": True, "name": "New Window"}
+
+        result = self.compiler.compile("focus that window", context)
+
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["plan"][0]["target"], "New Window")
+
     def test_click_it_does_not_use_a_stale_observation(self):
         context = self._runtime_context(timestamp=time.time() - 60)
         result = self.compiler.compile("click it", context)
