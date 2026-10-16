@@ -284,5 +284,151 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertEqual(result["plan"][0]["args"]["y"], 200)
 
 
+    def test_execute_refuses_target_when_observed_identity_changed(self):
+        from windows_agent.ui_automation import WindowsUICapability
+
+        element = FakeElement()
+
+        class Grounder:
+            calls = 0
+
+            def ground(self, target, args=None):
+                self.calls += 1
+                return {
+                    "success": True,
+                    "element": element,
+                    "element_info": {
+                        "name": "Search",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                    },
+                }
+
+        class Observer:
+            calls = 0
+
+            def snapshot(self, action=None, primary_element=None):
+                self.calls += 1
+                return {
+                    "available": True,
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "focused_element": {"exists": True, "name": "Editor"},
+                    "target_element": {
+                        "exists": True,
+                        "name": "Other",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                        "window_identity": {"name": "Example", "hwnd": 7},
+                    },
+                    "ui_tree_signature": [{"name": "Search"}],
+                }
+
+        grounder = Grounder()
+        observer = Observer()
+        provider = WindowsUICapability(ui_grounder=grounder, ui_observer=observer)
+        result = provider.execute({"action": "click_ui_element", "target": "Search"})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_target_context_mismatch")
+        self.assertEqual(element.calls, [])
+        self.assertEqual(grounder.calls, 1)
+        self.assertEqual(observer.calls, 1)
+
+    def test_execute_refuses_target_from_different_active_window(self):
+        from windows_agent.ui_automation import WindowsUICapability
+
+        element = FakeElement()
+
+        class Grounder:
+            def ground(self, target, args=None):
+                return {
+                    "success": True,
+                    "element": element,
+                    "element_info": {
+                        "name": "Search",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                    },
+                }
+
+        class Observer:
+            def snapshot(self, action=None, primary_element=None):
+                return {
+                    "available": True,
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "focused_element": {"exists": True, "name": "Editor"},
+                    "target_element": {
+                        "exists": True,
+                        "name": "Search",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                        "window_identity": {"name": "Another Window", "hwnd": 99},
+                    },
+                    "ui_tree_signature": [{"name": "Search"}],
+                }
+
+        provider = WindowsUICapability(ui_grounder=Grounder(), ui_observer=Observer())
+        result = provider.execute({"action": "click_ui_element", "target": "Search"})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_target_window_mismatch")
+        self.assertEqual(element.calls, [])
+
+    def test_same_grounded_element_is_observed_before_and_after_action(self):
+        from windows_agent.ui_automation import WindowsUICapability
+
+        element = FakeElement()
+
+        class Grounder:
+            calls = 0
+
+            def ground(self, target, args=None):
+                self.calls += 1
+                return {
+                    "success": True,
+                    "element": element,
+                    "element_info": {
+                        "name": "Search",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                    },
+                }
+
+        class Observer:
+            def __init__(self):
+                self.elements = []
+
+            def snapshot(self, action=None, primary_element=None):
+                self.elements.append(primary_element)
+                after = len(self.elements) > 1
+                return {
+                    "available": True,
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "focused_element": {"exists": True, "name": "Search" if after else "Editor"},
+                    "target_element": {
+                        "exists": True,
+                        "name": "Search",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                        "focused": after,
+                        "window_identity": {"name": "Example", "hwnd": 7},
+                    },
+                    "ui_tree_signature": [{"name": "Search", "focused": after}],
+                }
+
+        grounder = Grounder()
+        observer = Observer()
+        provider = WindowsUICapability(ui_grounder=grounder, ui_observer=observer)
+        result = provider.execute({"action": "focus_ui_element", "target": "Search"})
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertTrue(result.get("verification", {}).get("verified"))
+        self.assertEqual(grounder.calls, 1)
+        self.assertEqual(len(observer.elements), 2)
+        self.assertIs(observer.elements[0], element)
+        self.assertIs(observer.elements[1], element)
+        self.assertIn("focus", element.calls)
+
+
 if __name__ == "__main__":
     unittest.main()

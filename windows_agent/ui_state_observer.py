@@ -70,6 +70,22 @@ class UIStateObserver:
         except Exception:
             wrapper = element
 
+        # A non-null wrapper can still refer to a destroyed/recycled UIA
+        # element. Ask UIA whether it still exists without waiting.
+        try:
+            exists_check = getattr(wrapper, "exists", None)
+            if callable(exists_check):
+                try:
+                    alive = exists_check(timeout=0)
+                except TypeError:
+                    alive = exists_check()
+                if alive is False:
+                    return {"exists": False}
+        except Exception:
+            # Not every UIA wrapper exposes exists(); the remaining identity
+            # fields are still checked by the pre-dispatch guard.
+            pass
+
         info: Dict[str, Any] = {"exists": True}
 
         for field, method in (
@@ -91,6 +107,16 @@ class UIStateObserver:
                 value = cls._safe_call(wrapper, "has_focus", None)
             if value is not None:
                 info[field] = bool(value)
+
+        for field, attribute in (("hwnd", "handle"), ("pid", "process_id")):
+            try:
+                value = getattr(wrapper, attribute, None)
+                if callable(value):
+                    value = value()
+                if value not in (None, ""):
+                    info[field] = int(value)
+            except Exception:
+                pass
 
         value = None
         for method in ("get_value", "get_edit_text", "value", "window_text"):
@@ -384,13 +410,25 @@ class UIStateObserver:
         if target_element is None and isinstance(action, dict):
             target_element = self._find_target(action)
 
+        target_state = self.element_state(target_element)
+        if target_element is not None and target_state.get("exists") is True:
+            parent = self._top_level(target_element) or target_element
+            parent_state = self.element_state(parent)
+            identity = {
+                key: parent_state.get(key)
+                for key in ("hwnd", "pid", "name", "automation_id", "class_name", "control_type")
+                if parent_state.get(key) not in (None, "")
+            }
+            if identity:
+                target_state["window_identity"] = identity
+
         return {
             "timestamp": time.time(),
             "available": self.is_available(),
             "active_window": self.active_window_state(),
             "focused_element": self.focused_element_state(),
             "selected_element": self.selected_element_state(),
-            "target_element": self.element_state(target_element),
+            "target_element": target_state,
             "running_windows": self.running_windows_state(),
             "ui_tree_signature": self._tree_signature(),
         }

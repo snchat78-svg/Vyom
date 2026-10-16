@@ -47,22 +47,44 @@ class UIVerificationEngine:
 
     @staticmethod
     def _tree_changed(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
-        return before.get("ui_tree_signature", []) != after.get("ui_tree_signature", [])
+        before_tree = before.get("ui_tree_signature")
+        after_tree = after.get("ui_tree_signature")
+        # Missing/empty trees commonly mean observation failed; they are not
+        # evidence that a UI transition occurred.
+        return (
+            isinstance(before_tree, list)
+            and isinstance(after_tree, list)
+            and bool(before_tree)
+            and bool(after_tree)
+            and before_tree != after_tree
+        )
 
     @staticmethod
     def _window_changed(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
-        b = before.get("active_window", {}) or {}
-        a = after.get("active_window", {}) or {}
-        keys = ("name", "title", "automation_id", "class_name", "control_type", "hwnd")
-        return any(b.get(key) != a.get(key) for key in keys)
+        b = before.get("active_window")
+        a = after.get("active_window")
+        if not isinstance(b, dict) or not isinstance(a, dict) or not b or not a:
+            return False
+        if b.get("exists") is False or a.get("exists") is False:
+            return False
+        keys = ("name", "title", "automation_id", "class_name", "control_type", "hwnd", "pid")
+        known_before = any(b.get(key) not in (None, "") for key in keys)
+        known_after = any(a.get(key) not in (None, "") for key in keys)
+        return known_before and known_after and any(
+            b.get(key) != a.get(key)
+            for key in keys
+            if b.get(key) not in (None, "") and a.get(key) not in (None, "")
+        )
 
     @staticmethod
     def _focused_changed(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
-        return (
-            before.get("focused_element", {}) or {}
-        ) != (
-            after.get("focused_element", {}) or {}
-        )
+        b = before.get("focused_element")
+        a = after.get("focused_element")
+        if not isinstance(b, dict) or not isinstance(a, dict) or not b or not a:
+            return False
+        if b.get("exists") is False or a.get("exists") is False:
+            return False
+        return b != a
 
     @classmethod
     def _property_check(
@@ -83,25 +105,40 @@ class UIVerificationEngine:
             actual = cls._field(after, source, field)
 
         if operator in ("equals", "eq", "is"):
-            return actual == expected
+            return actual is not None and actual == expected
         if operator in ("not_equals", "ne", "is_not"):
-            return actual != expected
+            return actual is not None and actual != expected
         if operator in ("contains", "includes"):
-            return str(expected) in str(actual or "")
-        if operator == "not_contains":
-            return str(expected) not in str(actual or "")
-        if operator == "changed":
-            source_base = source.replace("_after", "")
             return (
-                cls._field(before, source_base, field)
-                != cls._field(after, source_base, field)
+                actual is not None
+                and str(expected or "") != ""
+                and str(expected) in str(actual)
+            )
+        if operator == "not_contains":
+            return (
+                actual is not None
+                and str(expected or "") != ""
+                and str(expected) not in str(actual)
+            )
+        if operator == "changed":
+            source_base = source.replace("_before", "").replace("_after", "")
+            before_value = cls._field(before, source_base, field)
+            after_value = cls._field(after, source_base, field)
+            return (
+                before_value is not None
+                and after_value is not None
+                and before_value != after_value
             )
         if operator == "in":
-            return actual in (expected if isinstance(expected, list) else [])
+            return (
+                actual is not None
+                and isinstance(expected, list)
+                and actual in expected
+            )
         if operator == "truthy":
-            return bool(actual)
+            return actual is not None and bool(actual)
         if operator == "falsy":
-            return not bool(actual)
+            return actual is not None and not bool(actual)
         return False
 
     @classmethod
@@ -121,11 +158,13 @@ class UIVerificationEngine:
 
         if kind == "element_exists":
             source = str(check.get("source", "target_element"))
-            return bool(cls._get(after, source).get("exists", False))
+            observed = cls._get(after, source)
+            return observed.get("exists") is True
 
         if kind == "element_not_exists":
             source = str(check.get("source", "target_element"))
-            return not bool(cls._get(after, source).get("exists", False))
+            observed = cls._get(after, source)
+            return "exists" in observed and observed.get("exists") is False
 
         if kind in ("state_changed", "target_changed"):
             source = str(check.get("source", "target_element"))
@@ -133,11 +172,15 @@ class UIVerificationEngine:
 
         if kind == "value_changed":
             source = str(check.get("source", "focused_element"))
-            return cls._field(before, source, "value") != cls._field(after, source, "value")
+            before_value = cls._field(before, source, "value")
+            after_value = cls._field(after, source, "value")
+            return before_value is not None and after_value is not None and before_value != after_value
 
         if kind == "text_changed":
             source = str(check.get("source", "focused_element"))
-            return cls._field(before, source, "text") != cls._field(after, source, "text")
+            before_text = cls._field(before, source, "text")
+            after_text = cls._field(after, source, "text")
+            return before_text is not None and after_text is not None and before_text != after_text
 
         if kind == "contains_visible_text":
             expected = str(check.get("value") or "").strip()
@@ -184,10 +227,12 @@ class UIVerificationEngine:
             return cls._focused_changed(before, after)
 
         if kind == "target_focused":
-            return bool(cls._get(after, "target_element").get("focused", False))
+            target = cls._get(after, "target_element")
+            return target.get("exists") is True and target.get("focused") is True
 
         if kind == "target_selected":
-            return bool(cls._get(after, "target_element").get("selected", False))
+            target = cls._get(after, "target_element")
+            return target.get("exists") is True and target.get("selected") is True
 
         return False
 
@@ -299,7 +344,7 @@ class UIVerificationEngine:
         execution_result: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         execution_result = execution_result if isinstance(execution_result, dict) else {}
-        executed = bool(execution_result.get("success", True))
+        executed = bool(execution_result.get("success", False))
 
         if not executed:
             return {

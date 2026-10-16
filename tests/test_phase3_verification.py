@@ -150,5 +150,58 @@ class Phase3VerificationTests(unittest.TestCase):
         self.assertEqual(result["verification_level"], "execution_failed")
 
 
+    def test_missing_negative_postcondition_evidence_does_not_pass(self):
+        action = {
+            "action": "click_ui_element",
+            "target": "Send",
+            "metadata": {
+                "verification": {
+                    "mode": "all",
+                    "checks": [
+                        {
+                            "kind": "property",
+                            "source": "target_element",
+                            "field": "name",
+                            "operator": "not_equals",
+                            "value": "Send",
+                        },
+                        {"kind": "element_not_exists", "source": "target_element"},
+                    ],
+                }
+            },
+        }
+        result = self.verifier.verify(action, {}, {}, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_missing_execution_result_is_not_assumed_success(self):
+        action = {"action": "click_ui_element", "target": "Search"}
+        before = {
+            "target_element": {"exists": True, "name": "Search"},
+            "ui_tree_signature": [{"name": "Search"}],
+        }
+        after = {
+            "target_element": {"exists": True, "name": "Search", "focused": True},
+            "ui_tree_signature": [{"name": "Search", "focused": True}],
+        }
+        result = self.verifier.verify(action, before, after)
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_level"], "execution_failed")
+
+    def test_empty_after_tree_is_not_evidence_of_ui_transition(self):
+        action = {"action": "click", "target": ""}
+        before = {
+            "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+            "focused_element": {"exists": True, "name": "Editor"},
+            "ui_tree_signature": [{"name": "Search"}],
+        }
+        after = {
+            "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+            "focused_element": {"exists": True, "name": "Editor"},
+            "ui_tree_signature": [],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+
 if __name__ == "__main__":
     unittest.main()

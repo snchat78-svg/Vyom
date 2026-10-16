@@ -60,6 +60,18 @@ class WindowsUICapability:
     capability_name = name
     description = "Generic Windows window, keyboard, mouse, clipboard and screen control."
 
+    _SEMANTIC_TARGET_ACTIONS = frozenset({
+        "find_ui_element",
+        "focus_ui_element",
+        "click_ui_element",
+        "invoke_ui_element",
+        "set_ui_value",
+        "select_ui_element",
+        "toggle_ui_element",
+        "expand_ui_element",
+        "collapse_ui_element",
+    })
+
     def __init__(
         self,
         window_manager: Optional[WindowManager] = None,
@@ -135,14 +147,48 @@ class WindowsUICapability:
             and isinstance(metadata.get("verification"), dict)
         )
         should_verify = name in verification_actions or explicit_verification
-        before = (
-            self.ui_observer.snapshot(action)
-            if should_verify
-            else None
-        )
+
+        # Ground semantic UI targets exactly once. The same wrapper object is
+        # used for preflight observation, dispatch, and post-action observation.
+        prepared_grounding = None
+        execution_action = action
+        if name in self._SEMANTIC_TARGET_ACTIONS:
+            prepared_grounding = self._ground(action)
+            if not prepared_grounding.get("success"):
+                return prepared_grounding
+            execution_action = {**action, "_prepared_grounding": prepared_grounding}
+
+        before = None
+        if should_verify:
+            try:
+                before = self._snapshot(
+                    action,
+                    primary_element=(prepared_grounding or {}).get("element"),
+                )
+            except Exception as error:
+                return {
+                    "success": False,
+                    "stage": "observation_failed_before_action",
+                    "message": f"Could not observe the desktop before dispatch; no action was sent: {error}",
+                    "action": name,
+                    "verification": {
+                        "verified": False,
+                        "verification_level": "pre_dispatch_observation_failed",
+                        "method": "windows_ui_state",
+                    },
+                }
+
+        if prepared_grounding is not None:
+            guard_failure = self._validate_target_observation(
+                action,
+                prepared_grounding,
+                before if isinstance(before, dict) else {},
+            )
+            if guard_failure is not None:
+                return guard_failure
 
         try:
-            result = handler(action)
+            result = handler(execution_action)
         except Exception as error:
             return {
                 "success": False,
@@ -159,18 +205,34 @@ class WindowsUICapability:
             }
 
         if should_verify and result.get("success"):
-            after = self.ui_observer.snapshot(action)
+            try:
+                after = self._snapshot(
+                    action,
+                    primary_element=(prepared_grounding or {}).get("element"),
+                )
+            except Exception as error:
+                result["success"] = False
+                result["stage"] = "verification_failed"
+                result["verification"] = {
+                    "verified": False,
+                    "verification_level": "post_action_observation_failed",
+                    "method": "windows_ui_state",
+                    "reason": f"The action was dispatched, but its result could not be observed: {error}",
+                }
+                result["message"] = result["verification"]["reason"]
+                return result
+
             verification = self.ui_verifier.verify(
                 action=action,
-                before=before or {},
-                after=after,
+                before=before if isinstance(before, dict) else {},
+                after=after if isinstance(after, dict) else {},
                 execution_result=result,
             )
 
-            # Test/dry-run providers may intentionally omit a real UIA
-            # observer. Keep their successful capability contract intact, but
-            # never weaken real Windows verification: when UIA observation is
-            # available, the verifier above remains authoritative.
+            # A dispatch return is not evidence that a text payload reached a
+            # real control. Keep this narrow dry-run compatibility only when
+            # an observer explicitly reports unavailable and the provider
+            # result itself carries a verified execution contract.
             def _has_observable_ui(state):
                 if not isinstance(state, dict):
                     return False
@@ -182,10 +244,6 @@ class WindowsUICapability:
                         return True
                 return bool(state.get("ui_tree_signature"))
 
-            # pywinauto can be importable while the current environment has no
-            # usable desktop/UIA observation (for example CI/test hosts).
-            # Treat that state as observer-unavailable only when neither the
-            # before nor after snapshot contains any observable UI state.
             observer_unavailable = (
                 not bool((after or {}).get("available"))
                 or (
@@ -223,7 +281,135 @@ class WindowsUICapability:
         return result
 
     def _ground(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        prepared = action.get("_prepared_grounding")
+        if isinstance(prepared, dict):
+            return prepared
         return self.ui_grounder.ground(action.get("target", ""), self._args(action))
+
+    def _snapshot(self, action: Dict[str, Any], primary_element: Any = None) -> Dict[str, Any]:
+        snapshotter = getattr(self.ui_observer, "snapshot", None)
+        if not callable(snapshotter):
+            raise RuntimeError("The UI state observer does not provide snapshot().")
+        if primary_element is not None:
+            try:
+                state = snapshotter(action, primary_element=primary_element)
+            except TypeError:
+                # Preserve simple test/dry-run observer compatibility. The
+                # production UIStateObserver accepts primary_element.
+                state = snapshotter(action)
+        else:
+            state = snapshotter(action)
+        if not isinstance(state, dict):
+            raise RuntimeError("The UI state observer returned a non-object snapshot.")
+        return state
+
+    @staticmethod
+    def _identity_text(value: Any) -> str:
+        return " ".join(str(value or "").strip().split()).casefold()
+
+    def _validate_target_observation(
+        self,
+        action: Dict[str, Any],
+        grounded: Dict[str, Any],
+        before: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        name = str(action.get("action") or "").strip().lower()
+
+        def reject(stage: str, reason: str) -> Dict[str, Any]:
+            return {
+                "success": False,
+                "stage": stage,
+                "message": reason,
+                "action": name,
+                "target": str(action.get("target") or ""),
+                "verification": {
+                    "verified": False,
+                    "verification_level": "pre_dispatch_guard",
+                    "method": "windows_ui_state",
+                    "reason": reason,
+                },
+            }
+
+        if before.get("available") is not True:
+            return reject(
+                "ui_observation_unavailable_before_action",
+                "Live UI Automation observation is unavailable; the target action was not dispatched.",
+            )
+
+        target = before.get("target_element")
+        if not isinstance(target, dict) or target.get("exists") is not True:
+            return reject(
+                "ui_target_changed_before_action",
+                "The grounded UI target no longer exists in the pre-action observation.",
+            )
+        if target.get("visible") is False or target.get("enabled") is False:
+            return reject(
+                "ui_target_unavailable_before_action",
+                "The grounded UI target is hidden or disabled; the action was not dispatched.",
+            )
+
+        expected = grounded.get("element_info")
+        expected = expected if isinstance(expected, dict) else {}
+        compared = 0
+        for field in ("automation_id", "control_type", "class_name", "name"):
+            wanted = self._identity_text(expected.get(field))
+            observed = self._identity_text(target.get(field))
+            if not wanted or not observed:
+                continue
+            compared += 1
+            if wanted != observed:
+                return reject(
+                    "ui_target_context_mismatch",
+                    f"The live {field} no longer matches the grounded target; the action was not dispatched.",
+                )
+        if compared == 0:
+            return reject(
+                "ui_target_identity_unverified",
+                "The live observation did not expose a stable identity for the grounded target; the action was not dispatched.",
+            )
+
+        active = before.get("active_window")
+        active = active if isinstance(active, dict) else {}
+        target_window = target.get("window_identity")
+        target_window = target_window if isinstance(target_window, dict) else {}
+        args = self._args(action)
+        requested_hwnd = args.get("hwnd")
+        requested_title = self._identity_text(args.get("window_title"))
+        target_hwnd = target_window.get("hwnd")
+        active_hwnd = active.get("hwnd")
+        target_window_name = self._identity_text(target_window.get("name"))
+        active_window_name = self._identity_text(active.get("name"))
+
+        if active.get("exists") is False:
+            return reject(
+                "ui_active_window_unavailable",
+                "No active window could be confirmed before dispatch; the action was not sent.",
+            )
+        if requested_hwnd not in (None, "") and target_hwnd not in (None, ""):
+            if str(requested_hwnd) != str(target_hwnd):
+                return reject(
+                    "ui_target_window_mismatch",
+                    "The grounded target is outside the explicitly requested window handle.",
+                )
+        if requested_title and target_window_name and requested_title not in target_window_name:
+            return reject(
+                "ui_target_window_mismatch",
+                "The grounded target does not belong to the explicitly requested window.",
+            )
+        if not requested_title and requested_hwnd in (None, ""):
+            if target_hwnd not in (None, "") and active_hwnd not in (None, ""):
+                if str(target_hwnd) != str(active_hwnd):
+                    return reject(
+                        "ui_target_window_mismatch",
+                        "The active window changed after target grounding; the action was not dispatched.",
+                    )
+            elif target_window_name and active_window_name and target_window_name != active_window_name:
+                return reject(
+                    "ui_target_window_mismatch",
+                    "The grounded target belongs to a different window than the active observation.",
+                )
+
+        return None
 
     def _semantic_result(self, operation: str, grounded: Dict[str, Any], callback=None, *args) -> Dict[str, Any]:
         if not grounded.get("success"):
