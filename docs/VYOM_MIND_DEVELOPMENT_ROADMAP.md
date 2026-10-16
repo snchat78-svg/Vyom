@@ -93,6 +93,7 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Never repeat completed side effects during re-planning.
 - **Gate:** delayed effects, absent observers, wrong foreground windows and failed steps end in verified recovery or honest failure.
 - **M6.1 progress:** Every failed step now captures a dedicated post-failure observation. A bounded retry is scheduled only for an explicit pre-dispatch rejection and only if the newly captured UI observation is available and the outer/UI timestamps pass freshness checks; stale/missing observation blocks the mission before retry is queued. Failure responses include a compact recovery summary (window/control identity only), not observed text/value payloads. Potentially completed or unknown side effects still stop without automatic replay.
+- **M6.2 progress:** MissionRuntime now enforces a replay lock for uncertain/unknown post-dispatch outcomes. A new model plan cannot override the lock, and ordinary unblock attempts are rejected. Clearing it requires an explicit replay-authorization flag after the user/operator has checked the current state; only a SHA-256 fingerprint and step metadata are retained, not the action payload. Tests cover rejected model re-plans, no implicit unblock, and the explicit authorization path.
 
 ## M7 — Web research and source-grounded answers
 

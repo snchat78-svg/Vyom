@@ -464,6 +464,69 @@ class Phase5ObservationTests(unittest.TestCase):
         self.assertFalse(summary["ui_available"])
         self.assertFalse(summary["retry_ready"])
 
+    def test_runtime_rejects_replan_and_unblock_until_uncertain_replay_is_authorized(self):
+        runtime = MissionRuntime(max_retries=1, max_steps=5)
+        original_step = {
+            "id": "send_once",
+            "type": "action",
+            "action": "invoke_ui_element",
+            "capability": "windows_ui",
+            "target": "Send",
+            "args": {"message": "private message body"},
+            "depends_on": [],
+        }
+        runtime.start("send message", [original_step])
+        step = runtime.get_next_step()
+        policy = {
+            "category": "outcome_uncertain",
+            "stop_mission": True,
+            "user_message": "The result could not be verified.",
+        }
+        runtime.mark_failed(
+            step_id=step["id"],
+            result={"success": False, "stage": "verification_failed"},
+            reason="verification_failed",
+            verification={"verified": False},
+            retryable=False,
+            failure_policy=policy,
+            stop_mission=True,
+        )
+
+        lock = runtime.snapshot()["replay_lock"]
+        self.assertTrue(lock["active"])
+        self.assertEqual(lock["step_id"], "send_once")
+        self.assertEqual(lock["category"], "outcome_uncertain")
+        self.assertNotIn("private message body", str(lock))
+
+        proposed_replay = [{
+            "id": "send_again",
+            "type": "action",
+            "action": "invoke_ui_element",
+            "capability": "windows_ui",
+            "target": "Send",
+            "args": {"message": "private message body"},
+            "depends_on": [],
+        }]
+        original_plan = [dict(item) for item in runtime.plan]
+        self.assertFalse(runtime.apply_replan(proposed_replay))
+        self.assertEqual(runtime.plan, original_plan)
+        self.assertEqual(runtime.mission_state, "blocked")
+        self.assertTrue(any(
+            item.get("event") == "replan_rejected_replay_lock"
+            for item in runtime.history
+        ))
+
+        self.assertFalse(runtime.unblock())
+        self.assertTrue(runtime.snapshot()["replay_lock"]["active"])
+        self.assertTrue(runtime.unblock(allow_replay_after_confirmation=True))
+        self.assertIsNone(runtime.snapshot()["replay_lock"])
+        self.assertTrue(runtime.apply_replan(proposed_replay))
+        self.assertEqual(runtime.plan[0]["status"], "pending")
+        self.assertTrue(any(
+            item.get("event") == "uncertain_outcome_replay_authorized"
+            for item in runtime.history
+        ))
+
     def test_uncertain_side_effect_is_blocked_without_blind_retry(self):
         agent = AutonomousAgent(max_steps=5)
         agent.mission_runtime.start("send message", [{

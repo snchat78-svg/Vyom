@@ -46,6 +46,7 @@ Important:
     - Runtime preserves mission history.
 """
 
+import hashlib
 import json
 
 from typing import Any, Dict, List, Optional
@@ -96,6 +97,12 @@ class MissionRuntime:
         ] = []
 
         self.mission_state = "idle"
+
+        # An unresolved post-dispatch outcome must not be replayed by a
+        # model-generated re-plan. Only explicit replay authorization may clear
+        # this mission-scoped lock; the stored fingerprint is hashed so action
+        # payloads are not exposed in snapshots/history.
+        self.replay_lock: Optional[Dict[str, Any]] = None
 
         # -----------------------------------------------------
         # CURRENT STEP
@@ -205,6 +212,7 @@ class MissionRuntime:
         self.replan_reason = ""
 
         self.blocked_capability = None
+        self.replay_lock = None
 
         if validation_error:
             self.mission_state = "blocked"
@@ -698,10 +706,30 @@ class MissionRuntime:
             self.last_error = str(
                 policy.get("user_message") or self.last_error
             )
+
+            # M6.2: preserve a runtime-enforced replay lock when dispatch may
+            # already have happened. This guard lives below the agent loop so
+            # direct/reasoner callers cannot bypass the uncertainty stop.
+            category = str(policy.get("category") or "").strip().lower()
+            if category in {"outcome_uncertain", "unknown_outcome"}:
+                fingerprint = self._step_fingerprint(step)
+                digest = (
+                    hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+                    if isinstance(fingerprint, str)
+                    else None
+                )
+                self.replay_lock = {
+                    "active": True,
+                    "step_id": str(step_id),
+                    "category": category,
+                    "fingerprint_sha256": digest,
+                }
+
             self.history.append({
                 "event": "mission_blocked_after_failure",
                 "reason": self.last_error,
                 "failure_policy": policy,
+                "replay_lock": dict(self.replay_lock) if self.replay_lock else None,
             })
         else:
             self.request_replan(
@@ -797,6 +825,24 @@ class MissionRuntime:
             Dict[str, Any]
         ]
     ) -> bool:
+
+        # A plan cannot erase an unresolved action outcome. Require explicit
+        # caller/user authorization through unblock() before accepting any
+        # re-plan while a possible side effect is unresolved.
+        if isinstance(self.replay_lock, dict) and self.replay_lock.get("active") is True:
+            reason = (
+                "Re-planning is blocked because a previous action may already "
+                "have taken effect. Confirm the current state and explicitly "
+                "authorize replay before continuing."
+            )
+            self.last_error = reason
+            self.history.append({
+                "event": "replan_rejected_replay_lock",
+                "step_id": self.replay_lock.get("step_id"),
+                "category": self.replay_lock.get("category"),
+                "reason": reason,
+            })
+            return False
 
         validation_error = MissionPlanGuard.validate(plan, self.max_steps)
         if validation_error:
@@ -938,17 +984,38 @@ class MissionRuntime:
     # =========================================================
 
     def unblock(
-        self
+        self,
+        *,
+        allow_replay_after_confirmation: bool = False,
     ) -> bool:
 
         if not self.plan:
-
             return False
 
+        if isinstance(self.replay_lock, dict) and self.replay_lock.get("active") is True:
+            if allow_replay_after_confirmation is not True:
+                self.last_error = (
+                    "Mission remains blocked: a previous action outcome is uncertain. "
+                    "Confirm the current window and explicitly authorize replay first."
+                )
+                self.history.append({
+                    "event": "mission_unblock_rejected_replay_lock",
+                    "step_id": self.replay_lock.get("step_id"),
+                    "category": self.replay_lock.get("category"),
+                    "reason": self.last_error,
+                })
+                return False
+
+            self.history.append({
+                "event": "uncertain_outcome_replay_authorized",
+                "step_id": self.replay_lock.get("step_id"),
+                "category": self.replay_lock.get("category"),
+                "fingerprint_sha256": self.replay_lock.get("fingerprint_sha256"),
+            })
+            self.replay_lock = None
+
         self.blocked_capability = None
-
         self.last_error = ""
-
         self.mission_state = "ready"
 
         self.history.append({
@@ -1098,6 +1165,12 @@ class MissionRuntime:
 
             "mission_state": (
                 self.mission_state
+            ),
+
+            "replay_lock": (
+                dict(self.replay_lock)
+                if isinstance(self.replay_lock, dict)
+                else None
             ),
 
             "current_step": (
