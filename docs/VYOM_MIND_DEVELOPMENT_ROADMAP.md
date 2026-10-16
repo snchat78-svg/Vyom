@@ -92,6 +92,7 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - After a failure, refresh observation, classify the failure, and retry/re-plan only within a strict budget.
 - Never repeat completed side effects during re-planning.
 - **Gate:** delayed effects, absent observers, wrong foreground windows and failed steps end in verified recovery or honest failure.
+- **M6.1 progress:** Every failed step now captures a dedicated post-failure observation. A bounded retry is scheduled only for an explicit pre-dispatch rejection and only if the newly captured outer/UI timestamps pass freshness checks; stale/missing observation blocks the mission before retry is queued. Failure responses include a compact recovery summary (window/control identity only), not observed text/value payloads. Potentially completed or unknown side effects still stop without automatic replay.
 
 ## M7 — Web research and source-grounded answers
 

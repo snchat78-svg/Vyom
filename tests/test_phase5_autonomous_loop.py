@@ -395,11 +395,60 @@ class Phase5ObservationTests(unittest.TestCase):
                 "stage": "ui_target_context_mismatch",
                 "message": "The target changed before dispatch.",
             },
-        })
+        }, retry_observation_fresh=True)
         self.assertTrue(retry)
         self.assertEqual(policy["category"], "pre_dispatch_failure")
         self.assertEqual(agent.mission_runtime.plan[0]["status"], "pending")
         self.assertTrue(any(item.get("event") == "step_retry" for item in agent.mission_runtime.history))
+
+
+    def test_pre_dispatch_retry_stops_when_recovery_observation_is_stale(self):
+        agent = AutonomousAgent(max_steps=5)
+        agent.mission_runtime.start("click target", [{
+            "id": "click",
+            "type": "action",
+            "action": "click_ui_element",
+            "capability": "windows_ui",
+            "target": "Search",
+            "args": {},
+            "depends_on": [],
+        }])
+        step = agent.mission_runtime.get_next_step()
+        retry, policy = agent._record_step_failure(step, {
+            "success": False,
+            "stage": "execution_failed",
+            "result": {
+                "success": False,
+                "stage": "ui_target_context_mismatch",
+                "message": "The target changed before dispatch.",
+            },
+        }, retry_observation_fresh=False)
+
+        self.assertFalse(retry)
+        self.assertEqual(policy["category"], "recovery_observation_unavailable")
+        self.assertEqual(policy["schema_version"], "m6.1")
+        self.assertEqual(agent.mission_runtime.snapshot()["mission_state"], "blocked")
+        self.assertFalse(any(item.get("event") == "step_retry" for item in agent.mission_runtime.history))
+
+    def test_recovery_observation_summary_is_fresh_and_does_not_include_ui_text(self):
+        now = time.time()
+        summary = AutonomousAgent._recovery_observation_summary({
+            "phase": "after_failure",
+            "world_state": {
+                "timestamp": now,
+                "ui": {"available": True, "tree_text": "private text payload"},
+                "current_window": {"title": "Calculator", "password": "never copy"},
+                "focused_control": {"name": "Display", "value": "25+25"},
+            },
+        })
+
+        self.assertTrue(summary["fresh"])
+        self.assertTrue(summary["ui_available"])
+        self.assertEqual(summary["current_window"], {"title": "Calculator"})
+        self.assertEqual(summary["focused_control"], {"name": "Display"})
+        self.assertNotIn("private text payload", str(summary))
+        self.assertNotIn("25+25", str(summary))
+        self.assertNotIn("never copy", str(summary))
 
     def test_uncertain_side_effect_is_blocked_without_blind_retry(self):
         agent = AutonomousAgent(max_steps=5)

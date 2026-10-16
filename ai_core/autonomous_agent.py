@@ -1124,9 +1124,60 @@ class AutonomousAgent:
             pass
         return observation
 
-    def _record_step_failure(self, step: Dict[str, Any], result: Dict[str, Any]):
-        """Record a failure with bounded retry only when pre-dispatch is proven."""
+    @staticmethod
+    def _recovery_observation_summary(observation: Any) -> Dict[str, Any]:
+        """Return a small, non-content-bearing summary of a recovery observation."""
+        world = observation.get("world_state") if isinstance(observation, dict) else None
+        world = world if isinstance(world, dict) else {}
+        fresh = AutonomousAgent._is_fresh_world_observation(world)
+
+        def entity_summary(value: Any) -> Dict[str, Any]:
+            if not isinstance(value, dict):
+                return {}
+            return {
+                key: str(value[key])[:120]
+                for key in ("name", "title", "control_type", "automation_id")
+                if isinstance(value.get(key), str) and value.get(key)
+            }
+
+        ui = world.get("ui") if isinstance(world.get("ui"), dict) else {}
+        return {
+            "phase": str(observation.get("phase") or "after_failure"),
+            "timestamp": world.get("timestamp"),
+            "fresh": fresh,
+            "observation_error": str(world.get("observation_error") or "")[:240],
+            "ui_available": ui.get("available") is True,
+            "current_window": entity_summary(world.get("current_window")),
+            "focused_control": entity_summary(world.get("focused_control")),
+        }
+
+    def _record_step_failure(
+        self,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+        *,
+        retry_observation_fresh: bool = False,
+    ):
+        """Record a failure; a pre-dispatch retry requires a fresh recovery snapshot."""
         policy = ActionFailurePolicy.classify(result, step)
+        policy = dict(policy)
+        policy["schema_version"] = "m6.1"
+
+        # Classification alone is not enough: an observation must be captured
+        # after the failure and validated before a retry can be scheduled.
+        if policy.get("retry_same_action") is True and retry_observation_fresh is not True:
+            policy.update({
+                "category": "recovery_observation_unavailable",
+                "response_stage": "recovery_observation_unavailable",
+                "user_message": (
+                    "The action was rejected before dispatch, but Vyom could not "
+                    "confirm a fresh computer state. It stopped without retrying."
+                ),
+                "retry_same_action": False,
+                "stop_mission": True,
+                "reobserve_before_retry": False,
+            })
+
         if isinstance(result, dict):
             result["failure_policy"] = policy
 
@@ -1153,7 +1204,7 @@ class AutonomousAgent:
         )
         if self.task_history and isinstance(self.task_history[-1], dict):
             self.task_history[-1]["failure_policy"] = policy
-        return retry_available, policy
+        return bool(retry_available and policy.get("retry_same_action") is True), policy
 
     def _failure_policy_response(
         self,
@@ -1161,6 +1212,7 @@ class AutonomousAgent:
         step: Dict[str, Any],
         result: Dict[str, Any],
         policy: Dict[str, Any],
+        recovery_observation: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Stop safely when repeating could duplicate side effects or guess a target."""
         self.active = False
@@ -1170,6 +1222,7 @@ class AutonomousAgent:
             "stage": str(policy.get("response_stage") or "outcome_unverified"),
             "message": str(policy.get("user_message") or "The action could not be safely recovered."),
             "failure_policy": dict(policy),
+            "recovery_observation": recovery_observation or {},
             "result": result.get("result") if isinstance(result, dict) else result,
             "step": step,
             "goal": goal,
@@ -1471,9 +1524,19 @@ class AutonomousAgent:
             # STEP FAILURE / VERIFICATION FAILURE
             # -----------------------------------------------------
 
+            # M6.1: capture and validate a new state after every failed step.
+            # Never schedule a retry based on the pre-action or after-action snapshot.
+            recovery_observation = self._observe_cycle(
+                phase="after_failure",
+                step=step,
+                result=result.get("result") if isinstance(result, dict) else result,
+                verification=result.get("verification") if isinstance(result, dict) else {},
+            )
+            recovery_summary = self._recovery_observation_summary(recovery_observation)
             retry_available, failure_policy = self._record_step_failure(
                 step,
                 result,
+                retry_observation_fresh=recovery_summary.get("fresh") is True,
             )
 
             if failure_policy.get("stop_mission"):
@@ -1482,6 +1545,7 @@ class AutonomousAgent:
                     step=step,
                     result=result,
                     policy=failure_policy,
+                    recovery_observation=recovery_summary,
                 )
 
             # -----------------------------------------------------
