@@ -1147,6 +1147,7 @@ class AutonomousAgent:
             "fresh": fresh,
             "observation_error": str(world.get("observation_error") or "")[:240],
             "ui_available": ui.get("available") is True,
+            "retry_ready": bool(fresh and ui.get("available") is True),
             "current_window": entity_summary(world.get("current_window")),
             "focused_control": entity_summary(world.get("focused_control")),
         }
@@ -1536,7 +1537,7 @@ class AutonomousAgent:
             retry_available, failure_policy = self._record_step_failure(
                 step,
                 result,
-                retry_observation_fresh=recovery_summary.get("fresh") is True,
+                retry_observation_fresh=recovery_summary.get("retry_ready") is True,
             )
 
             if failure_policy.get("stop_mission"):

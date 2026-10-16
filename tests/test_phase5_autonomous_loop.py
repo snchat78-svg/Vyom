@@ -444,11 +444,25 @@ class Phase5ObservationTests(unittest.TestCase):
 
         self.assertTrue(summary["fresh"])
         self.assertTrue(summary["ui_available"])
+        self.assertTrue(summary["retry_ready"])
         self.assertEqual(summary["current_window"], {"title": "Calculator"})
         self.assertEqual(summary["focused_control"], {"name": "Display"})
         self.assertNotIn("private text payload", str(summary))
         self.assertNotIn("25+25", str(summary))
         self.assertNotIn("never copy", str(summary))
+
+    def test_fresh_timestamp_without_live_ui_observation_is_not_retry_ready(self):
+        now = time.time()
+        summary = AutonomousAgent._recovery_observation_summary({
+            "phase": "after_failure",
+            "world_state": {
+                "timestamp": now,
+                "ui": {"available": False},
+            },
+        })
+        self.assertTrue(summary["fresh"])
+        self.assertFalse(summary["ui_available"])
+        self.assertFalse(summary["retry_ready"])
 
     def test_uncertain_side_effect_is_blocked_without_blind_retry(self):
         agent = AutonomousAgent(max_steps=5)
