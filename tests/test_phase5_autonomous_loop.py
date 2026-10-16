@@ -527,6 +527,137 @@ class Phase5ObservationTests(unittest.TestCase):
             for item in runtime.history
         ))
 
+    def test_start_cannot_reset_an_active_replay_lock(self):
+        runtime = MissionRuntime(max_retries=1, max_steps=5)
+        runtime.start("send message", [{
+            "id": "send_once", "type": "action", "action": "invoke_ui_element",
+            "capability": "windows_ui", "target": "Send",
+            "args": {"message": "private"}, "depends_on": [],
+        }])
+        step = runtime.get_next_step()
+        runtime.mark_failed(
+            step_id=step["id"], result={"success": False, "stage": "verification_failed"},
+            reason="uncertain", verification={"verified": False}, retryable=False,
+            failure_policy={"category": "outcome_uncertain", "user_message": "uncertain"},
+            stop_mission=True,
+        )
+        old_plan = [dict(item) for item in runtime.plan]
+        snapshot = runtime.start("open calculator", [{
+            "id": "open_calc", "type": "action", "action": "open_application",
+            "capability": "windows_ui", "target": "Calculator", "depends_on": [],
+        }])
+        self.assertTrue(snapshot["replay_lock"]["active"])
+        self.assertEqual(runtime.plan, old_plan)
+        self.assertEqual(runtime.goal, "send message")
+        self.assertEqual(runtime.mission_state, "blocked")
+
+    def test_recovery_confirmation_requires_explicit_reply_and_blocks_new_goals(self):
+        agent = AutonomousAgent(max_steps=5)
+        agent.mission_runtime.start("send message", [{
+            "id": "send_once", "type": "action", "action": "invoke_ui_element",
+            "capability": "windows_ui", "target": "Send", "args": {}, "depends_on": [],
+        }])
+        step = agent.mission_runtime.get_next_step()
+        agent.current_goal = "send message"
+        agent._record_step_failure(step, {
+            "success": False, "stage": "verification_failed",
+            "result": {"success": False, "stage": "verification_failed",
+                       "verification": {"verified": False}},
+            "verification": {"verified": False},
+        })
+        self.assertEqual(agent._recovery_confirmation_kind("yes"), "unclear")
+        result = agent.handle_recovery_confirmation("yes")
+        self.assertEqual(result["stage"], "recovery_confirmation_required")
+        self.assertTrue(agent.mission_runtime.snapshot()["replay_lock"]["active"])
+        blocked_new_goal = agent.run("open calculator")
+        self.assertEqual(blocked_new_goal["stage"], "recovery_confirmation_required")
+        self.assertEqual(agent.current_goal, "send message")
+
+    def test_user_confirmed_applied_or_cancelled_resolves_without_replay(self):
+        for reply, expected_kind, expected_resolution in (
+            ("already sent", "already_applied", "already_applied"),
+            ("cancel recovery", "cancelled", "cancelled"),
+        ):
+            agent = AutonomousAgent(max_steps=5)
+            agent.mission_runtime.start("send message", [{
+                "id": "send_once", "type": "action", "action": "invoke_ui_element",
+                "capability": "windows_ui", "target": "Send", "args": {}, "depends_on": [],
+            }])
+            step = agent.mission_runtime.get_next_step()
+            agent._record_step_failure(step, {
+                "success": False, "stage": "verification_failed",
+                "result": {"success": False, "stage": "verification_failed",
+                           "verification": {"verified": False}},
+                "verification": {"verified": False},
+            })
+            result = agent.handle_recovery_confirmation(reply)
+            self.assertEqual(result["kind"], expected_kind)
+            self.assertIsNone(agent.mission_runtime.snapshot()["replay_lock"])
+            self.assertFalse(any(
+                item.get("event") == "step_retry"
+                for item in agent.mission_runtime.history
+            ))
+            self.assertTrue(any(
+                item.get("event") == "uncertain_outcome_resolved"
+                and item.get("resolution") == expected_resolution
+                for item in agent.mission_runtime.history
+            ))
+
+    def test_confirmed_retry_requires_fresh_live_ui_then_reuses_locked_step(self):
+        agent = AutonomousAgent(max_steps=5)
+        agent.mission_runtime.start("send message", [{
+            "id": "send_once", "type": "action", "action": "invoke_ui_element",
+            "capability": "windows_ui", "target": "Send", "args": {}, "depends_on": [],
+        }])
+        step = agent.mission_runtime.get_next_step()
+        agent.current_goal = "send message"
+        agent._record_step_failure(step, {
+            "success": False, "stage": "verification_failed",
+            "result": {"success": False, "stage": "verification_failed",
+                       "verification": {"verified": False}},
+            "verification": {"verified": False},
+        })
+        original_step_count = agent.mission_runtime.step_count
+        now = time.time()
+        agent._observe_cycle = lambda **kwargs: {
+            "phase": "recovery_confirmation",
+            "world_state": {"timestamp": now, "ui": {"available": True, "timestamp": now}},
+        }
+        resumed = []
+        agent._continue_replanned_mission = lambda **kwargs: (
+            resumed.append(kwargs) or {"success": True, "stage": "completed"}
+        )
+        result = agent.handle_recovery_confirmation("it did not happen; retry")
+        self.assertEqual(result["kind"], "retry_result")
+        self.assertTrue(result["success"])
+        self.assertEqual(len(resumed), 1)
+        self.assertIsNone(agent.mission_runtime.snapshot()["replay_lock"])
+        self.assertEqual(agent.mission_runtime.plan[0]["status"], "pending")
+        self.assertGreaterEqual(agent.mission_runtime.step_count, original_step_count)
+
+    def test_confirmed_retry_does_not_run_without_live_ui_observation(self):
+        agent = AutonomousAgent(max_steps=5)
+        agent.mission_runtime.start("send message", [{
+            "id": "send_once", "type": "action", "action": "invoke_ui_element",
+            "capability": "windows_ui", "target": "Send", "args": {}, "depends_on": [],
+        }])
+        step = agent.mission_runtime.get_next_step()
+        agent._record_step_failure(step, {
+            "success": False, "stage": "verification_failed",
+            "result": {"success": False, "stage": "verification_failed",
+                       "verification": {"verified": False}},
+            "verification": {"verified": False},
+        })
+        now = time.time()
+        agent._observe_cycle = lambda **kwargs: {
+            "phase": "recovery_confirmation",
+            "world_state": {"timestamp": now, "ui": {"available": False}},
+        }
+        agent._continue_replanned_mission = lambda **kwargs: self.fail("must not retry without UI")
+        result = agent.handle_recovery_confirmation("nahi hua, dobara karo")
+        self.assertEqual(result["kind"], "observation_unavailable")
+        self.assertTrue(agent.mission_runtime.snapshot()["replay_lock"]["active"])
+
     def test_uncertain_side_effect_is_blocked_without_blind_retry(self):
         agent = AutonomousAgent(max_steps=5)
         agent.mission_runtime.start("send message", [{

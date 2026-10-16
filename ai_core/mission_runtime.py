@@ -167,6 +167,21 @@ class MissionRuntime:
         plan: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
 
+        if isinstance(self.replay_lock, dict) and self.replay_lock.get("active") is True:
+            reason = (
+                "A previous action outcome is uncertain. Resolve the recovery "
+                "confirmation before starting another mission."
+            )
+            self.last_error = reason
+            self.mission_state = "blocked"
+            self.history.append({
+                "event": "mission_start_rejected_replay_lock",
+                "step_id": self.replay_lock.get("step_id"),
+                "category": self.replay_lock.get("category"),
+                "reason": reason,
+            })
+            return self.snapshot()
+
         self.goal = str(
             goal or ""
         ).strip()
@@ -212,7 +227,6 @@ class MissionRuntime:
         self.replan_reason = ""
 
         self.blocked_capability = None
-        self.replay_lock = None
 
         if validation_error:
             self.mission_state = "blocked"
@@ -988,7 +1002,7 @@ class MissionRuntime:
         *,
         allow_replay_after_confirmation: bool = False,
     ) -> bool:
-
+        """Unblock a mission; replay of an uncertain action needs explicit consent."""
         if not self.plan:
             return False
 
@@ -1006,22 +1020,70 @@ class MissionRuntime:
                 })
                 return False
 
+            lock = dict(self.replay_lock)
+            step = self._find_step(str(lock.get("step_id") or ""))
+            if not isinstance(step, dict) or step.get("status") != "failed":
+                self.last_error = (
+                    "The uncertain step cannot be replayed because its failed runtime record is unavailable."
+                )
+                self.history.append({
+                    "event": "mission_unblock_rejected_missing_step",
+                    "step_id": lock.get("step_id"),
+                    "reason": self.last_error,
+                })
+                return False
+
+            step["status"] = "pending"
+            for field in ("result", "verification", "last_result", "last_error"):
+                step.pop(field, None)
+            self.failed_steps = max(0, self.failed_steps - 1)
             self.history.append({
                 "event": "uncertain_outcome_replay_authorized",
-                "step_id": self.replay_lock.get("step_id"),
-                "category": self.replay_lock.get("category"),
-                "fingerprint_sha256": self.replay_lock.get("fingerprint_sha256"),
+                "step_id": lock.get("step_id"),
+                "category": lock.get("category"),
+                "fingerprint_sha256": lock.get("fingerprint_sha256"),
             })
             self.replay_lock = None
 
         self.blocked_capability = None
         self.last_error = ""
+        self.replan_requested = False
+        self.replan_reason = ""
+        self.current_step = None
         self.mission_state = "ready"
+        self.history.append({"event": "mission_unblocked"})
+        return True
 
+    def resolve_uncertain_outcome(self, resolution: str) -> bool:
+        """Resolve a replay lock without retrying when the user says it happened or cancels."""
+        if not (
+            isinstance(self.replay_lock, dict)
+            and self.replay_lock.get("active") is True
+        ):
+            return False
+
+        normalized = str(resolution or "").strip().lower()
+        if normalized not in {"already_applied", "cancelled"}:
+            return False
+
+        lock = dict(self.replay_lock)
+        self.replay_lock = None
+        self.current_step = None
+        self.replan_requested = False
+        self.replan_reason = ""
+        self.mission_state = "failed"
+        self.last_error = (
+            "User confirmed the action had already taken effect; the mission was stopped without replay."
+            if normalized == "already_applied"
+            else "User cancelled recovery; the mission was stopped without replay."
+        )
         self.history.append({
-            "event": "mission_unblocked"
+            "event": "uncertain_outcome_resolved",
+            "resolution": normalized,
+            "step_id": lock.get("step_id"),
+            "category": lock.get("category"),
+            "fingerprint_sha256": lock.get("fingerprint_sha256"),
         })
-
         return True
 
     # =========================================================

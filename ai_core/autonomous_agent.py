@@ -1215,13 +1215,24 @@ class AutonomousAgent:
         policy: Dict[str, Any],
         recovery_observation: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Stop safely when repeating could duplicate side effects or guess a target."""
+        """Stop safely and require an explicit response for uncertain side effects."""
         self.active = False
         self.context.mark_failed()
+        uncertain = str(policy.get("category") or "").strip().lower() in {
+            "outcome_uncertain", "unknown_outcome"
+        }
         return {
             "success": False,
-            "stage": str(policy.get("response_stage") or "outcome_unverified"),
+            "status": "needs_confirmation" if uncertain else "failed",
+            "stage": "recovery_confirmation_required" if uncertain else str(
+                policy.get("response_stage") or "outcome_unverified"
+            ),
             "message": str(policy.get("user_message") or "The action could not be safely recovered."),
+            "requires_user_input": uncertain,
+            "recovery_options": (
+                ["already_applied", "not_applied_retry", "cancel"]
+                if uncertain else []
+            ),
             "failure_policy": dict(policy),
             "recovery_observation": recovery_observation or {},
             "result": result.get("result") if isinstance(result, dict) else result,
@@ -1230,6 +1241,143 @@ class AutonomousAgent:
             "history": self.task_history,
             "mission": self.mission_runtime.snapshot(),
             "context": self.context.snapshot(),
+        }
+
+    @staticmethod
+    def _recovery_confirmation_kind(text: Any) -> str:
+        """Require an explicit statement about the uncertain outcome; bare yes/no is not enough."""
+        value = str(text or "").strip().lower()
+        value = " ".join(value.replace("’", "'").split())
+        if not value:
+            return "unclear"
+
+        cancel_phrases = (
+            "cancel recovery", "cancel this", "don't retry", "do not retry",
+            "stop mission", "stop here", "leave it", "forget it", "cancel",
+            "rehne do", "mat karo", "rok do", "ruko", "रहने दो", "मत करो",
+            "रोक दो", "रुक जाओ", "रद्द करो",
+        )
+        if any(phrase in value for phrase in cancel_phrases):
+            return "cancelled"
+
+        no_effect_phrases = (
+            "did not happen", "didn't happen", "not happened",
+            "was not sent", "wasn't sent", "not sent", "did not send",
+            "didn't send", "not submitted", "did not submit",
+            "didn't submit", "did not take effect", "not applied",
+            "nahi hua", "nahin hua", "nahi gaya", "nahin gaya",
+            "send nahi hua", "bheja nahi gaya", "submit nahi hua",
+            "नहीं हुआ", "नही हुआ", "नहीं गया", "नहीं भेजा", "भेजा नहीं",
+            "सबमिट नहीं हुआ",
+        )
+        retry_phrases = (
+            "retry", "try again", "again", "dobara", "fir se", "phir se",
+            "ek baar aur", "फिर से", "दोबारा", "पुनः", "पुनः प्रयास",
+        )
+        if (
+            any(phrase in value for phrase in no_effect_phrases)
+            and any(phrase in value for phrase in retry_phrases)
+        ):
+            return "retry"
+
+        already_applied_phrases = (
+            "already happened", "it happened", "already sent", "sent already",
+            "it was sent", "it worked", "already done", "it is done",
+            "it has been done", "ho gaya", "ho chuka", "ho chuki",
+            "bhej diya", "send ho gaya", "submit ho gaya", "kar diya tha",
+            "complete ho gaya", "pehle hi ho gaya",
+            "हो गया", "हो चुका", "हो चुकी", "भेज दिया", "पहले ही हो गया",
+            "पहले ही भेज दिया", "सबमिट हो गया", "काम हो गया",
+        )
+        if any(phrase in value for phrase in already_applied_phrases):
+            return "already_applied"
+
+        return "unclear"
+
+    def handle_recovery_confirmation(self, message: Any) -> Optional[Dict[str, Any]]:
+        """Handle replies while a replay lock is active, before normal command routing."""
+        lock = self.mission_runtime.snapshot().get("replay_lock")
+        if not isinstance(lock, dict) or lock.get("active") is not True:
+            return None
+
+        kind = self._recovery_confirmation_kind(message)
+        if kind == "already_applied":
+            resolved = self.mission_runtime.resolve_uncertain_outcome("already_applied")
+            self.active = False
+            self.context.mark_failed()
+            return {
+                "handled": True,
+                "kind": "already_applied" if resolved else "unclear",
+                "stage": "recovery_resolved_applied" if resolved else "recovery_confirmation_required",
+                "success": False,
+            }
+
+        if kind == "cancelled":
+            resolved = self.mission_runtime.resolve_uncertain_outcome("cancelled")
+            self.active = False
+            self.context.mark_failed()
+            return {
+                "handled": True,
+                "kind": "cancelled" if resolved else "unclear",
+                "stage": "recovery_cancelled" if resolved else "recovery_confirmation_required",
+                "success": False,
+            }
+
+        if kind != "retry":
+            return {
+                "handled": True,
+                "kind": "unclear",
+                "stage": "recovery_confirmation_required",
+                "success": False,
+                "retry_hint": "A plain yes/no is not explicit enough.",
+            }
+
+        step = self.mission_runtime.get_step(str(lock.get("step_id") or ""))
+        observation = self._observe_cycle(
+            phase="recovery_confirmation",
+            step=step,
+            result=None,
+        )
+        summary = self._recovery_observation_summary(observation)
+        if summary.get("retry_ready") is not True:
+            return {
+                "handled": True,
+                "kind": "observation_unavailable",
+                "stage": "recovery_confirmation_required",
+                "success": False,
+                "recovery_observation": summary,
+            }
+
+        if not self.mission_runtime.unblock(allow_replay_after_confirmation=True):
+            return {
+                "handled": True,
+                "kind": "observation_unavailable",
+                "stage": "recovery_confirmation_required",
+                "success": False,
+                "recovery_observation": summary,
+            }
+
+        self.active = True
+        resumed = self._continue_replanned_mission(
+            goal=self.current_goal or self.mission_runtime.goal,
+            intent=None,
+            analysis={},
+            compilation=self.current_compilation,
+            route={"route": "mission"},
+        )
+        return {
+            "handled": True,
+            "kind": "retry_result",
+            "stage": (
+                "recovery_retry_completed"
+                if isinstance(resumed, dict) and resumed.get("success") is True
+                else resumed.get("stage", "recovery_retry_failed")
+                if isinstance(resumed, dict)
+                else "recovery_retry_failed"
+            ),
+            "success": bool(isinstance(resumed, dict) and resumed.get("success") is True),
+            "execution_result": resumed if isinstance(resumed, dict) else {},
+            "recovery_observation": summary,
         }
 
     # =============================================================
@@ -2030,26 +2178,30 @@ class AutonomousAgent:
             #     retry_available = (...)
             # =====================================================
 
-            retry_available = (
-                self.mission_runtime.mark_failed(
-                    step_id=step_id,
-                    result=result.get(
-                        "result"
-                    ),
-                    reason=result.get(
-                        "stage",
-                        "execution_failed"
-                    ),
-                    verification=result.get(
-                        "verification"
-                    )
-                )
+            # M6.3: continuation uses the same fresh-observation and replay-lock
+            # policy as the initial mission loop.
+            recovery_observation = self._observe_cycle(
+                phase="after_failure",
+                step=step,
+                result=result.get("result") if isinstance(result, dict) else result,
+                verification=result.get("verification") if isinstance(result, dict) else {},
             )
-
+            recovery_summary = self._recovery_observation_summary(recovery_observation)
+            retry_available, failure_policy = self._record_step_failure(
+                step,
+                result,
+                retry_observation_fresh=recovery_summary.get("retry_ready") is True,
+            )
+            if failure_policy.get("stop_mission"):
+                return self._failure_policy_response(
+                    goal=goal,
+                    step=step,
+                    result=result,
+                    policy=failure_policy,
+                    recovery_observation=recovery_summary,
+                )
             if retry_available:
-
                 continue
-
             break
 
         runtime = (
@@ -2118,6 +2270,19 @@ class AutonomousAgent:
         goal = str(
             goal or ""
         ).strip()
+
+        replay_lock = self.mission_runtime.snapshot().get("replay_lock")
+        if isinstance(replay_lock, dict) and replay_lock.get("active") is True:
+            return {
+                "success": False,
+                "status": "needs_confirmation",
+                "stage": "recovery_confirmation_required",
+                "message": (
+                    "A previous action may already have taken effect. "
+                    "Reply 'already happened', 'did not happen; retry', or 'cancel recovery'."
+                ),
+                "requires_user_input": True,
+            }
 
         if not goal:
 

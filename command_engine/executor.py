@@ -180,6 +180,126 @@ def _failure_response(command, raw_result, stage="failed"):
     )
 
 
+def _recovery_confirmation_response(command, recovery, metadata=None):
+    recovery = recovery if isinstance(recovery, dict) else {}
+    kind = str(recovery.get("kind") or "unclear")
+    source_result = recovery.get("source_result")
+    voice_metadata = metadata
+    if voice_metadata is None and isinstance(source_result, dict):
+        voice_metadata = (
+            {"voice": source_result.get("voice")}
+            if isinstance(source_result.get("voice"), dict) else None
+        )
+    language = response_engine.detect_language(command, metadata=voice_metadata)
+    if response_engine._explicit_english_request(command):
+        language = "english"
+
+    prompts = {
+        "english": (
+            "I couldn't verify whether the action took effect, so I have not repeated it. "
+            "Check the current window and reply with one clear choice: "
+            "'already happened' (stop without replay), "
+            "'did not happen; retry' (take a fresh UI observation, then retry and verify), "
+            "or 'cancel recovery' (stop without retry). A plain yes/no is not enough."
+        ),
+        "hindi": (
+            "मैं यह सत्यापित नहीं कर पाया कि action हुआ या नहीं, इसलिए उसे दोबारा नहीं किया है। "
+            "वर्तमान window जाँचकर इनमें से एक स्पष्ट जवाब दें: "
+            "'हो गया' (दोबारा नहीं करूँगा), 'नहीं हुआ, दोबारा करो' (नई UI observation लेकर retry और verification करूँगा), "
+            "या 'रहने दो' (बिना retry mission रोक दूँगा)। केवल हाँ/नहीं पर्याप्त नहीं है।"
+        ),
+        "hinglish": (
+            "Main verify nahi kar paya ki action hua ya nahi, isliye usse repeat nahi kiya. "
+            "Current window check karke clear reply dein: 'ho gaya' (repeat nahi hoga), "
+            "'nahi hua, dobara karo' (fresh UI observation ke baad retry + verify), "
+            "ya 'rehne do' (retry ke bina mission stop). Sirf yes/no kaafi nahi hai."
+        ),
+    }
+    if kind in {"unclear", "observation_unavailable"}:
+        message = prompts[language]
+        if kind == "observation_unavailable":
+            extra = {
+                "english": " The live UI state is unavailable or stale, so no retry was sent.",
+                "hindi": " Live UI state उपलब्ध नहीं थी या पुरानी थी, इसलिए कोई retry नहीं किया गया।",
+                "hinglish": " Live UI state available nahi thi ya stale thi, isliye retry nahi kiya.",
+            }
+            message += extra[language]
+        elif recovery.get("retry_hint"):
+            extra = {
+                "english": " Please use one of the explicit replies above.",
+                "hindi": " कृपया ऊपर दिए गए स्पष्ट जवाबों में से एक दें।",
+                "hinglish": " Upar diye gaye clear replies mein se ek dein.",
+            }
+            message += extra[language]
+        response = _structured_response(
+            message, success=False, stage="recovery_confirmation_required",
+            status="needs_confirmation", result={"requires_user_input": True},
+        )
+        response["requires_user_input"] = True
+        response["recovery_options"] = ["already_applied", "not_applied_retry", "cancel"]
+        response["error_category"] = "uncertain_action_outcome"
+        return response
+
+    if kind == "already_applied":
+        messages = {
+            "english": "Thanks for confirming. I will not repeat that action. The previous mission is stopped; this is user-confirmed, not machine-verified.",
+            "hindi": "पुष्टि के लिए धन्यवाद। मैं उस action को दोबारा नहीं करूँगा। पुराना mission रोक दिया है; यह आपकी पुष्टि है, system द्वारा verified result नहीं।",
+            "hinglish": "Confirm karne ke liye thanks. Main action repeat nahi karunga. Purana mission stop hai; ye aapki confirmation hai, system-verified result nahi.",
+        }
+        return _structured_response(
+            messages[language], success=False, stage="recovery_resolved_applied",
+            status="failed", result={"resolution": "user_confirmed_applied"},
+        )
+
+    if kind == "cancelled":
+        messages = {
+            "english": "Recovery cancelled. The previous mission is stopped and the uncertain action was not repeated.",
+            "hindi": "Recovery रद्द कर दी गई है। पुराना mission रोक दिया गया है और उस अनिश्चित action को दोबारा नहीं किया।",
+            "hinglish": "Recovery cancel kar di. Purana mission stop hai aur uncertain action repeat nahi kiya.",
+        }
+        return _structured_response(
+            messages[language], success=False, stage="recovery_cancelled",
+            status="cancelled", result={"resolution": "cancelled_without_replay"},
+        )
+
+    if kind == "retry_result":
+        execution = recovery.get("execution_result")
+        execution = execution if isinstance(execution, dict) else {}
+        if execution.get("stage") == "recovery_confirmation_required":
+            nested = _recovery_confirmation_response(command, {
+                "kind": "observation_unavailable"
+                if execution.get("failure_policy", {}).get("category") == "recovery_observation_unavailable"
+                else "unclear",
+                "source_result": execution,
+            }, metadata)
+            return nested
+        if recovery.get("success") is True:
+            messages = {
+                "english": "You confirmed the action had not happened. I took a fresh UI observation, retried, and the mission completed with verification.",
+                "hindi": "आपने पुष्टि की कि action नहीं हुआ था। नई UI observation लेकर retry किया और mission verification के साथ पूरा हुआ।",
+                "hinglish": "Aapne confirm kiya ki action nahi hua tha. Fresh UI observation ke baad retry kiya aur mission verification ke saath complete hua.",
+            }
+            return _structured_response(
+                messages[language], success=True, stage="recovery_retry_completed",
+                status="success", result={"verified": True, "resolution": "confirmed_not_applied_then_retried"},
+            )
+        messages = {
+            "english": "The confirmed retry did not complete the mission. Vyom stopped safely; check the current window before deciding the next step.",
+            "hindi": "पुष्टि के बाद किया गया retry mission पूरा नहीं कर पाया। Vyom सुरक्षित रूप से रुक गया है; आगे के कदम से पहले current window जाँचें।",
+            "hinglish": "Confirm kiye gaye retry se mission complete nahi hua. Vyom safely ruk gaya hai; agla step lene se pehle current window check karein.",
+        }
+        return _structured_response(
+            messages[language], success=False, stage="recovery_retry_failed",
+            status="failed", result={"verified": False, "resolution": "confirmed_replay_failed"},
+        )
+
+    return _structured_response(
+        "Recovery state could not be resolved.", success=False,
+        stage="recovery_confirmation_required", status="needs_confirmation",
+        result={"requires_user_input": True},
+    )
+
+
 def _natural_response(
     command,
     result,
@@ -187,6 +307,18 @@ def _natural_response(
 ):
 
     try:
+
+        if isinstance(result, dict) and result.get("stage") == "recovery_confirmation_required":
+            return _recovery_confirmation_response(
+                command,
+                {
+                    "kind": "observation_unavailable"
+                    if result.get("failure_policy", {}).get("category") == "recovery_observation_unavailable"
+                    else "unclear",
+                    "source_result": result,
+                },
+                metadata={"voice": intent.get("voice", {})} if isinstance(intent, dict) and isinstance(intent.get("voice"), dict) else None,
+            )
 
         options = None
 
@@ -502,6 +634,11 @@ def execute(
             stage="exit_session",
             status="exit_session",
         )
+
+    # Resolve any uncertain prior action before normal intent/goal routing.
+    recovery = autonomous_agent.handle_recovery_confirmation(command)
+    if recovery is not None:
+        return _recovery_confirmation_response(command, recovery, metadata)
 
     # =========================================================
     # GOAL / COMMAND ROUTING
