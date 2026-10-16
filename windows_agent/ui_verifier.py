@@ -190,9 +190,8 @@ class UIVerificationEngine:
                 if before_state.get("exists") is False or after_state.get("exists") is False:
                     return False
             fields = (
-                "exists", "automation_id", "control_type", "class_name", "name",
-                "enabled", "visible", "focused", "selected", "toggle_state",
-                "expanded", "collapsed", "value", "text",
+                "exists", "enabled", "visible", "focused", "selected",
+                "toggle_state", "expanded", "collapsed", "value", "text",
             )
             shared = [
                 key for key in fields
@@ -204,11 +203,47 @@ class UIVerificationEngine:
                 for key in shared
             )
 
+        if kind == "text_input_applied":
+            # The typed payload must be visible in the same focused control,
+            # and its observed value/text must actually have changed. An
+            # unrelated tree change or text that was already present is not
+            # sufficient evidence that this typing action succeeded.
+            expected = check.get("value")
+            if not isinstance(expected, str) or not expected:
+                return False
+            b = cls._get(before, "focused_element")
+            a = cls._get(after, "focused_element")
+            if b.get("exists") is not True or a.get("exists") is not True:
+                return False
+            for field in ("value", "text"):
+                before_value = b.get(field)
+                after_value = a.get(field)
+                if (
+                    before_value is not None
+                    and after_value is not None
+                    and before_value != after_value
+                    and expected in str(after_value)
+                ):
+                    return True
+            return False
+
         if kind == "value_changed":
             source = str(check.get("source", "focused_element"))
             before_value = cls._field(before, source, "value")
             after_value = cls._field(after, source, "value")
             return before_value is not None and after_value is not None and before_value != after_value
+
+        if kind == "toggle_state_changed":
+            b = cls._get(before, "target_element")
+            a = cls._get(after, "target_element")
+            if b.get("exists") is not True or a.get("exists") is not True:
+                return False
+            compared = [
+                field for field in ("toggle_state", "selected")
+                if field in b and field in a
+                and b.get(field) is not None and a.get(field) is not None
+            ]
+            return bool(compared) and any(b.get(field) != a.get(field) for field in compared)
 
         if kind == "text_changed":
             source = str(check.get("source", "focused_element"))
@@ -301,12 +336,15 @@ class UIVerificationEngine:
         if name == "set_ui_value":
             args = action.get("args")
             args = dict(args) if isinstance(args, dict) else {}
+            # ValuePattern.SetValue replaces the current value; containment
+            # would incorrectly accept a longer, stale value (and fails for
+            # the legitimate empty-string clear operation).
             return [{
                 "kind": "property",
                 "source": "target_element",
                 "field": "value",
-                "operator": "contains",
-                "value": args.get("value", ""),
+                "operator": "equals",
+                "value": str(args.get("value", "")),
             }]
 
         if name == "select_ui_element":
@@ -319,7 +357,7 @@ class UIVerificationEngine:
             }]
 
         if name == "toggle_ui_element":
-            return [{"kind": "state_changed", "source": "target_element"}]
+            return [{"kind": "toggle_state_changed", "source": "target_element"}]
 
         if name == "expand_ui_element":
             return [{
@@ -357,16 +395,7 @@ class UIVerificationEngine:
             args = action.get("args")
             args = dict(args) if isinstance(args, dict) else {}
             value = args.get("text", action.get("target", ""))
-            return [
-                {
-                    "kind": "property",
-                    "source": "focused_element",
-                    "field": "value",
-                    "operator": "contains",
-                    "value": value,
-                },
-                {"kind": "ui_tree_changed"},
-            ]
+            return [{"kind": "text_input_applied", "source": "focused_element", "value": str(value or "")}]
 
         return []
 

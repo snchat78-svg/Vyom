@@ -482,5 +482,65 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertIn("focus", element.calls)
 
 
+    def test_set_value_reuses_single_grounded_element_for_dispatch_and_observation(self):
+        from windows_agent.ui_automation import WindowsUICapability
+
+        element = FakeElement()
+
+        class Grounder:
+            calls = 0
+
+            def ground(self, target, args=None):
+                self.calls += 1
+                return {
+                    "success": True,
+                    "element": element,
+                    "element_info": {
+                        "name": "Search",
+                        "control_type": "Edit",
+                        "automation_id": "searchBox",
+                    },
+                }
+
+        class Observer:
+            def __init__(self):
+                self.elements = []
+
+            def snapshot(self, action=None, primary_element=None):
+                self.elements.append(primary_element)
+                after = len(self.elements) > 1
+                return {
+                    "available": True,
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "focused_element": {"exists": True, "name": "Editor"},
+                    "target_element": {
+                        "exists": True,
+                        "name": "Search",
+                        "control_type": "Edit",
+                        "automation_id": "searchBox",
+                        "value": "Hello" if after else "",
+                        "window_identity": {"name": "Example", "hwnd": 7},
+                    },
+                    "ui_tree_signature": [{"name": "Search", "value": "Hello" if after else ""}],
+                }
+
+        grounder = Grounder()
+        observer = Observer()
+        provider = WindowsUICapability(ui_grounder=grounder, ui_observer=observer)
+        result = provider.execute({
+            "action": "set_ui_value",
+            "target": "Search",
+            "args": {"value": "Hello"},
+        })
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertTrue(result.get("verification", {}).get("verified"))
+        self.assertEqual(grounder.calls, 1)
+        self.assertEqual(len(observer.elements), 2)
+        self.assertIs(observer.elements[0], element)
+        self.assertIs(observer.elements[1], element)
+        self.assertIn(("set_value", "Hello"), element.calls)
+
+
 if __name__ == "__main__":
     unittest.main()

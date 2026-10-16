@@ -496,7 +496,12 @@ class WindowsUICapability:
         element_target = lookup.get("element_target")
         if element_target:
             lookup["name"] = element_target
-        grounded = self.ui_grounder.ground(action.get("target", ""), lookup)
+        prepared = action.get("_prepared_grounding")
+        grounded = (
+            prepared
+            if isinstance(prepared, dict)
+            else self.ui_grounder.ground(action.get("target", ""), lookup)
+        )
         return self._semantic_result("set_ui_value", grounded, ui_patterns.set_value, value)
 
     def _select_ui_element(self, action: Dict[str, Any]) -> Dict[str, Any]:

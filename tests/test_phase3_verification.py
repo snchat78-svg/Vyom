@@ -232,5 +232,73 @@ class Phase3VerificationTests(unittest.TestCase):
         self.assertFalse(result["verified"])
 
 
+    def test_type_text_does_not_pass_on_unrelated_tree_change(self):
+        action = {
+            "action": "type_text",
+            "target": "Hello",
+            "args": {"text": "Hello"},
+        }
+        before = {
+            "focused_element": {"exists": True, "value": "", "text": ""},
+            "ui_tree_signature": [{"name": "Editor"}],
+        }
+        after = {
+            "focused_element": {"exists": True, "value": "", "text": ""},
+            "ui_tree_signature": [{"name": "Editor"}, {"name": "New unrelated item"}],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_type_text_requires_the_focused_value_to_change(self):
+        action = {"action": "type_text", "target": "Hello", "args": {"text": "Hello"}}
+        before = {
+            "focused_element": {"exists": True, "value": "Hello", "text": "Hello"},
+            "ui_tree_signature": [{"name": "Editor"}],
+        }
+        after = {
+            "focused_element": {"exists": True, "value": "Hello", "text": "Hello"},
+            "ui_tree_signature": [{"name": "Editor"}, {"name": "Changed"}],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_set_ui_value_requires_exact_value_including_clear(self):
+        action = {
+            "action": "set_ui_value",
+            "args": {"value": ""},
+        }
+        cleared = {"target_element": {"exists": True, "value": ""}}
+        result = self.verifier.verify(action, {}, cleared, {"success": True})
+        self.assertTrue(result["verified"])
+
+        stale = {"target_element": {"exists": True, "value": "old value plus expected"}}
+        action["args"]["value"] = "expected"
+        result = self.verifier.verify(action, {}, stale, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_toggle_requires_toggle_or_selection_state_change(self):
+        action = {"action": "toggle_ui_element", "target": "Toggle"}
+        before = {
+            "target_element": {
+                "exists": True, "name": "Toggle", "toggle_state": "0", "selected": False
+            }
+        }
+        name_only_change = {
+            "target_element": {
+                "exists": True, "name": "Toggle enabled", "toggle_state": "0", "selected": False
+            }
+        }
+        result = self.verifier.verify(action, before, name_only_change, {"success": True})
+        self.assertFalse(result["verified"])
+
+        after = {
+            "target_element": {
+                "exists": True, "name": "Toggle enabled", "toggle_state": "1", "selected": True
+            }
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertTrue(result["verified"])
+
+
 if __name__ == "__main__":
     unittest.main()
