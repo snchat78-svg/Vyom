@@ -430,5 +430,57 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertIn("focus", element.calls)
 
 
+    def test_post_action_observer_unavailable_cannot_verify_semantic_action(self):
+        from windows_agent.ui_automation import WindowsUICapability
+
+        element = FakeElement()
+
+        class Grounder:
+            def ground(self, target, args=None):
+                return {
+                    "success": True,
+                    "element": element,
+                    "element_info": {
+                        "name": "Search",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                    },
+                }
+
+        class Observer:
+            def __init__(self):
+                self.calls = 0
+
+            def snapshot(self, action=None, primary_element=None):
+                self.calls += 1
+                available = self.calls == 1
+                return {
+                    "available": available,
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "focused_element": {"exists": True, "name": "Editor"},
+                    "target_element": {
+                        "exists": True,
+                        "name": "Search",
+                        "control_type": "Button",
+                        "automation_id": "searchButton",
+                        "focused": self.calls > 1,
+                        "window_identity": {"name": "Example", "hwnd": 7},
+                    },
+                    "ui_tree_signature": [{"name": "Search", "focused": self.calls > 1}],
+                }
+
+        observer = Observer()
+        provider = WindowsUICapability(ui_grounder=Grounder(), ui_observer=observer)
+        result = provider.execute({"action": "focus_ui_element", "target": "Search"})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "verification_failed")
+        self.assertEqual(
+            result["verification"]["verification_level"],
+            "post_action_observation_unavailable",
+        )
+        self.assertIn("focus", element.calls)
+
+
 if __name__ == "__main__":
     unittest.main()

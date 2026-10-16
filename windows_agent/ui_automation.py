@@ -222,6 +222,18 @@ class WindowsUICapability:
                 result["message"] = result["verification"]["reason"]
                 return result
 
+            if prepared_grounding is not None and after.get("available") is not True:
+                result["success"] = False
+                result["stage"] = "verification_failed"
+                result["verification"] = {
+                    "verified": False,
+                    "verification_level": "post_action_observation_unavailable",
+                    "method": "windows_ui_state",
+                    "reason": "The action was dispatched, but fresh UI Automation state is unavailable; success cannot be verified.",
+                }
+                result["message"] = result["verification"]["reason"]
+                return result
+
             verification = self.ui_verifier.verify(
                 action=action,
                 before=before if isinstance(before, dict) else {},

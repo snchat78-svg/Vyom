@@ -84,7 +84,17 @@ class UIVerificationEngine:
             return False
         if b.get("exists") is False or a.get("exists") is False:
             return False
-        return b != a
+        # Compare only properties observed on both sides. A partially missing
+        # after-state must not itself count as a focus transition.
+        fields = (
+            "hwnd", "automation_id", "control_type", "class_name", "name",
+            "value", "text", "focused", "selected",
+        )
+        shared = [
+            key for key in fields
+            if key in b and key in a and b.get(key) is not None and a.get(key) is not None
+        ]
+        return bool(shared) and any(b.get(key) != a.get(key) for key in shared)
 
     @classmethod
     def _property_check(
@@ -168,7 +178,31 @@ class UIVerificationEngine:
 
         if kind in ("state_changed", "target_changed"):
             source = str(check.get("source", "target_element"))
-            return cls._get(before, source) != cls._get(after, source)
+            before_state = cls._get(before, source)
+            after_state = cls._get(after, source)
+            if not before_state or not after_state:
+                return False
+            # An explicit existence transition is meaningful evidence; missing
+            # dictionaries/fields are not.
+            if "exists" in before_state and "exists" in after_state:
+                if before_state.get("exists") is True and after_state.get("exists") is False:
+                    return True
+                if before_state.get("exists") is False or after_state.get("exists") is False:
+                    return False
+            fields = (
+                "exists", "automation_id", "control_type", "class_name", "name",
+                "enabled", "visible", "focused", "selected", "toggle_state",
+                "expanded", "collapsed", "value", "text",
+            )
+            shared = [
+                key for key in fields
+                if key in before_state and key in after_state
+                and before_state.get(key) is not None and after_state.get(key) is not None
+            ]
+            return bool(shared) and any(
+                before_state.get(key) != after_state.get(key)
+                for key in shared
+            )
 
         if kind == "value_changed":
             source = str(check.get("source", "focused_element"))

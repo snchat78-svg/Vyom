@@ -203,5 +203,34 @@ class Phase3VerificationTests(unittest.TestCase):
         self.assertFalse(result["verified"])
 
 
+    def test_state_change_does_not_pass_on_missing_after_properties(self):
+        action = {"action": "toggle_ui_element", "target": "Toggle"}
+        before = {
+            "target_element": {
+                "exists": True,
+                "name": "Toggle",
+                "toggle_state": 0,
+            }
+        }
+        after = {"target_element": {"exists": True}}
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_partial_focus_snapshot_does_not_count_as_focus_change(self):
+        action = {"action": "click", "target": ""}
+        before = {
+            "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+            "focused_element": {"exists": True, "name": "Editor"},
+            "ui_tree_signature": [{"name": "Search"}],
+        }
+        after = {
+            "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+            "focused_element": {"exists": True},
+            "ui_tree_signature": [{"name": "Search"}],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+
 if __name__ == "__main__":
     unittest.main()
