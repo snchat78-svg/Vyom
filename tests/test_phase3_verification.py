@@ -300,5 +300,18 @@ class Phase3VerificationTests(unittest.TestCase):
         self.assertTrue(result["verified"])
 
 
+    def test_ui_observer_preserves_empty_value_for_cleared_control(self):
+        class EmptyEdit:
+            def get_value(self):
+                return ""
+
+            def window_text(self):
+                return "Search"
+
+        observed = UIStateObserver.element_state(EmptyEdit())
+        self.assertTrue(observed["exists"])
+        self.assertEqual(observed["value"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

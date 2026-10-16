@@ -121,7 +121,10 @@ class UIStateObserver:
         value = None
         for method in ("get_value", "get_edit_text", "value", "window_text"):
             candidate = cls._safe_call(wrapper, method, None)
-            if candidate is not None and candidate != "":
+            # Empty text is a real UI value (for example after clearing an
+            # edit control), not missing observation. Keep the first readable
+            # value even when it is "" so exact-value verification can work.
+            if candidate is not None:
                 value = candidate
                 break
         if value is not None:
