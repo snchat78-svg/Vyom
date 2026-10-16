@@ -313,5 +313,55 @@ class Phase3VerificationTests(unittest.TestCase):
         self.assertEqual(observed["value"], "")
 
 
+    def test_type_text_falls_back_to_changed_visible_surface_without_focus(self):
+        action = {
+            "action": "type_text",
+            "target": "focused_element",
+            "args": {"text": "25+25"},
+        }
+        before = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [{"name": "Display is 0", "control_type": "Text"}],
+        }
+        after = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [{"name": "Display is 25+25", "control_type": "Text"}],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertTrue(result["verified"])
+
+    def test_type_text_without_focus_rejects_unrelated_surface_change(self):
+        action = {"action": "type_text", "target": "focused_element", "args": {"text": "25+25"}}
+        before = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [{"name": "Display is 0", "control_type": "Text"}],
+        }
+        after = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [
+                {"name": "Display is 0", "control_type": "Text"},
+                {"name": "Unrelated notification", "control_type": "Text"},
+            ],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_type_text_without_focus_rejects_payload_already_visible_before(self):
+        action = {"action": "type_text", "target": "focused_element", "args": {"text": "25+25"}}
+        before = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [{"name": "History item 25+25", "control_type": "Text"}],
+        }
+        after = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [
+                {"name": "History item 25+25", "control_type": "Text"},
+                {"name": "Unrelated notification", "control_type": "Text"},
+            ],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+
 if __name__ == "__main__":
     unittest.main()

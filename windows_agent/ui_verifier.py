@@ -215,17 +215,49 @@ class UIVerificationEngine:
             a = cls._get(after, "focused_element")
             if b.get("exists") is not True or a.get("exists") is not True:
                 return False
-            for field in ("value", "text"):
-                before_value = b.get(field)
-                after_value = a.get(field)
-                if (
-                    before_value is not None
-                    and after_value is not None
-                    and before_value != after_value
-                    and expected in str(after_value)
-                ):
-                    return True
-            return False
+            if b.get("exists") is True and a.get("exists") is True:
+                for field in ("value", "text"):
+                    before_value = b.get(field)
+                    after_value = a.get(field)
+                    if (
+                        before_value is not None
+                        and after_value is not None
+                        and before_value != after_value
+                        and expected in str(after_value)
+                    ):
+                        return True
+                return False
+
+            # Some legitimate targets (e.g. calculator displays or custom
+            # canvas controls) accept text but expose no focused editable
+            # element. In that case allow a narrow fallback only when focus
+            # is explicitly absent on both sides, the visible tree changed,
+            # the payload appears in the new visible state, and it was not
+            # already visible before. Unrelated UI changes cannot satisfy it.
+            if b.get("exists") is not False or a.get("exists") is not False:
+                return False
+            before_tree = before.get("ui_tree_signature")
+            after_tree = after.get("ui_tree_signature")
+            if not cls._tree_changed(before, after):
+                return False
+
+            def visible_texts(tree):
+                values = []
+                if isinstance(tree, list):
+                    for item in tree:
+                        if not isinstance(item, dict):
+                            continue
+                        for field in ("name", "text", "value"):
+                            text = str(item.get(field) or "").strip()
+                            if text:
+                                values.append(text)
+                return values
+
+            before_texts = visible_texts(before_tree)
+            after_texts = visible_texts(after_tree)
+            if any(expected.casefold() in item.casefold() for item in before_texts):
+                return False
+            return any(expected.casefold() in item.casefold() for item in after_texts)
 
         if kind == "value_changed":
             source = str(check.get("source", "focused_element"))
