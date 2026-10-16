@@ -1,3 +1,4 @@
+import time
 import unittest
 
 from ai_core.autonomous_agent import AutonomousAgent
@@ -77,6 +78,86 @@ class Phase5ObservationTests(unittest.TestCase):
         self.assertEqual(calls, ["snapshot"])
         self.assertIs(recorded["world_state"], agent.world_state.last_snapshot)
         self.assertEqual(recorded["world_state"]["observation_history"][-1]["phase"], "before_replan")
+
+    def test_replan_freshness_rejects_stale_future_and_error_snapshots(self):
+        now = time.time()
+        fresh = {
+            "timestamp": now,
+            "ui": {"available": True, "timestamp": now},
+        }
+        self.assertTrue(AutonomousAgent._is_fresh_world_observation(fresh, now=now))
+        self.assertFalse(AutonomousAgent._is_fresh_world_observation(
+            {"timestamp": now - 11, "ui": {"available": True, "timestamp": now}},
+            now=now,
+        ))
+        self.assertFalse(AutonomousAgent._is_fresh_world_observation(
+            {"timestamp": now, "ui": {"available": True, "timestamp": now - 11}},
+            now=now,
+        ))
+        self.assertFalse(AutonomousAgent._is_fresh_world_observation(
+            {"timestamp": now + 3, "ui": {"available": True, "timestamp": now}},
+            now=now,
+        ))
+        self.assertFalse(AutonomousAgent._is_fresh_world_observation(
+            {"timestamp": now, "observation_error": "observer failed"},
+            now=now,
+        ))
+        self.assertFalse(AutonomousAgent._is_fresh_world_observation(
+            {"ui": {"available": True}},
+            now=now,
+        ))
+
+    def test_replanning_stops_before_reasoning_when_observation_is_stale(self):
+        agent = AutonomousAgent(max_steps=3)
+        reason_calls = []
+
+        class StaleWorld:
+            def __init__(self):
+                self.observation_history = []
+                self.last_snapshot = None
+
+            def snapshot(self, *args, **kwargs):
+                old = time.time() - 60
+                return {
+                    "timestamp": old,
+                    "ui": {"available": True, "timestamp": old},
+                    "observation_history": [],
+                }
+
+            def record_observation(self, observation):
+                self.observation_history.append({
+                    "phase": observation.get("phase"),
+                    "timestamp": observation.get("timestamp"),
+                    "world_state": {},
+                })
+
+        class ReplanRuntime:
+            def start(self, goal, plan):
+                return {"mission_state": "running"}
+
+            def needs_replan(self):
+                return True
+
+            def snapshot(self):
+                return {"mission_state": "running", "plan": []}
+
+        agent.world_state = StaleWorld()
+        agent.mission_runtime = ReplanRuntime()
+        agent.reasoning_engine.reason = lambda *args, **kwargs: reason_calls.append(args) or {}
+
+        result = agent._run_mission(
+            goal="continue task",
+            plan=[{"id": "step1", "type": "action"}],
+            intent=None,
+            analysis={},
+            compilation={},
+            route={},
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "replanning_error")
+        self.assertIn("stale", result["error"].lower())
+        self.assertEqual(reason_calls, [])
 
     def test_proposed_open_intent_does_not_mutate_session_context(self):
         agent = AutonomousAgent(max_steps=3)

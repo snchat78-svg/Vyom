@@ -71,6 +71,7 @@ Important:
     - Compound missions are controlled by MissionRuntime.
 """
 
+import math
 import time
 from typing import Any, Dict, Optional, List
 
@@ -1023,6 +1024,49 @@ class AutonomousAgent:
             "step": self.step_count
         }
 
+    @staticmethod
+    def _is_fresh_world_observation(
+        snapshot: Any,
+        *,
+        now: Optional[float] = None,
+        max_age_seconds: float = 10.0,
+        future_tolerance_seconds: float = 2.0,
+    ) -> bool:
+        """Return whether a world/UI snapshot is recent enough to re-plan from."""
+        if not isinstance(snapshot, dict) or snapshot.get("observation_error"):
+            return False
+
+        captured_at = snapshot.get("timestamp")
+        if isinstance(captured_at, bool) or not isinstance(captured_at, (int, float)):
+            return False
+
+        current = time.time() if now is None else float(now)
+        captured_at = float(captured_at)
+        if not math.isfinite(current) or not math.isfinite(captured_at):
+            return False
+
+        age = current - captured_at
+        if age < -future_tolerance_seconds or age > max_age_seconds:
+            return False
+
+        # A fresh outer snapshot must not disguise an old nested UI payload.
+        # UI providers from older versions may omit their own timestamp, so
+        # validate it when present instead of rejecting the compatibility case.
+        ui = snapshot.get("ui")
+        if isinstance(ui, dict) and ui.get("available") is True:
+            ui_timestamp = ui.get("timestamp")
+            if ui_timestamp is not None:
+                if isinstance(ui_timestamp, bool) or not isinstance(ui_timestamp, (int, float)):
+                    return False
+                ui_timestamp = float(ui_timestamp)
+                if not math.isfinite(ui_timestamp):
+                    return False
+                ui_age = current - ui_timestamp
+                if ui_age < -future_tolerance_seconds or ui_age > max_age_seconds:
+                    return False
+
+        return True
+
     def _observe_cycle(
         self,
         *,
@@ -1445,13 +1489,10 @@ class AutonomousAgent:
                     if isinstance(replan_observation, dict)
                     else None
                 )
-                if (
-                    not isinstance(refreshed_state, dict)
-                    or not isinstance(refreshed_state.get("timestamp"), (int, float))
-                    or refreshed_state.get("observation_error")
-                ):
+                if not self._is_fresh_world_observation(refreshed_state):
                     raise RuntimeError(
-                        "Fresh world-state observation is unavailable; re-planning stopped safely."
+                        "A fresh world-state/UI observation is unavailable or stale; "
+                        "re-planning stopped safely."
                     )
 
                 re_reasoning = (

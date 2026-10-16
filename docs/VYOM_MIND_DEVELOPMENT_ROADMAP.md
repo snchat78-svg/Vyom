@@ -70,6 +70,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.5 progress:** Contextual references now use focus, selection and active-window fields from the same nested UI observation as their canonical source. When a nested UI timestamp is present, it must also be fresh; a recent outer world snapshot cannot disguise stale UI data. Regression tests cover changed active windows, conflicting mirrored focus/selection, missing live focus and stale nested UI timestamps.
 
+**M4.6 progress:** Re-planning now validates that the captured world snapshot is recent, finite and not future-dated beyond a small clock-skew allowance. If a nested UI timestamp exists, it is validated separately so a fresh outer timestamp cannot hide stale UI state. Missing, stale or failed observations stop re-planning before the reasoning provider is called; regression tests cover old/future/error snapshots and the no-reasoning-on-stale-state path.
+
 **Status:** M4 remains in progress. Automated tests cover compact history, single-snapshot re-planning, reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding
