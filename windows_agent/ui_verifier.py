@@ -213,8 +213,6 @@ class UIVerificationEngine:
                 return False
             b = cls._get(before, "focused_element")
             a = cls._get(after, "focused_element")
-            if b.get("exists") is not True or a.get("exists") is not True:
-                return False
             if b.get("exists") is True and a.get("exists") is True:
                 for field in ("value", "text"):
                     before_value = b.get(field)
