@@ -112,6 +112,82 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["stage"], "ui_target_ambiguous")
 
+    def test_control_type_filter_does_not_bypass_near_tie_ambiguity(self):
+        class RankedFinder:
+            def find_ranked(self, **kwargs):
+                self.query = kwargs
+                return [
+                    {
+                        "element": object(),
+                        "info": {"name": "Search", "control_type": "Button", "enabled": True, "visible": True},
+                        "score": 0.91,
+                    },
+                    {
+                        "element": object(),
+                        "info": {"name": "Search", "control_type": "Button", "automation_id": "otherSearch", "enabled": True, "visible": True},
+                        "score": 0.89,
+                    },
+                ]
+
+        finder = RankedFinder()
+        grounder = UIElementGrounder(finder=finder)
+        result = grounder.ground("Search", {"control_type": "Button"})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_target_ambiguous")
+        self.assertEqual(finder.query["control_type"], "Button")
+
+    def test_hidden_high_score_candidate_is_not_chosen_over_visible_candidate(self):
+        visible = object()
+
+        class RankedFinder:
+            def find_ranked(self, **kwargs):
+                return [
+                    {
+                        "element": object(),
+                        "info": {"name": "Search", "visible": False, "enabled": True},
+                        "score": 0.99,
+                    },
+                    {
+                        "element": visible,
+                        "info": {"name": "Search", "visible": True, "enabled": True},
+                        "score": 0.80,
+                    },
+                ]
+
+        result = UIElementGrounder(finder=RankedFinder()).ground("Search")
+
+        self.assertTrue(result["success"])
+        self.assertIs(result["element"], visible)
+
+    def test_disabled_only_candidate_is_not_actionable(self):
+        class RankedFinder:
+            def find_ranked(self, **kwargs):
+                return [{
+                    "element": object(),
+                    "info": {"name": "Search", "visible": True, "enabled": False},
+                    "score": 0.99,
+                }]
+
+        result = UIElementGrounder(finder=RankedFinder()).ground("Search")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_element_unavailable")
+
+    def test_invalid_candidate_score_is_handled_without_crashing(self):
+        class RankedFinder:
+            def find_ranked(self, **kwargs):
+                return [{
+                    "element": object(),
+                    "info": {"name": "Search", "visible": True, "enabled": True},
+                    "score": float("nan"),
+                }]
+
+        result = UIElementGrounder(finder=RankedFinder()).ground("Search")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_target_ambiguous")
+
     def test_finder_is_safe_when_uia_is_unavailable(self):
         finder = UIElementFinder()
         if not finder.is_available():

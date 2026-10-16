@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Optional
 
 from windows_agent.ui_element_finder import UIElementFinder
@@ -23,6 +24,18 @@ class UIElementGrounder:
     @staticmethod
     def _value(value: Any) -> str:
         return str(value or "").strip()
+
+    @staticmethod
+    def _score(item: Dict[str, Any], default: float = 0.0) -> float:
+        """Normalize untrusted candidate scores into a finite [0, 1] range."""
+        value = item.get("score", default)
+        try:
+            score = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+        if not math.isfinite(score):
+            return 0.0
+        return min(1.0, max(0.0, score))
 
     def _ranked(self, **query):
         finder = self.finder
@@ -78,17 +91,39 @@ class UIElementGrounder:
                 "query": {key: value for key, value in query.items() if key != "max_results"},
             }
 
+        # UIA can report hidden or disabled controls alongside actionable
+        # candidates. Never choose one of those merely because its name score
+        # happens to be higher.
+        usable = []
+        for item in candidates:
+            info = item.get("info")
+            info = info if isinstance(info, dict) else {}
+            if info.get("visible") is False or info.get("enabled") is False:
+                continue
+            usable.append(item)
+
+        if not usable:
+            return {
+                "success": False,
+                "stage": "ui_element_unavailable",
+                "message": (
+                    f"Matching UI elements for '{target or name}' are hidden or disabled."
+                ),
+                "target": target or name,
+                "query": {key: value for key, value in query.items() if key != "max_results"},
+            }
+
+        candidates = usable
         top = candidates[0]
-        confidence = float(top.get("score", 1.0) or 0.0)
+        confidence = self._score(top, default=1.0)
         second = candidates[1] if len(candidates) > 1 else None
-        second_confidence = float(second.get("score", 0.0) or 0.0) if second else 0.0
+        second_confidence = self._score(second, default=0.0) if second else 0.0
 
-        explicit_identity = bool(automation_id or control_type or class_name)
-
+        # Structural hints such as ControlType and ClassName narrow the search,
+        # but are not guaranteed unique identities. A close runner-up remains
+        # ambiguous even when those hints were supplied.
         ambiguous = (
-            not explicit_identity
-            and second is not None
-            and confidence < 0.96
+            second is not None
             and (confidence - second_confidence) < self.ambiguity_margin
         )
         if confidence < self.minimum_confidence:
@@ -102,7 +137,7 @@ class UIElementGrounder:
                     "name": info.get("name", ""),
                     "control_type": info.get("control_type", ""),
                     "automation_id": info.get("automation_id", ""),
-                    "confidence": float(item.get("score", 0.0) or 0.0),
+                    "confidence": self._score(item),
                 })
             return {
                 "success": False,
@@ -129,7 +164,7 @@ class UIElementGrounder:
                     "name": dict(item.get("info") or {}).get("name", ""),
                     "control_type": dict(item.get("info") or {}).get("control_type", ""),
                     "automation_id": dict(item.get("info") or {}).get("automation_id", ""),
-                    "confidence": float(item.get("score", 0.0) or 0.0),
+                    "confidence": self._score(item),
                 }
                 for item in candidates[:3]
             ],

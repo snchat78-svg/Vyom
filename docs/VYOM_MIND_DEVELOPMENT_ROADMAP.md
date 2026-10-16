@@ -79,6 +79,7 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Rank visible UI Automation candidates using live Name, AutomationId, ControlType, class, window identity and available control patterns.
 - Use Invoke/Value/Selection/Toggle/Focus before coordinate clicks when supported.
 - Treat app and file names as runtime data and avoid app-specific action lists.
+- **M5.1 progress:** Grounding excludes hidden/disabled controls from action selection, treats ControlType/ClassName as filters rather than unique identities, rejects near-tied candidates even when structural filters are present, and normalizes invalid/non-finite scores without crashing. Tests cover near ties, hidden/disabled targets and malformed confidence.
 - **Gate:** different labels and layouts work through discovered UI properties; close candidates do not trigger unsafe actions.
 
 ## M6 — Execute, verify, recover
