@@ -54,6 +54,43 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertTrue(ui_patterns.set_value(element, "Hello"))
         self.assertIn(("set_value", "Hello"), element.calls)
 
+    def test_invoke_uses_only_the_explicit_invoke_pattern(self):
+        class ClickOnlyElement:
+            def __init__(self):
+                self.calls = []
+
+            def click(self):
+                self.calls.append("click")
+
+        element = ClickOnlyElement()
+        self.assertIsNone(ui_patterns.select_operation(element, "invoke"))
+        self.assertFalse(ui_patterns.supported_operations(element)["invoke"])
+        with self.assertRaises(AttributeError):
+            ui_patterns.invoke(element)
+        self.assertEqual(element.calls, [])
+
+    def test_operation_selection_prefers_semantic_methods(self):
+        element = FakeElement()
+        self.assertEqual(ui_patterns.select_operation(element, "invoke"), "invoke")
+        self.assertEqual(ui_patterns.select_operation(element, "click"), "click")
+        self.assertEqual(ui_patterns.select_operation(element, "focus"), "set_focus")
+        self.assertEqual(ui_patterns.select_operation(element, "set_value"), "set_value")
+
+        class InvokeOnlyElement:
+            def invoke(self):
+                return "invoked"
+
+        self.assertEqual(ui_patterns.select_operation(InvokeOnlyElement(), "click"), "invoke")
+        self.assertEqual(ui_patterns.select_operation(InvokeOnlyElement(), "invoke"), "invoke")
+
+    def test_operation_result_records_selected_dispatch_method(self):
+        payload = ui_patterns.operation_result(
+            success=True,
+            operation="invoke_ui_element",
+            method="invoke",
+        )
+        self.assertEqual(payload["dispatch_method"], "invoke")
+
     def test_grounder_uses_ui_automation_properties(self):
         element = FakeElement()
         finder = FakeFinder(element)
@@ -73,6 +110,38 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertEqual(finder.query["automation_id"], "searchButton")
         self.assertEqual(finder.query["control_type"], "Button")
         self.assertEqual(finder.query["window_title"], "Example")
+        self.assertIn("supported_operations", result)
+        self.assertTrue(result["supported_operations"]["invoke"])
+    def test_unsupported_invoke_pattern_fails_before_dispatch(self):
+        from windows_agent.ui_automation import WindowsUICapability
+
+        class ClickOnlyElement:
+            def __init__(self):
+                self.calls = []
+
+            def click(self):
+                self.calls.append("click")
+
+        element = ClickOnlyElement()
+
+        class Grounder:
+            def ground(self, target, args):
+                return {
+                    "success": True,
+                    "element": element,
+                    "element_info": {"name": target, "control_type": "Button"},
+                }
+
+        provider = WindowsUICapability(ui_grounder=Grounder())
+        result = provider._invoke_ui_element({
+            "action": "invoke_ui_element",
+            "target": "Submit",
+        })
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_pattern_unsupported")
+        self.assertEqual(element.calls, [])
+
     def test_grounder_accepts_semantic_name_variation(self):
         class RankedFinder:
             def find_ranked(self, **kwargs):

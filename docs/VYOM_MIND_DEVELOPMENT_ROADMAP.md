@@ -80,6 +80,7 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Use Invoke/Value/Selection/Toggle/Focus before coordinate clicks when supported.
 - Treat app and file names as runtime data and avoid app-specific action lists.
 - **M5.1 progress:** Grounding excludes hidden/disabled controls from action selection, treats ControlType/ClassName as filters rather than unique identities, rejects near-tied candidates even when structural filters are present, and normalizes invalid/non-finite scores without crashing. Tests cover near ties, hidden/disabled targets and malformed confidence.
+- **M5.2 progress:** The selected operation is determined from the live element's callable UIA wrapper methods before dispatch. Explicit invoke requires the Invoke operation and cannot silently fall back to a generic click; ordinary click prefers semantic methods before lower-level input fallback. Grounding reports supported operations, dispatch results record the chosen method, and unsupported patterns fail before acting.
 - **Gate:** different labels and layouts work through discovered UI properties; close candidates do not trigger unsafe actions.
 
 ## M6 — Execute, verify, recover

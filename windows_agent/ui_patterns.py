@@ -8,7 +8,9 @@ from typing import Any, Dict, Optional
 
 
 ACTION_METHODS = {
-    "invoke": ("invoke", "click"),
+    # Invoke is strict: a generic click method does not prove InvokePattern.
+    "invoke": ("invoke",),
+    # Prefer semantic activation methods before lower-level mouse input.
     "click": ("click", "invoke", "click_input"),
     "focus": ("set_focus",),
     "set_value": ("set_value",),
@@ -20,57 +22,73 @@ ACTION_METHODS = {
 }
 
 
+def select_operation(element: Any, operation: str) -> Optional[str]:
+    """Choose the preferred callable method for one explicit operation."""
+    methods = ACTION_METHODS.get(str(operation or "").strip().lower())
+    if not methods or element is None:
+        return None
+    for method in methods:
+        try:
+            callback = getattr(element, method, None)
+        except Exception:
+            continue
+        if callable(callback):
+            return method
+    return None
+
+
 def supported_operations(element: Any) -> Dict[str, bool]:
     """Report generic operations available on a UIA wrapper."""
     return {
-        operation: any(callable(getattr(element, method, None))
-                       for method in methods)
-        for operation, methods in ACTION_METHODS.items()
+        operation: select_operation(element, operation) is not None
+        for operation in ACTION_METHODS
     }
 
 
-def _call_first(element: Any, methods, *args, **kwargs):
-    for method in methods:
-        callback = getattr(element, method, None)
-        if callable(callback):
-            return callback(*args, **kwargs)
-    raise AttributeError("The UI element does not expose the requested operation.")
+def _call_first(element: Any, operation: str, *args, **kwargs):
+    method = select_operation(element, operation)
+    if method is None:
+        raise AttributeError(
+            f"The UI element does not support the '{operation}' operation."
+        )
+    callback = getattr(element, method)
+    return callback(*args, **kwargs)
 
 
 def invoke(element: Any):
-    return _call_first(element, ACTION_METHODS["invoke"])
+    return _call_first(element, "invoke")
 
 
 def click(element: Any):
-    return _call_first(element, ACTION_METHODS["click"])
+    return _call_first(element, "click")
 
 
 def focus(element: Any):
-    return _call_first(element, ACTION_METHODS["focus"])
+    return _call_first(element, "focus")
 
 
 def set_value(element: Any, value: Any):
-    return _call_first(element, ACTION_METHODS["set_value"], value)
+    return _call_first(element, "set_value", value)
 
 
 def get_value(element: Any):
-    return _call_first(element, ACTION_METHODS["get_value"])
+    return _call_first(element, "get_value")
 
 
 def select(element: Any):
-    return _call_first(element, ACTION_METHODS["select"])
+    return _call_first(element, "select")
 
 
 def toggle(element: Any):
-    return _call_first(element, ACTION_METHODS["toggle"])
+    return _call_first(element, "toggle")
 
 
 def expand(element: Any):
-    return _call_first(element, ACTION_METHODS["expand"])
+    return _call_first(element, "expand")
 
 
 def collapse(element: Any):
-    return _call_first(element, ACTION_METHODS["collapse"])
+    return _call_first(element, "collapse")
 
 
 def operation_result(
@@ -80,6 +98,7 @@ def operation_result(
     element_info: Optional[Dict[str, Any]] = None,
     result: Any = None,
     error: Optional[str] = None,
+    method: Optional[str] = None,
     verification_level: str = "semantic_dispatch",
 ) -> Dict[str, Any]:
     """Build a serializable semantic UI operation result."""
@@ -95,6 +114,8 @@ def operation_result(
     }
     if element_info:
         payload["element"] = dict(element_info)
+    if method:
+        payload["dispatch_method"] = str(method)
     if result is not None:
         payload["result"] = result
     if error:
@@ -105,6 +126,7 @@ def operation_result(
 
 __all__ = [
     "supported_operations",
+    "select_operation",
     "invoke",
     "click",
     "focus",

@@ -230,6 +230,29 @@ class WindowsUICapability:
             return grounded
         element = grounded.get("element")
         info = grounded.get("element_info") or {}
+        operation_key = {
+            "focus_ui_element": "focus",
+            "click_ui_element": "click",
+            "invoke_ui_element": "invoke",
+            "set_ui_value": "set_value",
+            "select_ui_element": "select",
+            "toggle_ui_element": "toggle",
+            "expand_ui_element": "expand",
+            "collapse_ui_element": "collapse",
+        }.get(operation, operation)
+        selected_method = ui_patterns.select_operation(element, operation_key)
+        if selected_method is None:
+            return {
+                "success": False,
+                "stage": "ui_pattern_unsupported",
+                "message": (
+                    f"The selected UI element does not expose a supported "
+                    f"'{operation_key}' control operation."
+                ),
+                "operation": operation,
+                "element_info": info,
+                "supported_operations": ui_patterns.supported_operations(element),
+            }
         try:
             result = callback(element, *args) if callback else None
             return ui_patterns.operation_result(
@@ -237,6 +260,7 @@ class WindowsUICapability:
                 operation=operation,
                 element_info=info,
                 result=result,
+                method=selected_method,
             )
         except Exception as error:
             return ui_patterns.operation_result(

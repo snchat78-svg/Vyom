@@ -6,6 +6,7 @@ import math
 from typing import Any, Dict, Optional
 
 from windows_agent.ui_element_finder import UIElementFinder
+from windows_agent.ui_patterns import supported_operations
 
 
 class UIElementGrounder:
@@ -158,6 +159,7 @@ class UIElementGrounder:
             "stage": "ui_element_grounded",
             "element": element,
             "element_info": info,
+            "supported_operations": supported_operations(element),
             "confidence": confidence,
             "candidates": [
                 {
