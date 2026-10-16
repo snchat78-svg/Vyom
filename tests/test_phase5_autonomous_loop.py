@@ -375,5 +375,62 @@ class Phase5ObservationTests(unittest.TestCase):
 
 
 
+    def test_failure_policy_retries_only_proven_pre_dispatch_failures(self):
+        agent = AutonomousAgent(max_steps=5)
+        agent.mission_runtime.start("click target", [{
+            "id": "click",
+            "type": "action",
+            "action": "click_ui_element",
+            "capability": "windows_ui",
+            "target": "Search",
+            "args": {},
+            "depends_on": [],
+        }])
+        step = agent.mission_runtime.get_next_step()
+        retry, policy = agent._record_step_failure(step, {
+            "success": False,
+            "stage": "execution_failed",
+            "result": {
+                "success": False,
+                "stage": "ui_target_context_mismatch",
+                "message": "The target changed before dispatch.",
+            },
+        })
+        self.assertTrue(retry)
+        self.assertEqual(policy["category"], "pre_dispatch_failure")
+        self.assertEqual(agent.mission_runtime.plan[0]["status"], "pending")
+        self.assertTrue(any(item.get("event") == "step_retry" for item in agent.mission_runtime.history))
+
+    def test_uncertain_side_effect_is_blocked_without_blind_retry(self):
+        agent = AutonomousAgent(max_steps=5)
+        agent.mission_runtime.start("send message", [{
+            "id": "send",
+            "type": "action",
+            "action": "invoke_ui_element",
+            "capability": "windows_ui",
+            "target": "Send",
+            "args": {},
+            "depends_on": [],
+        }])
+        step = agent.mission_runtime.get_next_step()
+        retry, policy = agent._record_step_failure(step, {
+            "success": False,
+            "stage": "verification_failed",
+            "result": {
+                "success": False,
+                "stage": "verification_failed",
+                "verification": {
+                    "verified": False,
+                    "verification_level": "post_action_observation_failed",
+                },
+            },
+            "verification": {"verified": False},
+        })
+        self.assertFalse(retry)
+        self.assertEqual(policy["category"], "outcome_uncertain")
+        self.assertEqual(agent.mission_runtime.snapshot()["mission_state"], "blocked")
+        self.assertFalse(any(item.get("event") == "step_retry" for item in agent.mission_runtime.history))
+
+
 if __name__ == "__main__":
     unittest.main()

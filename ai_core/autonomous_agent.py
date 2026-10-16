@@ -78,6 +78,7 @@ from typing import Any, Dict, Optional, List
 from ai_core.brain import Brain
 from ai_core.reasoning_engine import ReasoningEngine
 from ai_core.goal_compiler import GoalCompiler
+from ai_core.action_failure_policy import ActionFailurePolicy
 from ai_core.mission_planner import MissionPlanner
 from ai_core.mission_runtime import MissionRuntime
 
@@ -1123,6 +1124,60 @@ class AutonomousAgent:
             pass
         return observation
 
+    def _record_step_failure(self, step: Dict[str, Any], result: Dict[str, Any]):
+        """Record a failure with bounded retry only when pre-dispatch is proven."""
+        policy = ActionFailurePolicy.classify(result, step)
+        if isinstance(result, dict):
+            result["failure_policy"] = policy
+
+        nested_result = result.get("result") if isinstance(result, dict) else None
+        if nested_result is None:
+            nested_result = result
+        verification = result.get("verification") if isinstance(result, dict) else None
+        if not isinstance(verification, dict) and isinstance(nested_result, dict):
+            verification = nested_result.get("verification")
+        reason = (
+            str(result.get("stage") or "execution_failed")
+            if isinstance(result, dict)
+            else "execution_failed"
+        )
+
+        retry_available = self.mission_runtime.mark_failed(
+            step_id=str(step.get("id") or ""),
+            result=nested_result,
+            reason=reason,
+            verification=verification if isinstance(verification, dict) else {},
+            retryable=policy.get("retry_same_action") is True,
+            failure_policy=policy,
+            stop_mission=policy.get("stop_mission") is True,
+        )
+        if self.task_history and isinstance(self.task_history[-1], dict):
+            self.task_history[-1]["failure_policy"] = policy
+        return retry_available, policy
+
+    def _failure_policy_response(
+        self,
+        goal: str,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+        policy: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Stop safely when repeating could duplicate side effects or guess a target."""
+        self.active = False
+        self.context.mark_failed()
+        return {
+            "success": False,
+            "stage": str(policy.get("response_stage") or "outcome_unverified"),
+            "message": str(policy.get("user_message") or "The action could not be safely recovered."),
+            "failure_policy": dict(policy),
+            "result": result.get("result") if isinstance(result, dict) else result,
+            "step": step,
+            "goal": goal,
+            "history": self.task_history,
+            "mission": self.mission_runtime.snapshot(),
+            "context": self.context.snapshot(),
+        }
+
     # =============================================================
     # RUN MISSION THROUGH RUNTIME
     # =============================================================
@@ -1416,21 +1471,18 @@ class AutonomousAgent:
             # STEP FAILURE / VERIFICATION FAILURE
             # -----------------------------------------------------
 
-            retry_available = (
-                self.mission_runtime.mark_failed(
-                    step_id=step_id,
-                    result=result.get(
-                        "result"
-                    ),
-                    reason=result.get(
-                        "stage",
-                        "execution_failed"
-                    ),
-                    verification=result.get(
-                        "verification"
-                    )
-                )
+            retry_available, failure_policy = self._record_step_failure(
+                step,
+                result,
             )
+
+            if failure_policy.get("stop_mission"):
+                return self._failure_policy_response(
+                    goal=goal,
+                    step=step,
+                    result=result,
+                    policy=failure_policy,
+                )
 
             # -----------------------------------------------------
             # Bounded retry

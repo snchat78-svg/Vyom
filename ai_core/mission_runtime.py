@@ -574,7 +574,10 @@ class MissionRuntime:
         reason: str = "",
         verification: Optional[
             Dict[str, Any]
-        ] = None
+        ] = None,
+        retryable: Optional[bool] = None,
+        failure_policy: Optional[Dict[str, Any]] = None,
+        stop_mission: bool = False,
     ) -> bool:
 
         step = self._find_step(
@@ -601,12 +604,15 @@ class MissionRuntime:
         self.last_error = str(
             reason or "Step failed."
         )
+        policy = dict(failure_policy) if isinstance(failure_policy, dict) else {}
+        if policy:
+            step["failure_policy"] = policy
 
         # -----------------------------------------------------
         # RETRY AVAILABLE
         # -----------------------------------------------------
 
-        if retries < self.max_retries:
+        if retries < self.max_retries and retryable is not False and not stop_mission:
 
             retries += 1
 
@@ -636,6 +642,7 @@ class MissionRuntime:
                 "verification": (
                     verification or {}
                 ),
+                "failure_policy": policy,
                 "reason": self.last_error
             })
 
@@ -674,18 +681,32 @@ class MissionRuntime:
             "verification": (
                 verification or {}
             ),
+            "failure_policy": policy,
             "reason": self.last_error
         })
 
         self.current_step = None
 
         # -----------------------------------------------------
-        # REQUEST REPLAN
+        # BLOCK OR REQUEST REPLAN
         # -----------------------------------------------------
 
-        self.request_replan(
-            reason=self.last_error
-        )
+        if stop_mission:
+            self.mission_state = "blocked"
+            self.replan_requested = False
+            self.replan_reason = ""
+            self.last_error = str(
+                policy.get("user_message") or self.last_error
+            )
+            self.history.append({
+                "event": "mission_blocked_after_failure",
+                "reason": self.last_error,
+                "failure_policy": policy,
+            })
+        else:
+            self.request_replan(
+                reason=self.last_error
+            )
 
         return False
 
