@@ -222,4 +222,4 @@ def test_success_flag_without_verified_postcondition_relocks_recovery(monkeypatc
     assert dispatched == ["send_once"]
     assert agent.mission_runtime.snapshot()["replay_lock"]["active"] is True
     assert agent.mission_runtime.snapshot()["mission_state"] == "blocked"
-    assert "couldn't verify" in result["message"].lower() or "verify" in result["message"].lower()
+    assert "retry" in result["message"].lower()
