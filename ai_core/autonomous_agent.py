@@ -1243,6 +1243,48 @@ class AutonomousAgent:
             "context": self.context.snapshot(),
         }
 
+    def _unverified_completion_response(
+        self,
+        goal: str,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Require recovery confirmation if executor success failed its postcondition gate."""
+        observation = self._observe_cycle(
+            phase="after_failure",
+            step=step,
+            result=result.get("result") if isinstance(result, dict) else result,
+            verification=result.get("verification") if isinstance(result, dict) else {},
+        )
+        summary = self._recovery_observation_summary(observation)
+        policy = {
+            "schema_version": "m6.4",
+            "category": "outcome_uncertain",
+            "response_stage": "recovery_confirmation_required",
+            "retry_same_action": False,
+            "stop_mission": True,
+            "requires_user_input": True,
+            "reobserve_before_retry": False,
+            "user_message": (
+                "The executor reported success, but Vyom could not verify the "
+                "action's postcondition. It stopped without repeating the action."
+            ),
+        }
+        failed_result = {
+            "success": False,
+            "stage": "verification_failed",
+            "message": policy["user_message"],
+            "result": result.get("result") if isinstance(result, dict) else result,
+            "verification": result.get("verification") if isinstance(result, dict) else {},
+        }
+        return self._failure_policy_response(
+            goal=goal,
+            step=step,
+            result=failed_result,
+            policy=policy,
+            recovery_observation=summary,
+        )
+
     @staticmethod
     def _recovery_confirmation_kind(text: Any) -> str:
         """Require an explicit statement about the uncertain outcome; bare yes/no is not enough."""
@@ -1657,7 +1699,7 @@ class AutonomousAgent:
                 False
             ):
 
-                self.mission_runtime.mark_completed(
+                completion_accepted = self.mission_runtime.mark_completed(
                     step_id=step_id,
                     result=result.get(
                         "result"
@@ -1666,6 +1708,12 @@ class AutonomousAgent:
                         "verification"
                     )
                 )
+                if not completion_accepted:
+                    return self._unverified_completion_response(
+                        goal=goal,
+                        step=step,
+                        result=result,
+                    )
 
                 continue
 
@@ -2155,7 +2203,7 @@ class AutonomousAgent:
                 False
             ):
 
-                self.mission_runtime.mark_completed(
+                completion_accepted = self.mission_runtime.mark_completed(
                     step_id=step_id,
                     result=result.get(
                         "result"
@@ -2164,6 +2212,12 @@ class AutonomousAgent:
                         "verification"
                     )
                 )
+                if not completion_accepted:
+                    return self._unverified_completion_response(
+                        goal=goal,
+                        step=step,
+                        result=result,
+                    )
 
                 continue
 

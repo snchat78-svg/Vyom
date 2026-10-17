@@ -508,13 +508,38 @@ class MissionRuntime:
             step["last_error"] = reason
             self.failed_steps += 1
             self.current_step = None
+
+            # The executor reported success, but the postcondition was not
+            # observed. Treat that as a possible completed side effect, not
+            # a normal planning failure. Lock it before a new plan can replay it.
+            fingerprint = self._step_fingerprint(step)
+            digest = (
+                hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+                if isinstance(fingerprint, str)
+                else None
+            )
+            self.replay_lock = {
+                "active": True,
+                "step_id": str(step_id),
+                "category": "outcome_uncertain",
+                "fingerprint_sha256": digest,
+            }
+            self.replan_requested = False
+            self.replan_reason = ""
+            self.mission_state = "blocked"
             self.history.append({
                 "event": "step_completion_rejected",
                 "id": str(step_id),
                 "reason": reason,
                 "verification": self.last_verification,
+                "replay_lock": dict(self.replay_lock),
             })
-            self.request_replan(reason=reason)
+            self.history.append({
+                "event": "mission_blocked_after_unverified_completion",
+                "step_id": str(step_id),
+                "category": "outcome_uncertain",
+                "fingerprint_sha256": digest,
+            })
             return False
 
         # -----------------------------------------------------
