@@ -113,7 +113,16 @@ def main():
     _configure_console()
 
     from command_engine.parser import CommandParser
-    from command_engine.executor import execute
+    import command_engine.executor as command_executor
+    execute = command_executor.execute
+
+    # The durable journal stores only a hashed recovery fingerprint and status,
+    # never the action payload or mission plan. A restored marker blocks actions
+    # until the user explicitly resolves the uncertain outcome.
+    command_executor.autonomous_agent.mission_runtime.configure_default_recovery_journal()
+    recovered_lock = command_executor.autonomous_agent.mission_runtime.snapshot().get("replay_lock") or {}
+    if recovered_lock.get("active") is True:
+        _safe_print("Vyom : A previous action outcome is uncertain. Resolve recovery before starting a new task.")
 
     from voice.voice_controller import VoiceController
 

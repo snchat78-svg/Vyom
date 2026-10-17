@@ -48,6 +48,12 @@ Important:
 
 import hashlib
 import json
+import math
+import os
+import re
+import tempfile
+import time
+from pathlib import Path
 
 from typing import Any, Dict, List, Optional
 
@@ -104,6 +110,12 @@ class MissionRuntime:
         # payloads are not exposed in snapshots/history.
         self.replay_lock: Optional[Dict[str, Any]] = None
 
+        # Persistence is configured only by the desktop entry point. Tests and
+        # embedded callers remain isolated unless they explicitly opt in.
+        self._recovery_journal_path: Optional[Path] = None
+        self._recovery_journal_status = "disabled"
+        self._recovery_restored_after_restart = False
+
         # -----------------------------------------------------
         # CURRENT STEP
         # -----------------------------------------------------
@@ -156,6 +168,217 @@ class MissionRuntime:
         # -----------------------------------------------------
 
         self.blocked_capability = None
+
+    # =========================================================
+    # RECOVERY JOURNAL (M6.5)
+    # =========================================================
+
+    def configure_default_recovery_journal(self) -> str:
+        """Enable a private, per-user recovery marker for the desktop app."""
+        if os.name == "nt":
+            root = os.environ.get("LOCALAPPDATA") or str(
+                Path.home() / "AppData" / "Local"
+            )
+            path = Path(root) / "Vyom" / "recovery_state.json"
+        else:
+            root = os.environ.get("XDG_STATE_HOME") or str(
+                Path.home() / ".local" / "state"
+            )
+            path = Path(root) / "vyom" / "recovery_state.json"
+        return self.configure_recovery_journal(path)
+
+    def configure_recovery_journal(self, path: Any) -> str:
+        """Load a minimal marker; missing/corrupt state is handled fail-closed."""
+        self._recovery_journal_path = Path(path).expanduser()
+        self._recovery_restored_after_restart = False
+
+        if not self._recovery_journal_path.exists():
+            self._recovery_journal_status = "clear"
+            return self._recovery_journal_status
+
+        try:
+            record = json.loads(
+                self._recovery_journal_path.read_text(encoding="utf-8")
+            )
+        except Exception:
+            self._restore_recovery_lock(
+                category="recovery_journal_unreadable",
+                fingerprint_sha256=None,
+            )
+            self._recovery_journal_status = "read_failed"
+            self._persist_replay_lock()
+            return self._recovery_journal_status
+
+        if (
+            isinstance(record, dict)
+            and record.get("schema_version") == 1
+            and record.get("active") is False
+        ):
+            self._recovery_journal_status = "clear"
+            return self._recovery_journal_status
+
+        valid_categories = {
+            "outcome_uncertain",
+            "unknown_outcome",
+            "recovery_journal_unreadable",
+        }
+        category = record.get("category") if isinstance(record, dict) else None
+        fingerprint = (
+            record.get("fingerprint_sha256")
+            if isinstance(record, dict)
+            else None
+        )
+        fingerprint_valid = (
+            fingerprint is None
+            or (
+                isinstance(fingerprint, str)
+                and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None
+            )
+        )
+
+        if not (
+            isinstance(record, dict)
+            and record.get("schema_version") == 1
+            and record.get("active") is True
+            and category in valid_categories
+            and fingerprint_valid
+        ):
+            self._restore_recovery_lock(
+                category="recovery_journal_unreadable",
+                fingerprint_sha256=None,
+            )
+            self._persist_replay_lock()
+            return self._recovery_journal_status
+
+        self._restore_recovery_lock(
+            category=category,
+            fingerprint_sha256=fingerprint,
+        )
+        self._recovery_journal_status = "active"
+        return self._recovery_journal_status
+
+    def _restore_recovery_lock(
+        self,
+        *,
+        category: str,
+        fingerprint_sha256: Optional[str],
+    ) -> None:
+        """Restore a blocker, not a runnable mission; no plan/action is persisted."""
+        self.replay_lock = {
+            "active": True,
+            "step_id": "recovered_after_restart",
+            "category": category,
+            "fingerprint_sha256": fingerprint_sha256,
+            "runtime_record_available": False,
+            "restored_after_restart": True,
+        }
+        self._recovery_restored_after_restart = True
+        self.mission_state = "blocked"
+        self.current_step = None
+        self.last_error = (
+            "A recovery marker survived the previous session. The original "
+            "mission plan was not stored, so retry is unavailable until the "
+            "uncertain state is explicitly resolved."
+        )
+        self.history.append({
+            "event": "recovery_journal_restored",
+            "category": category,
+            "fingerprint_sha256": fingerprint_sha256,
+            "runtime_record_available": False,
+        })
+
+    def _persist_replay_lock(self) -> None:
+        """Atomically persist only metadata needed to keep recovery fail-closed."""
+        path = self._recovery_journal_path
+        lock = self.replay_lock
+        if path is None or not (
+            isinstance(lock, dict) and lock.get("active") is True
+        ):
+            return
+
+        category = str(lock.get("category") or "unknown_outcome")
+        if category not in {
+            "outcome_uncertain",
+            "unknown_outcome",
+            "recovery_journal_unreadable",
+        }:
+            category = "unknown_outcome"
+
+        fingerprint = lock.get("fingerprint_sha256")
+        if not (
+            isinstance(fingerprint, str)
+            and re.fullmatch(r"[0-9a-f]{64}", fingerprint)
+        ):
+            fingerprint = None
+
+        # Intentionally omit step IDs, goals, targets, action names, arguments,
+        # typed text, clipboard contents and the plan itself.
+        record = {
+            "schema_version": 1,
+            "active": True,
+            "category": category,
+            "fingerprint_sha256": fingerprint,
+            "created_at": time.time(),
+        }
+        temporary_path = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=str(path.parent),
+                prefix=".vyom-recovery-",
+                suffix=".tmp",
+                delete=False,
+            ) as stream:
+                temporary_path = stream.name
+                json.dump(
+                    record,
+                    stream,
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.chmod(temporary_path, 0o600)
+            except OSError:
+                # Windows ACLs govern the user's LocalAppData directory.
+                pass
+            os.replace(temporary_path, path)
+            temporary_path = None
+            self._recovery_journal_status = "active"
+        except Exception as error:
+            self._recovery_journal_status = "write_failed"
+            self.history.append({
+                "event": "recovery_journal_write_failed",
+                "error_type": type(error).__name__,
+            })
+        finally:
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except OSError:
+                    pass
+
+    def _clear_recovery_journal(self) -> None:
+        path = self._recovery_journal_path
+        self._recovery_restored_after_restart = False
+        if path is None:
+            self._recovery_journal_status = "disabled"
+            return
+        try:
+            path.unlink(missing_ok=True)
+            self._recovery_journal_status = "clear"
+        except Exception as error:
+            # A stale marker on disk is conservative: it may ask for recovery
+            # again on the next launch, but it can never cause a replay.
+            self._recovery_journal_status = "clear_failed"
+            self.history.append({
+                "event": "recovery_journal_clear_failed",
+                "error_type": type(error).__name__,
+            })
 
     # =========================================================
     # START MISSION
@@ -523,7 +746,10 @@ class MissionRuntime:
                 "step_id": str(step_id),
                 "category": "outcome_uncertain",
                 "fingerprint_sha256": digest,
+                "runtime_record_available": True,
+                "restored_after_restart": False,
             }
+            self._persist_replay_lock()
             self.replan_requested = False
             self.replan_reason = ""
             self.mission_state = "blocked"
@@ -762,7 +988,10 @@ class MissionRuntime:
                     "step_id": str(step_id),
                     "category": category,
                     "fingerprint_sha256": digest,
+                    "runtime_record_available": True,
+                    "restored_after_restart": False,
                 }
+                self._persist_replay_lock()
 
             self.history.append({
                 "event": "mission_blocked_after_failure",
@@ -1028,6 +1257,23 @@ class MissionRuntime:
         allow_replay_after_confirmation: bool = False,
     ) -> bool:
         """Unblock a mission; replay of an uncertain action needs explicit consent."""
+        if (
+            isinstance(self.replay_lock, dict)
+            and self.replay_lock.get("active") is True
+            and self.replay_lock.get("runtime_record_available") is False
+            and allow_replay_after_confirmation is True
+        ):
+            self.last_error = (
+                "Recovery was restored after restart without the original mission record. "
+                "Retry is disabled; resolve the uncertain state or cancel recovery."
+            )
+            self.history.append({
+                "event": "mission_unblock_rejected_missing_runtime_record",
+                "category": self.replay_lock.get("category"),
+                "reason": self.last_error,
+            })
+            return False
+
         if not self.plan:
             return False
 
@@ -1069,6 +1315,7 @@ class MissionRuntime:
                 "fingerprint_sha256": lock.get("fingerprint_sha256"),
             })
             self.replay_lock = None
+            self._clear_recovery_journal()
 
         self.blocked_capability = None
         self.last_error = ""
@@ -1093,6 +1340,7 @@ class MissionRuntime:
 
         lock = dict(self.replay_lock)
         self.replay_lock = None
+        self._clear_recovery_journal()
         self.current_step = None
         self.replan_requested = False
         self.replan_reason = ""
@@ -1260,6 +1508,9 @@ class MissionRuntime:
                 else None
             ),
 
+            "recovery_journal_status": self._recovery_journal_status,
+            "recovery_restored_after_restart": self._recovery_restored_after_restart,
+
             "current_step": (
                 dict(
                     self.current_step
@@ -1363,5 +1614,6 @@ class MissionRuntime:
         self.replan_reason = ""
 
         self.blocked_capability = None
-        # Explicit session reset clears the session-scoped recovery lock.
+        # Explicit session reset clears the in-memory lock and its durable marker.
         self.replay_lock = None
+        self._clear_recovery_journal()

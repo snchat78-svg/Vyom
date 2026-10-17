@@ -1365,6 +1365,20 @@ class AutonomousAgent:
                 "success": False,
             }
 
+        if lock.get("runtime_record_available") is False:
+            return {
+                "handled": True,
+                "kind": "restart_retry_unavailable",
+                "stage": "recovery_confirmation_required",
+                "success": False,
+                "recovery_lock_category": lock.get("category"),
+                "retry_hint": (
+                    "The recovery marker was restored after restart, but the original "
+                    "mission plan was not stored. Retry is disabled; inspect the current "
+                    "state and confirm already happened or cancel recovery."
+                ),
+            }
+
         if kind != "retry":
             return {
                 "handled": True,

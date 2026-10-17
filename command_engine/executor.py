@@ -215,6 +215,58 @@ def _recovery_confirmation_response(command, recovery, metadata=None):
             "ya 'rehne do' (retry ke bina mission stop). Sirf yes/no kaafi nahi hai."
         ),
     }
+    if kind == "restart_retry_unavailable":
+        category = str(
+            recovery.get("recovery_lock_category") or ""
+        )
+        if category == "recovery_journal_unreadable":
+            messages = {
+                "english": (
+                    "Vyom found a recovery marker it could not safely read, so it has paused new actions. "
+                    "Check the current window. Reply 'already happened' only if you independently confirmed it, "
+                    "or 'cancel recovery' to stop without replay. Automatic retry is disabled."
+                ),
+                "hindi": (
+                    "Vyom को recovery marker सुरक्षित रूप से पढ़ने में समस्या मिली है, इसलिए नए actions रोक दिए हैं। "
+                    "वर्तमान window जाँचें। केवल स्वयं पुष्टि करने पर 'हो गया' कहें, या बिना दोबारा चलाए रोकने के लिए "
+                    "'रहने दो' कहें। Automatic retry बंद है।"
+                ),
+                "hinglish": (
+                    "Vyom recovery marker ko safely read nahi kar paya, isliye naye actions pause hain. "
+                    "Current window check karein. Khud confirm kiya ho tabhi 'ho gaya' bolein, ya bina replay ke "
+                    "rokne ke liye 'rehne do' bolein. Automatic retry disabled hai."
+                ),
+            }
+        else:
+            messages = {
+                "english": (
+                    "A recovery marker from the previous Vyom session was found, but the original mission plan "
+                    "was intentionally not stored. Vyom cannot safely retry it after restart. Check the current "
+                    "window, then reply 'already happened' only if confirmed, or 'cancel recovery' to stop without replay."
+                ),
+                "hindi": (
+                    "पिछले Vyom session का recovery marker मिला है, लेकिन सुरक्षा के लिए पुराना mission plan सेव नहीं किया गया था। "
+                    "Restart के बाद Vyom इसे सुरक्षित रूप से retry नहीं कर सकता। Current window जाँचें; पुष्टि होने पर ही "
+                    "'हो गया' कहें, या बिना replay रोकने के लिए 'रहने दो' कहें।"
+                ),
+                "hinglish": (
+                    "Pichhle Vyom session ka recovery marker mila, lekin safety ke liye original mission plan save nahi tha. "
+                    "Restart ke baad Vyom isse safely retry nahi kar sakta. Current window check karein; confirm ho tabhi "
+                    "'ho gaya' bolein, ya bina replay rokne ke liye 'rehne do' bolein."
+                ),
+            }
+        response = _structured_response(
+            messages[language],
+            success=False,
+            stage="recovery_confirmation_required",
+            status="needs_confirmation",
+            result={"requires_user_input": True, "retry_available": False},
+        )
+        response["requires_user_input"] = True
+        response["recovery_options"] = ["already_applied", "cancel"]
+        response["error_category"] = "recovery_restored_after_restart"
+        return response
+
     if kind in {"unclear", "observation_unavailable"}:
         message = prompts[language]
         if kind == "observation_unavailable":
