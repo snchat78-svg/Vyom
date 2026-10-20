@@ -1267,6 +1267,66 @@ catch {
     # SEARCH
     # ========================================================
 
+    def _rank_by_confidence_margin(self, scored, minimum_score, margin=0.055):
+        """Return the top candidate only when its score margin is unambiguous.
+
+        If a distinct runtime-discovered candidate scores within the margin of
+        the leader, return the near-tied candidates together so open asks the
+        user to choose instead of silently launching the first result.
+        """
+        ranked = []
+        for entry in scored or []:
+            if not isinstance(entry, (tuple, list)) or len(entry) != 2:
+                continue
+            try:
+                score = float(entry[0])
+            except (TypeError, ValueError, OverflowError):
+                continue
+            item = entry[1]
+            if not isinstance(item, dict) or not str(item.get("name") or "").strip():
+                continue
+            ranked.append((score, item))
+
+        ranked.sort(key=lambda pair: (
+            -pair[0],
+            self.normalize(pair[1].get("name", "")),
+            str(pair[1].get("path") or "").casefold(),
+        ))
+        if not ranked or ranked[0][0] < float(minimum_score):
+            return []
+
+        top_score, top_item = ranked[0]
+
+        def identity(item):
+            return tuple(
+                str(item.get(key) or "").strip().casefold()
+                for key in ("name", "path", "app_id", "aumid")
+            )
+
+        top_identity = identity(top_item)
+        near_ties = [
+            (score, item)
+            for score, item in ranked[1:]
+            if score >= top_score - float(margin)
+            and identity(item) != top_identity
+        ]
+        if not near_ties:
+            return [top_item]
+
+        candidates = []
+        seen = set()
+        for score, item in ranked:
+            if score < top_score - float(margin):
+                continue
+            key = identity(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(item)
+            if len(candidates) >= self.max_results:
+                break
+        return candidates
+
     def search(
         self,
         target,
@@ -1345,28 +1405,15 @@ catch {
         if exact:
             return exact[:self.max_results]
 
-        # Avoid a full Windows application inventory when a strong quick
-        # candidate already exists. This is important on low-resource
-        # machines: Start Apps/AppX/AppsFolder discovery can spawn large
-        # PowerShell processes and enumerate hundreds of entries.
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        strong = [item for score, item in scored if score >= 0.90]
-        if strong and not force_refresh:
-            return strong[:self.max_results]
-
-        # A high-confidence single quick candidate can be used directly only
-        # when no distinct app name has a similar score. This helps common STT
-        # misspellings without inventing an application alias.
+        # Keep the fast path for confident speech repairs, but never discard
+        # a near-tied candidate just because it falls slightly below 0.90.
+        # Close distinct runtime matches are returned together for selection.
         if scored and not force_refresh:
-            top_score, top_item = scored[0]
-            top_name = self.normalize(top_item.get("name", ""))
-            competing = any(
-                self.normalize(item.get("name", "")) != top_name
-                and score >= top_score - 0.055
-                for score, item in scored[1:]
+            confident_matches = self._rank_by_confidence_margin(
+                scored, minimum_score=0.84, margin=0.055
             )
-            if top_score >= 0.84 and not competing:
-                return [top_item]
+            if confident_matches:
+                return confident_matches[:self.max_results]
 
         # Targeted Program Files discovery comes before the expensive
         # complete AppsFolder/AppX inventory. It is generic and preserves
@@ -1394,13 +1441,11 @@ catch {
                 if score >= 0.62:
                     targeted_scored.append((float(score), app))
 
-            targeted_scored.sort(key=lambda pair: pair[0], reverse=True)
-            strong_targeted = [
-                item for score, item in targeted_scored
-                if score >= 0.82
-            ]
-            if strong_targeted:
-                return strong_targeted[:self.max_results]
+            targeted_matches = self._rank_by_confidence_margin(
+                targeted_scored, minimum_score=0.82, margin=0.055
+            )
+            if targeted_matches:
+                return targeted_matches[:self.max_results]
 
         database = self.build_database(force=force_refresh)
         for app in database:
