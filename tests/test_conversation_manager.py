@@ -17,6 +17,84 @@ def test_conversation_manager_import():
     assert manager.turn_count == 0
     assert manager.get_history() == []
 
+def test_voice_trace_preserves_raw_text_confidence_corrections_and_verification():
+    calls = []
+
+    def executor(command, metadata=None):
+        calls.append((command, metadata))
+        return {
+            "success": True,
+            "status": "success",
+            "stage": "action_verified",
+            "message": "The action completed.",
+            "verification": {"success": True},
+        }
+
+    manager = ConversationManager(executor=executor)
+    metadata = {
+        "voice": {
+            "raw_text": "Open calcuator",
+            "recognized_language": "en-IN",
+            "roman_text": "open calculator",
+            "stt_status": "recognized",
+            "command_confidence": 0.91,
+            "command_corrections": [{
+                "from": "calcuator",
+                "to": "calculator",
+                "score": 0.91,
+                "position": 1,
+            }],
+        }
+    }
+
+    result = manager.process_voice("open calculator", metadata=metadata)
+    trace = result["trace"]
+
+    assert calls[0][0] == "open calculator"
+    assert calls[0][1] == metadata
+    assert trace["raw_transcript"] == "Open calcuator"
+    assert trace["normalized_input"] == "open calculator"
+    assert trace["input_confidence"] == 0.91
+    assert trace["input_confidence_source"] == "command_normalizer"
+    assert trace["corrections"][0]["to"] == "calculator"
+    assert trace["execution"]["stage"] == "action_verified"
+    assert trace["execution"]["verification_status"] == "verified"
+    assert manager.get_history()[-1]["trace"] == trace
+
+
+def test_success_without_explicit_verification_is_not_reported_verified():
+    manager = ConversationManager(executor=lambda command: {
+        "success": True,
+        "status": "success",
+        "stage": "legacy_completed",
+        "message": "Done.",
+    })
+
+    result = manager.process_text("hello")
+    trace = result["trace"]
+
+    assert trace["raw_transcript"] is None
+    assert trace["raw_input"] == "hello"
+    assert trace["normalized_input"] == "hello"
+    assert trace["input_confidence"] is None
+    assert trace["execution"]["success"] is True
+    assert trace["execution"]["verification_status"] == "not_reported"
+
+
+def test_input_trace_history_stays_bounded():
+    manager = ConversationManager(max_history=1, executor=lambda command: {
+        "success": False, "status": "failed", "stage": "test_failure", "message": "No."
+    })
+    manager.process_text("first request")
+    latest = manager.process_text("second request")
+    history = manager.get_history()
+
+    assert len(history) == 1
+    assert history[0]["trace"]["raw_input"] == "second request"
+    assert history[0]["trace"]["execution"]["verification_status"] == "not_reported"
+    assert latest["trace"]["execution"]["stage"] == "test_failure"
+
+
 def test_needs_confirmation_is_a_distinct_conversation_status():
     result = ConversationResult.from_executor_result({
         "success": False,

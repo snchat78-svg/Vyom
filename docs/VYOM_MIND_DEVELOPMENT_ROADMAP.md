@@ -16,6 +16,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - **Gate:** regression suite proves voice/text enter the same executor and that a dispatched action cannot be reported as verified success without evidence.
 
 **Status:** Existing Phase 1–5 work is in the repository; end-to-end acceptance still requires testing on the user's Windows PC.
+**M0.1 progress:** Voice metadata now carries the raw STT transcript, normalized Roman command, recognizer language/status, command-normalizer confidence and bounded correction records into the shared ConversationManager. Each bounded in-memory conversation turn returns a structured trace containing source, input surfaces, corrections, execution status/stage, duration and explicit verification status. Generic execution success is not treated as verified unless verification evidence is present. This trace is in-memory only in this phase; disk-persistent raw-transcript logging is deliberately not added.
+
 
 ## M1 — Noisy speech recovery
 

@@ -33,6 +33,7 @@ class VoiceController:
         self.last_listen_status = ""
         self.last_raw_text = ""
         self.last_voice_language = ""
+        self.last_voice_metadata = {}
 
         self.wake_words = (
             "hey vyom", "हे व्योम", "हे वियोम", "vyom ji", "व्योम जी",
@@ -172,14 +173,12 @@ class VoiceController:
             self.state = "executing"
             self._log("STATE -> EXECUTING")
             voice_metadata = None
-            if self.last_raw_text or self.last_voice_language:
-                voice_metadata = {
-                    "voice": {
-                        "raw_text": self.last_raw_text,
-                        "recognized_language": self.last_voice_language,
-                        "roman_text": command,
-                    }
-                }
+            if self.last_voice_metadata or self.last_raw_text or self.last_voice_language:
+                voice_trace = dict(self.last_voice_metadata or {})
+                voice_trace.setdefault("raw_text", self.last_raw_text)
+                voice_trace.setdefault("recognized_language", self.last_voice_language)
+                voice_trace["roman_text"] = command
+                voice_metadata = {"voice": voice_trace}
             if voice_metadata is not None:
                 try:
                     result = self.conversation_manager.process_voice(
@@ -240,6 +239,24 @@ class VoiceController:
         self.last_listen_status = str(result.get("status", ""))
         self.last_raw_text = str(result.get("raw_text") or "").strip()
         self.last_voice_language = str(result.get("language") or "").strip()
+        # Keep the metadata from this utterance only. Do not let confidence or
+        # corrections from a previous command leak into the next voice turn.
+        self.last_voice_metadata = {
+            "raw_text": self.last_raw_text,
+            "recognized_language": self.last_voice_language,
+            "roman_text": roman_text,
+            "stt_status": self.last_listen_status,
+        }
+        if isinstance(result.get("command_confidence"), (int, float)):
+            self.last_voice_metadata["command_confidence"] = result.get("command_confidence")
+        corrections = result.get("command_corrections")
+        self.last_voice_metadata["command_corrections"] = (
+            list(corrections[:16]) if isinstance(corrections, list) else []
+        )
+        alternatives = result.get("alternatives")
+        self.last_voice_metadata["transcription_alternatives_count"] = (
+            min(len(alternatives), 16) if isinstance(alternatives, list) else 0
+        )
         self._log("STT listen_once returned: status=%s success=%s text_length=%d" % (
             self.last_listen_status, bool(result.get("success")), len(str(result.get("text", "") or ""))
         ))
