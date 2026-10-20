@@ -182,8 +182,8 @@ class ToolManager:
 
                 name = str(
                     item.get(
-                        "name",
-                        ""
+                        "display_name",
+                        item.get("name", "")
                     )
                 ).strip()
 

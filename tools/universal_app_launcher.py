@@ -162,6 +162,9 @@ class UniversalAppLauncher:
 
         self._cache = []
         self._cache_time = 0
+        # Populated only when the direct AppsFolder fallback finds multiple
+        # exact-name entries; callers must surface these as a selection.
+        self._last_appsfolder_matches = []
 
         # Cache for 60 seconds
         self.cache_seconds = 60
@@ -1757,90 +1760,57 @@ catch {
     #   4. Launch through explorer.exe
     # ========================================================
 
-    def open_appsfolder_by_name(
-        self,
-        target
-    ):
-
+    def _find_appsfolder_candidates_by_name(self, target):
+        """Return all exact-name AppsFolder entries without launching any."""
         if not self.is_windows():
+            return []
 
-            return False
-
-        target = self.clean_target(
-            target
-        )
-
+        target = self.clean_target(target)
         if not target:
+            return []
 
-            return False
-
-        safe_target = target.replace(
-            "'",
-            "''"
-        )
-
+        safe_target = target.replace("'", "''")
         script = r"""
 $ErrorActionPreference = "SilentlyContinue"
-
 $target = '__TARGET__'
+$matches = @()
 
 try {
-
     $shell = New-Object -ComObject Shell.Application
-
     $folder = $shell.Namespace(
         "shell:::{4234d49b-0245-4df3-b780-3893943456e1}"
     )
-
-    if ($folder -eq $null) {
-
-        exit 2
-    }
-
-    foreach ($item in $folder.Items()) {
-
-        try {
-
-            $name = [string]$item.Name
-            $path = [string]$item.Path
-
-            if (
-                $name -and
-                $name.Equals(
-                    $target,
-                    [System.StringComparison]::OrdinalIgnoreCase
-                )
-            ) {
-
-                if ($path) {
-
-                    Write-Output $path
-
-                    exit 0
+    if ($folder -ne $null) {
+        foreach ($item in $folder.Items()) {
+            try {
+                $name = [string]$item.Name
+                $path = [string]$item.Path
+                if (
+                    $name -and $path -and
+                    $name.Equals(
+                        $target,
+                        [System.StringComparison]::OrdinalIgnoreCase
+                    )
+                ) {
+                    $matches += [PSCustomObject]@{
+                        Name = $name
+                        Path = $path
+                    }
                 }
-            }
-
-        }
-        catch {
-
+            } catch {}
         }
     }
+} catch {}
 
+foreach ($match in $matches) {
+    Write-Output ("MATCH" + [char]9 + $match.Name + [char]9 + $match.Path)
 }
-catch {
-
-}
-
+if ($matches.Count -gt 0) { exit 0 }
 exit 3
 """
-
-        script = script.replace(
-            "__TARGET__",
-            safe_target
-        )
+        script = script.replace("__TARGET__", safe_target)
 
         try:
-
             process = subprocess.Popen(
                 [
                     "powershell.exe",
@@ -1849,67 +1819,82 @@ exit 3
                     "-ExecutionPolicy",
                     "Bypass",
                     "-Command",
-                    script
+                    script,
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                universal_newlines=True
+                universal_newlines=True,
             )
-
-            stdout, stderr = process.communicate(
-                timeout=4
-            )
-
-            if process.returncode != 0:
-
-                return False
-
-            app_path = ""
-
-            for line in stdout.splitlines():
-
-                line = line.strip()
-
-                if line:
-
-                    app_path = line
-
-                    break
-
-            if not app_path:
-
-                return False
-
-            prefix = "shell:AppsFolder\\"
-
-            if app_path.lower().startswith(
-                prefix.lower()
-            ):
-
-                app_id = app_path[
-                    len(prefix):
-                ]
-
-                return self.open_by_aumid(
-                    app_id
-                )
-
-            if "!" in app_path:
-
-                return self.open_by_aumid(
-                    app_path
-                )
-
-            return self.open_normal_path(
-                app_path
-            )
-
+            stdout, _ = process.communicate(timeout=4)
+            if process.returncode not in (0, None):
+                return []
         except Exception:
             self._stop_child_process(locals().get("process"))
+            return []
+
+        prefix = "shell:AppsFolder\\"
+        results = []
+        seen = set()
+        for line in str(stdout or "").splitlines():
+            if not line.startswith("MATCH\\t"):
+                continue
+            parts = line.split("\\t", 2)
+            if len(parts) != 3:
+                continue
+            name = parts[1].strip()
+            path = parts[2].strip()
+            if not name or not path:
+                continue
+            identity = (name.casefold(), path.casefold())
+            if identity in seen:
+                continue
+            seen.add(identity)
+            app_id = path[len(prefix):] if path.lower().startswith(prefix.lower()) else ""
+            results.append({
+                "name": name,
+                "path": path,
+                "app_id": app_id,
+                "aumid": app_id if "!" in app_id else "",
+                "type": "appsfolder",
+            })
+
+        if len(results) > 1:
+            for item in results:
+                app_id = str(item.get("app_id") or item.get("path") or "").strip()
+                item["type"] = "AppsFolder: " + app_id[-90:]
+        return results[:self.max_results]
+
+    def open_appsfolder_by_name(self, target):
+        """Open only a unique exact-name AppsFolder match."""
+        self._last_appsfolder_matches = []
+        target = self.clean_target(target)
+        if not target:
             return False
 
+        matches = self._find_appsfolder_candidates_by_name(target)
+        if not matches:
+            return False
+        if len(matches) > 1:
+            # Ambiguous exact labels must return to the caller for selection.
+            self._last_appsfolder_matches = matches
+            return False
 
-           # ========================================================
+        app_path = str(matches[0].get("path") or "").strip()
+        if not app_path:
+            return False
+
+        prefix = "shell:AppsFolder\\"
+        if app_path.lower().startswith(prefix.lower()):
+            app_id = app_path[len(prefix):]
+            return self.open_by_aumid(app_id)
+
+        if "!" in app_path:
+            return self.open_by_aumid(app_path)
+
+        return self.open_normal_path(app_path)
+
+
+    # ========================================================
     # OPEN BY AUMID / APPID
     #
     # Windows 8 / 8.1 / 10 / 11
@@ -2172,6 +2157,9 @@ exit 3
 
                     return True
 
+                if self._last_appsfolder_matches:
+                    return False
+
         # ----------------------------------------------------
         # 5. FINAL NORMAL PATH FALLBACK
         # ----------------------------------------------------
@@ -2196,10 +2184,32 @@ exit 3
 
                 return True
 
+            if self._last_appsfolder_matches:
+                return False
+
         return False
     # ========================================================
     # OPEN
     # ========================================================
+
+    def _appsfolder_ambiguity_response(self, target):
+        matches = list(self._last_appsfolder_matches or [])
+        if len(matches) < 2:
+            return None
+
+        lines = ["Multiple Windows apps found for '{}':".format(target), ""]
+        for index, item in enumerate(matches, start=1):
+            name = str(item.get("name") or "Unknown").strip()
+            identity = str(item.get("type") or "").strip()
+            label = "{} [{}]".format(name, identity) if identity else name
+            lines.append("{}. {}".format(index, label))
+        lines.extend(["", "Please select a number."])
+        return {
+            "success": False,
+            "message": "\\n".join(lines),
+            "results": matches,
+            "suggestions": [],
+        }
 
     def open(
         self,
@@ -2207,6 +2217,7 @@ exit 3
         force_refresh=False
     ):
 
+        self._last_appsfolder_matches = []
         target = self.clean_target(
             target
         )
@@ -2278,6 +2289,9 @@ exit 3
                     ],
                     "suggestions": []
                 }
+
+            if self._last_appsfolder_matches:
+                return self._appsfolder_ambiguity_response(target)
 
             # Do not immediately repeat the full Windows application
             # inventory after a launch attempt fails. open_record already
@@ -2363,6 +2377,8 @@ exit 3
                     "results": [],
                     "suggestions": []
                 }
+            if self._last_appsfolder_matches:
+                return self._appsfolder_ambiguity_response(target)
 
         # ----------------------------------------------------
         # SPELLING SUGGESTIONS
