@@ -20,6 +20,7 @@ This file is the hand-off record across conversations. The repository code and C
 - M0.4 routes typed and spoken turns through the same `ConversationManager` instance. The former direct text-to-executor bypass is covered by `tests/test_m0_4_shared_frontend.py`.
 - M0 exit-gate audit implementation: `b92d277ebdb5a9bb49469612e4388b1979ff044c`, [CI run 39401980752](https://github.com/snchat78-svg/Vyom/actions/runs/39401980752) succeeded for the exact SHA. The full suite passed; Windows EXE build, verification, and artifact upload succeeded. The change added bounded payload-free mission plan topology and tested text/voice executor and verification parity.
 - M0.1–M0.4 and the M0 automated exit gate are implemented and CI-tested. Real Windows, microphone, and cross-app interaction checks remain external validation.
+- M1 payload-preservation repair is the current patch in CI: `voice/command_normalizer.py` now avoids changing target/payload words after recognized command markers; added tests cover `type khol`, `open khol`, and a compound command whose next segment still normalizes. Do not mark M1 complete from this patch alone; ambiguity/margin acceptance and real audio remain outstanding.
 
 ## Phase matrix
 
@@ -30,7 +31,7 @@ This file is the hand-off record across conversations. The repository code and C
 | M0.2 pipeline trace | `command_engine/executor.py`, `ai_core/conversation_manager.py`; trace ID, intent/route, compact goal-compilation/mission/context summaries and privacy tests | Implemented + CI tested | Observation events linked to the same trace |
 | M0.3 observation correlation | Same-turn timestamped observations linked to trace ID; payload-free event summaries and no-observation state; validated by run 39399731304 | Implemented + CI tested | Real Windows observation behavior remains part of integration validation |
 | M0.4 shared frontend | `ai_core/main.py`, `voice/voice_controller.py` and `tests/test_m0_4_shared_frontend.py`; same manager handles typed and spoken turns | Implemented + CI tested (run 39400224264) | Real Windows interactive acceptance remains pending |
-| M1 noisy speech | `voice/command_normalizer.py` and its typo/ambiguity tests | Foundation + CI tests | Representative real microphone/accent benchmark |
+| M1 noisy speech | `voice/command_normalizer.py`; current audit confines action correction to command boundaries and protects target/payload suffixes | First payload-preservation fix added; exact-commit CI pending | Tied target-candidate clarification, complete typo/ambiguity regression audit, and real microphone/accent benchmark |
 | M2 meaning/intent | `command_engine/intent.py`, `ai_core/meaning_intent_engine.py` and ambiguity/context tests | Foundation + CI tests | Paraphrase/noisy voice validation, ask instead of guessing |
 | M3 complex planning | `ai_core/goal_compiler.py`, `ai_core/mission_planner.py`, dependency-validation tests | Foundation + CI tests | Real multi-step Windows acceptance |
 | M4 world state | M4.1–M4.6 documented in roadmap; `ai_core/world_state.py`, `tests/test_phase4_world_state.py` | Implemented automated guards; platform validation pending | Fresh active-window/focus behavior on user's Windows PC |
@@ -43,4 +44,4 @@ This file is the hand-off record across conversations. The repository code and C
 
 ## Current phase hand-off
 
-M0.1–M0.4 and the automated M0 exit gate are complete; source commit `b92d277ebdb5a9bb49469612e4388b1979ff044c` passed exact-SHA CI run 39401980752. Do not repeat any M0 trace, observer, or frontend work. Next task: M1 acceptance audit—inspect `voice/command_normalizer.py` and existing tests for command-boundary typo repair, dynamic target candidates, tied-match clarification, and unchanged user payload. Only implement the first actual unmet M1 acceptance item; real microphone/accent benchmark and desktop interaction remain external platform checks.
+M0.1–M0.4 and the automated M0 exit gate are complete; source commit `b92d277ebdb5a9bb49469612e4388b1979ff044c` passed exact-SHA CI run 39401980752. Do not repeat M0. The M1 payload-preservation patch in this checkpoint fixes a demonstrated risk: Hindi action aliases no longer rewrite words inside explicit target/payload suffixes, while command markers after connectors remain normalizable. Its CI result is pending. If green, the next M1 task is to audit runtime target-candidate confidence/margin and tied-match clarification without recreating the existing MeaningIntentEngine/resolver logic. Real microphone/accent and desktop interaction remain external platform checks.

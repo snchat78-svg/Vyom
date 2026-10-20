@@ -41,7 +41,7 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Ambiguous matches remain unresolved and must be clarified, not guessed.
 - **Gate:** misspelled leading/trailing operation tokens recover; dynamic target candidate can recover a clear typo; tied candidates remain unchanged and require clarification; user payload remains unchanged.
 
-**Status:** The recovery unit-test gate is implemented in CI. Real microphone/accent testing on Windows remains necessary.
+**M1 audit finding — payload-protection fix awaiting CI:** The existing Hindi-action pass rewrote action-looking words anywhere in an utterance, so literal payloads such as `type khol` and target text after `open` could be changed. The normalizer now only rewrites Hindi action phrases at command/trailing boundaries and protects the target/payload suffix of each recognized command segment; a later segment after a connector can still be normalized. New regression cases cover type/write/search payloads, open/close targets, unchanged arbitrary text, compound-command boundaries, and trailing Hindi action syntax. M1 remains incomplete until exact-commit CI passes and the remaining candidate-ambiguity criteria are audited. Real microphone/accent testing on Windows remains necessary.
 
 ## M2 — Meaning and intent hypotheses
 
