@@ -213,7 +213,9 @@ def test_empty_input_returns_trace_without_calling_executor():
     assert result["status"] == "needs_clarification"
     assert result["trace"]["trace_id"]
     assert result["trace"]["execution"]["status"] == "needs_clarification"
-    assert result["trace"]["pipeline"] == {}
+    assert result["trace"]["pipeline"] == {"trace_id": result["trace"]["trace_id"]}
+    assert "intent" not in result["trace"]["pipeline"]
+    assert "route" not in result["trace"]["pipeline"]
     assert calls == []
 
 
