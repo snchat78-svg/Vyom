@@ -29,7 +29,7 @@ class ActionRiskPolicy:
         r"bhejo|bhejna|bhej do|jama karo|kharido|khareedo|paise transfer|paise bhejo|bhugtan|bhugtan karo|"
         r"डिलीट|हटाओ|हटाना|हटा दो|हटाएं|हटाएँ|मिटाओ|मिटाना|मिटा दो|भेजो|भेजना|भेज दो|"
         r"जमा करो|खरीदो|खरीदना|भुगतान|भुगतान करो|पैसे ट्रांसफर|पैसे भेजो|रकम भेजो|"
-        r"खाता बंद|पासवर्ड बदलो|फैक्टरी रीसेट|फॉर्मैट ड्राइव|प्रकाशित करो|पब्लिश करो|सबमिट करो)\b",
+        r"खाता बंद|पासवर्ड बदलो|फैक्टरी रीसेट|फॉर्मैट ड्राइव|प्रकाशित करो|पब्लिश करो|सबमिट करो)(?=$|\W)",
         re.IGNORECASE,
     )
     _TARGET_PATTERN = re.compile(
@@ -38,7 +38,7 @@ class ActionRiskPolicy:
         r"change password|grant access|revoke access|share publicly|charge card|"
         r"hatao|hatana|hata do|mitao|mita do|bhejo|bhej do|"
         r"डिलीट|हटाओ|हटाना|हटा दो|हटाएं|हटाएँ|मिटाओ|मिटाना|मिटा दो|भेजो|भेजना|भेज दो|"
-        r"भुगतान|भुगतान करो|खाता बंद|पासवर्ड बदलो|प्रकाशित करो|पब्लिश करो|सबमिट|ट्रांसफर करो)\b",
+        r"भुगतान|भुगतान करो|खाता बंद|पासवर्ड बदलो|प्रकाशित करो|पब्लिश करो|सबमिट|ट्रांसफर करो)(?=$|\W)",
         re.IGNORECASE,
     )
 

@@ -94,12 +94,13 @@ class ActionRiskPolicyTests(unittest.TestCase):
             {"id": "account_hindi", "type": "action", "action": "click_ui_element", "target": "खाता बंद करें"},
             {"id": "payment_hindi", "type": "action", "action": "भुगतान करो", "target": "बिल"},
             {"id": "publish_hindi", "type": "action", "action": "click_ui_element", "target": "प्रकाशित करो"},
+            {"id": "remove_hindi", "type": "action", "action": "click_ui_element", "target": "हटाओ"},
         ]
 
         result = ActionRiskPolicy.assess_plan(plan)
 
         self.assertTrue(result["requires_confirmation"])
-        self.assertEqual(result["step_ids"], ["delete_hindi", "account_hindi", "payment_hindi", "publish_hindi"])
+        self.assertEqual(result["step_ids"], ["delete_hindi", "account_hindi", "payment_hindi", "publish_hindi", "remove_hindi"])
     def test_schema_rejects_malformed_risk_contracts(self):
         with self.assertRaises(ActionSchemaError):
             ActionSchema(action="delete_file", capability="file_manager", risk_level="unknown")
