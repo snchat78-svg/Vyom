@@ -856,6 +856,26 @@ class ReasoningEngine:
             self.last_route = route
             return route
 
+        # Terminal semantic decisions outrank every executable candidate.
+        # Do this before considering model or contextual plans, otherwise a
+        # stale/parallel planner result could reintroduce an action after the
+        # local semantic brain explicitly asked the user to clarify.
+        if isinstance(deep, dict) and str(deep.get("route") or "").strip().lower() in {
+            "conversation", "clarification",
+        }:
+            deep_route = str(deep.get("route") or "").strip().lower()
+            route = {
+                "route": "conversation",
+                "reason": deep.get(
+                    "reason",
+                    "The task requires clarification."
+                    if deep_route == "clarification"
+                    else "The task requires conversation."
+                ),
+            }
+            self.last_route = route
+            return route
+
         model_ordered_plan = analysis.get("model_ordered_plan", [])
         if isinstance(model_ordered_plan, list) and model_ordered_plan:
             plan_types = {str(item.get("type", "")).strip().lower() for item in model_ordered_plan if isinstance(item, dict)}
@@ -990,19 +1010,6 @@ class ReasoningEngine:
             self.last_route = route
             return route
 
-        if isinstance(deep, dict) and deep.get("route") in {"conversation", "clarification"}:
-            route = {
-                "route": "conversation",
-                "reason": deep.get(
-                    "reason",
-                    "The task requires clarification."
-                    if deep.get("route") == "clarification"
-                    else "The task requires conversation."
-                )
-            }
-            self.last_route = route
-            return route
-
         if isinstance(deep, dict) and deep.get("route") == "capability":
             route = {
                 "route": "capability",
@@ -1050,6 +1057,13 @@ class ReasoningEngine:
             if isinstance(route, dict)
             else "stop"
         )
+
+        if route_name in {"conversation", "clarification", "stop", "exit_session"}:
+            # A terminal route must never inherit a contextual/model plan.
+            # This guard is independent of decide_route so alternate callers
+            # cannot accidentally turn a clarification back into execution.
+            self.last_plan = []
+            return []
 
         goal = analysis.get("goal", "")
         suggested = analysis.get("suggested_intents", [])

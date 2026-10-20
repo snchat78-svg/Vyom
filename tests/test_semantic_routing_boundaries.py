@@ -96,3 +96,48 @@ def test_deep_reasoner_question_classifier_is_language_only():
     assert reasoner._looks_like_information_question("tumhara naam kya hai")
     assert reasoner._looks_like_information_question("bharat men kitane rajy hain")
     assert not reasoner._looks_like_information_question("number 1 open karo")
+
+
+def test_terminal_semantic_clarification_outranks_and_discards_existing_plans():
+    engine = ReasoningEngine()
+    analysis = {
+        "understood": True,
+        "information_question": False,
+        "suggested_intents": [],
+        "capabilities": [],
+        "deep_reasoning": {
+            "route": "conversation",
+            "semantic_route": "clarification",
+            "reason": "Low-confidence action needs clarification.",
+        },
+        "model_ordered_plan": [{
+            "type": "action",
+            "action": "click_ui_element",
+            "target": "Save",
+            "args": {},
+        }],
+        "contextual_plan": [{
+            "type": "action",
+            "action": "click_ui_element",
+            "target": "Save",
+            "args": {},
+        }],
+        "contextual_plan_complete": True,
+        "contextual_clarification": None,
+        "contextual_capability_resolutions": [{"resolved": True, "capability": "windows_ui"}],
+        "model_generic_capability_resolutions": [{"resolved": True, "capability": "windows_ui"}],
+        "generic_actions": [{
+            "action": "click_ui_element",
+            "target": "Save",
+            "args": {},
+            "capability": "windows_ui",
+        }],
+    }
+
+    route = engine.decide_route(analysis)
+    plan = engine.create_plan(analysis, route)
+
+    assert route["route"] == "conversation"
+    assert "clarification" in route["reason"].lower() or "confidence" in route["reason"].lower()
+    assert plan == []
+
