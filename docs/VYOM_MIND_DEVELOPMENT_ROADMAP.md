@@ -63,7 +63,7 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M2 UI target preservation — CI verified:** Commit `d40edb47ebc0be055c7a3b337661e70dcf80f11a` passed exact-SHA [CI run 39405929075](https://github.com/snchat78-svg/Vyom/actions/runs/39405929075). The meaning frame preserves explicit non-placeholder targets such as `click Save`; tests cover payload/constraint separation, competing alternatives and paraphrase parity.
 
-**M2 confidence/hypothesis matrix — implementation added, CI pending:** A configurable confidence floor (default 0.65) keeps low-confidence or malformed-confidence action frames unresolved instead of marking the hypothesis selected. Tests cover below/at-threshold behavior, invalid/non-finite scores, and the unresolved-hypothesis schema. This is only a semantic-frame guard; shared dispatch-boundary integration is still required before claiming low-confidence live actions are blocked. Real Windows and noisy-voice validation remain external.
+**M2 confidence/hypothesis matrix — CI verified:** Commit `d0dd7910c32169f1884759254e47b969c38429c8` passed exact-SHA [CI run 39415383368](https://github.com/snchat78-svg/Vyom/actions/runs/39415383368): full tests, syntax/import checks, Windows EXE build and verification, and artifact upload. A configurable confidence floor (default 0.65) keeps low-confidence or malformed-confidence action frames unresolved instead of marking the hypothesis selected. This remains a semantic-frame guard only; shared dispatch-boundary integration is the next M2 task. Real Windows and noisy-voice validation remain external.
 
 ## M3 — Complex goal decomposition and planning
 
