@@ -34,7 +34,7 @@ class ActionRiskPolicyTests(unittest.TestCase):
         self.assertTrue(result["requires_confirmation"])
         self.assertEqual(result["risk_level"], "high")
         self.assertEqual(result["step_ids"], ["delete", "send", "click", "submit", "transfer"])
-        self.assertIn("delete_file", result["summary"])
+        self.assertIn("delete file", result["summary"])
         self.assertNotIn("args", result["summary"])
 
     def test_typed_payload_is_not_mistaken_for_an_action(self):
