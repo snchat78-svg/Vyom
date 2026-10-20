@@ -14,11 +14,11 @@ This file is the hand-off record across conversations. The repository code and C
 ## Checkpoint snapshot
 
 - Branch: `updated`
-- Last verified implementation checkpoint: `3feb985aad0fe5c6c31c1be6189b7363f6a0d616`
-- CI evidence for that checkpoint: [run 39399731304](https://github.com/snchat78-svg/Vyom/actions/runs/39399731304), successful; 299 passed, 12 subtests passed; Windows `Vyom.exe` built, verified and uploaded.
-- M0.3 is implemented + CI tested at that checkpoint. It reuses the existing M4 WorldState history and M5/M6 verification output; do not rebuild observers or verifiers.
-- New gap found by audit: `ai_core/main.py` sent typed input straight to `execute`, while voice used `ConversationManager`; text therefore skipped the bounded conversation turn/trace path. M0.4 routes both through the same manager instance.
-- M0.4 is the current candidate in this checkpoint; read the newest workflow for the exact current branch SHA before deciding it is accepted. If green, do not reimplement M0.4; continue to the M0 exit-gate audit. If failed, fix only the failing regression.
+- Verified M0.3 implementation: `3feb985aad0fe5c6c31c1be6189b7363f6a0d616`, [CI run 39399731304](https://github.com/snchat78-svg/Vyom/actions/runs/39399731304) succeeded with 299 passed and 12 subtests; EXE build/upload succeeded.
+- Verified M0.4 implementation: `a499f3e61a30b7a5afb4ed3aacba47406c7fe06b`, [CI run 39400224264](https://github.com/snchat78-svg/Vyom/actions/runs/39400224264) succeeded with 300 passed and 12 subtests; Windows `Vyom.exe` built, verified and uploaded.
+- M0.3 reuses existing M4 WorldState history and M5/M6 verification output; do not rebuild observers/verifiers.
+- M0.4 routes typed and spoken turns through the same `ConversationManager` instance. The former direct text-to-executor bypass is covered by `tests/test_m0_4_shared_frontend.py`.
+- M0.1–M0.4 are implemented and CI-tested at the listed source commits. The next task is an **M0 exit-gate audit only**, not another trace/pipeline implementation. Read the newest workflow for the exact current branch SHA first.
 
 ## Phase matrix
 
@@ -28,7 +28,7 @@ This file is the hand-off record across conversations. The repository code and C
 | M0.1 input trace | `voice/voice_controller.py`, `ai_core/conversation_manager.py`, `tests/test_conversation_manager.py`; raw STT text, normalized input, confidence, corrections, result stage and verification status | Implemented + CI tested | Real Windows microphone/voice round-trip |
 | M0.2 pipeline trace | `command_engine/executor.py`, `ai_core/conversation_manager.py`; trace ID, intent/route, compact goal-compilation/mission/context summaries and privacy tests | Implemented + CI tested | Observation events linked to the same trace |
 | M0.3 observation correlation | Same-turn timestamped observations linked to trace ID; payload-free event summaries and no-observation state; validated by run 39399731304 | Implemented + CI tested | Real Windows observation behavior remains part of integration validation |
-| M0.4 shared frontend | `ai_core/main.py` and `voice/voice_controller.py`; the same ConversationManager handles typed and spoken turns | Candidate implementation; CI pending for current commit | One shared manager/trace path; no direct text-to-executor bypass; regression test |
+| M0.4 shared frontend | `ai_core/main.py`, `voice/voice_controller.py` and `tests/test_m0_4_shared_frontend.py`; same manager handles typed and spoken turns | Implemented + CI tested (run 39400224264) | Real Windows interactive acceptance remains pending |
 | M1 noisy speech | `voice/command_normalizer.py` and its typo/ambiguity tests | Foundation + CI tests | Representative real microphone/accent benchmark |
 | M2 meaning/intent | `command_engine/intent.py`, `ai_core/meaning_intent_engine.py` and ambiguity/context tests | Foundation + CI tests | Paraphrase/noisy voice validation, ask instead of guessing |
 | M3 complex planning | `ai_core/goal_compiler.py`, `ai_core/mission_planner.py`, dependency-validation tests | Foundation + CI tests | Real multi-step Windows acceptance |
@@ -42,4 +42,4 @@ This file is the hand-off record across conversations. The repository code and C
 
 ## Current phase hand-off
 
-M0.3 is complete at commit `3feb985` with green CI. M0.4 is the current candidate: typed input now shares the exact ConversationManager instance used by voice, closing a gap discovered during source audit. Check the latest workflow for the current branch head. If green, move to the M0 exit-gate audit (voice/text executor parity and verified-success contract) without reimplementing M0.1–M0.4. If red, fix only the failing tests/code.
+M0.1–M0.4 are implemented and CI-tested at the source commits recorded above. The next task is the M0 exit-gate audit: compare each M0 acceptance bullet against existing source/tests, especially shared executor parity and the rule that an action must not be reported as verified without evidence. Do not implement another trace/observer or redo M0.1–M0.4. If automated gates are complete, record the remaining external Windows/microphone checks as platform validation—not as missing code.
