@@ -8,6 +8,7 @@ for clarification before dispatching a plan.
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -37,6 +38,21 @@ class MeaningIntentEngine:
         "", "focused_element", "active_window", "current_window",
         "current_app", "current_target", "selection",
     }
+    DEFAULT_MINIMUM_CONFIDENCE = 0.65
+
+    def __init__(self, minimum_confidence: float = DEFAULT_MINIMUM_CONFIDENCE):
+        """Set the confidence floor for treating one planned action as selected.
+
+        Confidence calibration belongs to the benchmark, not to an assumed
+        universal probability scale. Invalid configuration uses the default.
+        """
+        try:
+            threshold = float(minimum_confidence)
+        except (TypeError, ValueError, OverflowError):
+            threshold = self.DEFAULT_MINIMUM_CONFIDENCE
+        if not math.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+            threshold = self.DEFAULT_MINIMUM_CONFIDENCE
+        self.minimum_confidence = threshold
 
     @staticmethod
     def _text(value: Any, limit: int = 500) -> str:
@@ -168,8 +184,12 @@ class MeaningIntentEngine:
                     value = self._text(candidate.get("value"), 300)
                     if value:
                         try:
-                            candidate_confidence = max(0.0, min(1.0, float(candidate.get("confidence", 0.0) or 0.0)))
-                        except (TypeError, ValueError):
+                            candidate_confidence = float(candidate.get("confidence", 0.0) or 0.0)
+                            if not math.isfinite(candidate_confidence):
+                                candidate_confidence = 0.0
+                            else:
+                                candidate_confidence = max(0.0, min(1.0, candidate_confidence))
+                        except (TypeError, ValueError, OverflowError):
                             candidate_confidence = 0.0
                         target_alternatives.append({
                             "target": value,
@@ -200,11 +220,19 @@ class MeaningIntentEngine:
 
         references = self._references(raw)
         try:
-            confidence = max(0.0, min(1.0, float(result.get("confidence", 0.0))))
-        except (TypeError, ValueError):
+            confidence = float(result.get("confidence", 0.0))
+            if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+                confidence = 0.0
+        except (TypeError, ValueError, OverflowError):
             confidence = 0.0
 
-        requires_clarification = bool(ambiguities) or route == "clarification"
+        # A syntactically valid plan is not enough to select one interpretation.
+        # Low/invalid confidence keeps the semantic frame unresolved; the later
+        # shared dispatch-boundary integration must enforce this before acting.
+        low_confidence_action = bool(steps) and confidence < self.minimum_confidence
+        requires_clarification = (
+            bool(ambiguities) or route == "clarification" or low_confidence_action
+        )
         if requires_clarification:
             task_kind = "clarification"
             desired_result = "Resolve ambiguity before dispatching any action."
@@ -235,13 +263,20 @@ class MeaningIntentEngine:
                     "confidence": alternative["confidence"],
                     "status": "competing_target",
                 })
-        elif operations or task_kind == "answer_question":
+        elif operations or task_kind == "answer_question" or requires_clarification:
+            # Keep the plausible action visible as an unresolved hypothesis for
+            # diagnostics/clarification, never as a selected interpretation.
+            hypothesis_kind = (
+                "computer_action" if steps else
+                "answer_question" if route == "conversation" else
+                "unresolved"
+            )
             hypotheses.append({
-                "task_kind": task_kind,
+                "task_kind": hypothesis_kind,
                 "operations": list(operations),
                 "targets": list(targets),
                 "confidence": round(confidence, 4),
-                "status": "selected" if not requires_clarification else "unresolved",
+                "status": "unresolved" if requires_clarification else "selected",
             })
 
         return {
