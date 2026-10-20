@@ -75,6 +75,16 @@ class VoiceCommandNormalizationTests(unittest.TestCase):
         self.assertEqual(result["text"], "notepad open")
         self.assertEqual(result["corrections"][0]["from"], "kholo")
 
+    def test_unknown_target_from_prior_turn_does_not_become_a_learned_alias(self):
+        normalizer = VoiceCommandNormalizer()
+
+        first = normalizer.normalize("open calclulator")
+        second = normalizer.normalize("calclulator")
+
+        self.assertEqual(first["text"], "open calclulator")
+        self.assertEqual(second["text"], "calclulator")
+        self.assertEqual(second["corrections"], [])
+
     def test_low_similarity_word_is_not_forced_into_command(self):
         normalizer = VoiceCommandNormalizer(min_similarity=0.80)
         result = normalizer.normalize("cloze myfile")
