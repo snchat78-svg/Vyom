@@ -4,6 +4,7 @@ from ai_core.action_risk_policy import ActionRiskPolicy
 from ai_core.action_schema import ActionSchema, ActionSchemaError
 from ai_core.action_validator import ActionValidator
 from ai_core.autonomous_agent import AutonomousAgent
+from command_engine import executor
 
 
 def _risky_plan():
@@ -149,6 +150,55 @@ class ActionRiskPolicyTests(unittest.TestCase):
         self.assertEqual(result["stage"], "action_confirmation_cancelled")
         self.assertIsNone(agent.pending_action_confirmation)
         self.assertEqual(starts, [])
+
+
+    def test_text_frontend_confirm_reply_reaches_pending_mission(self, monkeypatch):
+        agent = AutonomousAgent(max_steps=3)
+        agent._run_mission(
+            goal="delete report.csv",
+            plan=_risky_plan(),
+            intent=None,
+            analysis={"goal": "delete report.csv"},
+            compilation={},
+            route={"route": "mission"},
+        )
+        calls = []
+
+        def resume_pending(**kwargs):
+            calls.append(kwargs)
+            return {"success": True, "stage": "confirmation_frontend_test", "message": "Confirmed."}
+
+        agent._run_mission = resume_pending
+        monkeypatch.setattr(executor, "autonomous_agent", agent)
+
+        result = executor.execute("confirm action")
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["goal"], "delete report.csv")
+        self.assertTrue(calls[0]["pre_dispatch_confirmed"])
+        self.assertEqual(result["stage"], "confirmation_frontend_test")
+        self.assertTrue(result["success"])
+        self.assertIsNone(agent.pending_action_confirmation)
+
+    def test_text_frontend_cancel_reply_discards_pending_mission(self, monkeypatch):
+        agent = AutonomousAgent(max_steps=3)
+        starts = []
+        agent.mission_runtime.start = lambda *args, **kwargs: starts.append((args, kwargs))
+        agent._run_mission(
+            goal="delete report.csv",
+            plan=_risky_plan(),
+            intent=None,
+            analysis={"goal": "delete report.csv"},
+            compilation={},
+            route={"route": "mission"},
+        )
+        monkeypatch.setattr(executor, "autonomous_agent", agent)
+
+        result = executor.execute("cancel action")
+
+        self.assertEqual(result["stage"], "action_confirmation_cancelled")
+        self.assertFalse(starts)
+        self.assertIsNone(agent.pending_action_confirmation)
 
 
 if __name__ == "__main__":
