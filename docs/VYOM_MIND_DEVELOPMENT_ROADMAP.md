@@ -74,9 +74,11 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Keep the plan generic; app names and controls are runtime entities.
 - **Gate:** compound workflows preserve ordering and do not execute dependent steps after a failed prerequisite.
 
-**Current implementation:** `ai_core/mission_planner.py` validates the complete mixed legacy/generic dependency graph. `ai_core/mission_runtime.py` now independently rejects malformed plans at mission start/re-plan, resets any caller-supplied completion claims, and allows step completion only when the current step's postcondition is verified. Re-planning carries forward only previously verified steps. Validation remains data-driven and adds no action-name allowlist.
+**Current implementation:** `ai_core/mission_planner.py` validates the complete mixed legacy/generic dependency graph. `ai_core/mission_runtime.py` independently rejects malformed plans at mission start/re-plan, resets caller-supplied completion claims, and allows step completion only when postconditions are verified. Re-planning carries forward only verified steps. Validation remains data-driven.
 
-**Status:** CI regression coverage added for malformed plans, dependency cycles, unverified completion and untrusted re-plan status. Real Windows multi-step scenarios still require desktop validation.
+**M3 pre-dispatch confirmation — implementation added, CI pending:** `ActionRiskPolicy` checks action semantics, target labels and structured risk metadata for common destructive/external side effects while deliberately ignoring free-form typed payload text. Before `MissionRuntime.start`, any flagged plan is held in-session and no step runs until the user sends an explicit `confirm action` or `cancel action`; unrelated commands cannot bypass the pending gate. Risk fields are preserved by the generic action schema. The classifier is conservative and pattern-based, not a guarantee that every app-specific side effect can be inferred. Pending approvals are session-scoped and not resumed after process restart; no action is auto-executed on restart.
+
+**Status:** Dependency/replan regression coverage is green; pre-dispatch risk classification and confirmation-flow tests are added, exact-SHA CI pending. Real Windows multi-step scenarios still require desktop validation.
 
 ## M4 — Live world state and contextual reference resolution
 

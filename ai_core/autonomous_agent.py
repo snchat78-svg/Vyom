@@ -71,7 +71,9 @@ Important:
     - Compound missions are controlled by MissionRuntime.
 """
 
+import copy
 import math
+import re
 import time
 from typing import Any, Dict, Optional, List
 
@@ -79,6 +81,7 @@ from ai_core.brain import Brain
 from ai_core.reasoning_engine import ReasoningEngine
 from ai_core.goal_compiler import GoalCompiler
 from ai_core.action_failure_policy import ActionFailurePolicy
+from ai_core.action_risk_policy import ActionRiskPolicy
 from ai_core.mission_planner import MissionPlanner
 from ai_core.mission_runtime import MissionRuntime
 
@@ -204,6 +207,10 @@ class AutonomousAgent:
             str,
             Any
         ] = {}
+
+        # A hard-to-reverse plan is held in-session until an explicit answer.
+        # The plan is never started in MissionRuntime before confirmation.
+        self.pending_action_confirmation: Optional[Dict[str, Any]] = None
 
     # =============================================================
     # RESULT CHECK
@@ -1436,6 +1443,50 @@ class AutonomousAgent:
             "recovery_observation": summary,
         }
 
+    @staticmethod
+    def _pre_dispatch_confirmation_choice(reply: str) -> str:
+        value = str(reply or "").strip().lower()
+        value = re.sub(r"[.,!?;:،؟।]+", " ", value)
+        value = " ".join(value.split())
+        confirm_phrases = {
+            "yes", "yes confirm", "confirm", "confirm action",
+            "proceed", "proceed with action", "go ahead", "do it",
+            "haan", "han", "haan confirm", "haan confirm karo", "haan karo",
+            "ha", "ha karo", "kar do", "aage badho",
+            "हाँ", "हां", "हाँ पुष्टि करें", "पुष्टि करो", "आगे बढ़ो", "कर दो",
+        }
+        cancel_phrases = {
+            "no", "cancel", "cancel action", "stop", "cancel karo",
+            "radd", "radd karo", "nahi", "nahin", "mat karo",
+            "नहीं", "नही", "रद्द", "रद्द करो", "मत करो", "रोक दो", "कैंसल",
+        }
+        if value in confirm_phrases:
+            return "confirm"
+        if value in cancel_phrases:
+            return "cancel"
+        return ""
+
+    @staticmethod
+    def _action_confirmation_response(pending: Dict[str, Any]) -> Dict[str, Any]:
+        risk = pending.get("risk_assessment")
+        risk = risk if isinstance(risk, dict) else {}
+        return {
+            "success": False,
+            "status": "needs_confirmation",
+            "stage": "action_confirmation_required",
+            "message": str(pending.get("prompt") or (
+                "A potentially irreversible action is waiting for explicit confirmation. "
+                "Reply 'confirm action' or 'cancel action'."
+            )),
+            "requires_user_input": True,
+            "risk_assessment": {
+                "risk_level": risk.get("risk_level", "high"),
+                "summary": str(risk.get("summary") or "high-impact operation"),
+                "step_ids": list(risk.get("step_ids") or []),
+            },
+            "goal": str(pending.get("goal") or ""),
+        }
+
     # =============================================================
     # RUN MISSION THROUGH RUNTIME
     # =============================================================
@@ -1457,7 +1508,8 @@ class AutonomousAgent:
         ],
         route: Optional[
             Dict[str, Any]
-        ]
+        ],
+        pre_dispatch_confirmed: bool = False,
     ) -> Dict[str, Any]:
 
         if not plan:
@@ -1479,6 +1531,55 @@ class AutonomousAgent:
                 "goal_compilation": compilation,
                 "context": self.context.snapshot()
             }
+
+        if not pre_dispatch_confirmed:
+            risk_assessment = ActionRiskPolicy.assess_plan(plan)
+            if risk_assessment.get("requires_confirmation") is True:
+                try:
+                    held_plan = copy.deepcopy(plan)
+                except Exception:
+                    self.active = False
+                    return {
+                        "success": False,
+                        "status": "needs_confirmation",
+                        "stage": "action_confirmation_required",
+                        "message": (
+                            "A high-impact step was detected, but its plan could not be "
+                            "safely held. No step was executed; please restate the task."
+                        ),
+                        "requires_user_input": True,
+                        "risk_assessment": {
+                            "risk_level": risk_assessment.get("risk_level", "high"),
+                            "summary": risk_assessment.get("summary", ""),
+                        },
+                    }
+
+                summary = str(risk_assessment.get("summary") or "a potentially irreversible action")
+                prompt = (
+                    "इस mission में ऐसा step है जिसे वापस लेना कठिन या विनाशकारी हो सकता है: "
+                    f"{summary}। अभी कोई action execute नहीं हुआ है। "
+                    "आगे बढ़ने के लिए 'confirm action' लिखें; रोकने के लिए 'cancel action' लिखें।"
+                )
+                pending = {
+                    "goal": str(goal or ""),
+                    "plan": held_plan,
+                    "intent": copy.deepcopy(intent) if isinstance(intent, dict) else None,
+                    "analysis": analysis,
+                    "compilation": compilation,
+                    "route": route,
+                    "risk_assessment": risk_assessment,
+                    "prompt": prompt,
+                }
+                self.pending_action_confirmation = pending
+                self.active = False
+                self.task_history.append({
+                    "stage": "action_confirmation_required",
+                    "goal": str(goal or ""),
+                    "risk_level": risk_assessment.get("risk_level", "high"),
+                    "step_ids": list(risk_assessment.get("step_ids") or []),
+                    "executed": False,
+                })
+                return self._action_confirmation_response(pending)
 
         # =========================================================
         # START MISSION RUNTIME
@@ -2351,6 +2452,36 @@ class AutonomousAgent:
                 ),
                 "requires_user_input": True,
             }
+
+        if isinstance(self.pending_action_confirmation, dict):
+            pending = self.pending_action_confirmation
+            choice = self._pre_dispatch_confirmation_choice(goal)
+            if choice == "confirm":
+                self.pending_action_confirmation = None
+                self.current_goal = str(pending.get("goal") or "")
+                self.step_count = 0
+                self.active = True
+                return self._run_mission(
+                    goal=self.current_goal,
+                    plan=pending["plan"],
+                    intent=pending.get("intent"),
+                    analysis=pending.get("analysis"),
+                    compilation=pending.get("compilation"),
+                    route=pending.get("route"),
+                    pre_dispatch_confirmed=True,
+                )
+            if choice == "cancel":
+                self.pending_action_confirmation = None
+                self.active = False
+                return {
+                    "success": True,
+                    "status": "cancelled",
+                    "stage": "action_confirmation_cancelled",
+                    "message": "Cancelled. No action was executed.",
+                    "goal": str(pending.get("goal") or ""),
+                    "requires_user_input": False,
+                }
+            return self._action_confirmation_response(pending)
 
         if not goal:
 
