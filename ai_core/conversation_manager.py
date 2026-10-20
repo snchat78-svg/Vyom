@@ -7,7 +7,9 @@ SessionMemory.
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import inspect
 import time
+import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 from ai_core.conversation_result import ConversationResult, ConversationStatus
@@ -139,6 +141,7 @@ class ConversationManager:
 
         return {
             "schema_version": 1,
+            "trace_id": uuid.uuid4().hex,
             "timestamp": timestamp,
             "source": str(source),
             "raw_input": raw_transcript if source == "voice" and raw_transcript else text,
@@ -214,9 +217,137 @@ class ConversationManager:
         return "not_reported"
 
     @staticmethod
+    def _find_mapping(root: Any, key: str, depth: int = 0) -> Optional[Dict[str, Any]]:
+        if depth > 3 or not isinstance(root, dict):
+            return None
+        value = root.get(key)
+        if isinstance(value, dict):
+            return value
+        for child_key in ("result", "execution_result", "details"):
+            child = root.get(child_key)
+            found = ConversationManager._find_mapping(child, key, depth + 1)
+            if found is not None:
+                return found
+        return None
+
+    @staticmethod
+    def _compact_pipeline_trace(trace_sink: Any) -> Dict[str, Any]:
+        if not isinstance(trace_sink, dict):
+            return {}
+        compact: Dict[str, Any] = {}
+        trace_id = trace_sink.get("trace_id")
+        if isinstance(trace_id, str):
+            compact["trace_id"] = trace_id[:64]
+        intent = trace_sink.get("intent")
+        if isinstance(intent, dict):
+            compact["intent"] = {
+                "type": str(intent.get("type") or "unknown")[:80],
+                "target_present": bool(intent.get("target_present")),
+                "selection_present": bool(intent.get("selection_present")),
+                "hypothesis_count": min(16, max(0, int(intent.get("hypothesis_count") or 0))),
+            }
+            confidence = ConversationManager._safe_confidence(intent.get("confidence"))
+            if confidence is not None:
+                compact["intent"]["confidence"] = confidence
+        route = trace_sink.get("route")
+        if isinstance(route, dict):
+            compact["route"] = {
+                "name": str(route.get("name") or "unknown")[:80],
+                "reason": str(route.get("reason") or "")[:120],
+                "goal": bool(route.get("goal")),
+            }
+        path = trace_sink.get("routing_path")
+        if isinstance(path, str):
+            compact["routing_path"] = path[:80]
+        return compact
+
+    @staticmethod
+    def _mission_summary(raw: Dict[str, Any]) -> Dict[str, Any]:
+        mission = ConversationManager._find_mapping(raw, "mission")
+        if not isinstance(mission, dict):
+            return {"available": False}
+
+        plan = mission.get("plan")
+        plan = plan if isinstance(plan, list) else []
+        counts = {"pending": 0, "executing": 0, "completed": 0, "failed": 0, "blocked": 0}
+        for step in plan[:500]:
+            if not isinstance(step, dict):
+                continue
+            status = str(step.get("status") or "").strip().lower()
+            if status in counts:
+                counts[status] += 1
+        progress = mission.get("progress")
+        if isinstance(progress, dict):
+            for key in ("total", "completed", "failed", "pending", "executing"):
+                value = progress.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    counts[key] = value
+
+        replay_lock = mission.get("replay_lock")
+        return {
+            "available": True,
+            "state": str(mission.get("mission_state") or "unknown")[:80],
+            "step_count": len(plan),
+            "step_status_counts": counts,
+            "current_step_present": isinstance(mission.get("current_step"), dict),
+            "replay_lock_active": bool(
+                isinstance(replay_lock, dict) and replay_lock.get("active") is True
+            ),
+            "recovery_journal_status": str(mission.get("recovery_journal_status") or "")[:40] or None,
+        }
+
+    @staticmethod
+    def _goal_compilation_summary(raw: Dict[str, Any]) -> Dict[str, Any]:
+        compilation = ConversationManager._find_mapping(raw, "goal_compilation")
+        if not isinstance(compilation, dict):
+            return {"available": False}
+        sub_goals = compilation.get("sub_goals")
+        suggested = compilation.get("suggested_intents")
+        return {
+            "available": True,
+            "success": compilation.get("success") if isinstance(compilation.get("success"), bool) else None,
+            "understood": compilation.get("understood") if isinstance(compilation.get("understood"), bool) else None,
+            "complexity": str(compilation.get("complexity") or "unknown")[:40],
+            "sub_goal_count": len(sub_goals) if isinstance(sub_goals, list) else 0,
+            "suggested_intent_count": len(suggested) if isinstance(suggested, list) else 0,
+            "suggested_intent_types": [
+                str(item.get("intent") or "unknown")[:80]
+                for item in (suggested[:16] if isinstance(suggested, list) else [])
+                if isinstance(item, dict)
+            ],
+        }
+
+    @staticmethod
+    def _context_summary(raw: Dict[str, Any]) -> Dict[str, Any]:
+        context = ConversationManager._find_mapping(raw, "context")
+        if not isinstance(context, dict):
+            return {"available": False}
+        return {
+            "available": True,
+            "current_app_present": bool(context.get("current_app")),
+            "current_file_present": bool(context.get("current_file")),
+            "current_target_present": bool(context.get("current_target")),
+            "pending_selection": bool(context.get("pending_selection")),
+            "awaiting_confirmation": bool(context.get("awaiting_confirmation")),
+            "task_state_present": bool(context.get("task_state")),
+        }
+
+    @staticmethod
+    def _accepts_keyword(function: Callable[..., Any], keyword: str) -> bool:
+        try:
+            parameters = inspect.signature(function).parameters.values()
+        except (TypeError, ValueError):
+            return False
+        return any(
+            parameter.name == keyword or parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters
+        )
+
+    @staticmethod
     def _update_execution_trace(
         trace: Dict[str, Any],
         conversation_result: ConversationResult,
+        trace_sink: Optional[Dict[str, Any]] = None,
     ) -> None:
         raw = conversation_result.executor_result
         raw = raw if isinstance(raw, dict) else {}
@@ -235,6 +366,10 @@ class ConversationManager:
             raw.get("error_category") or conversation_result.error_category or ""
         ) or None
         execution["verification_status"] = ConversationManager._verification_status(raw)
+        trace["pipeline"] = ConversationManager._compact_pipeline_trace(trace_sink)
+        trace["goal_compilation"] = ConversationManager._goal_compilation_summary(raw)
+        trace["mission"] = ConversationManager._mission_summary(raw)
+        trace["context"] = ConversationManager._context_summary(raw)
 
     def process(
         self,
@@ -261,7 +396,7 @@ class ConversationManager:
                 response_text="",
                 error_category="empty_message",
             )
-            self._update_execution_trace(trace, result)
+            self._update_execution_trace(trace, result, trace_sink)
             return self._complete(result, timestamp, source, text, language, started, trace)
 
         if not self.active:
@@ -270,19 +405,14 @@ class ConversationManager:
         self.last_user_message = text
         trace["turn"] = self.turn_count
 
+        trace_sink: Dict[str, Any] = {"trace_id": trace["trace_id"]}
         try:
-            if metadata is not None:
-                try:
-                    raw_result = self._executor(text, metadata=metadata)
-                except TypeError as error:
-                    # Preserve compatibility with injected legacy test
-                    # executors that still accept only one positional argument.
-                    try:
-                        raw_result = self._executor(text)
-                    except TypeError:
-                        raise error
-            else:
-                raw_result = self._executor(text)
+            kwargs: Dict[str, Any] = {}
+            if metadata is not None and self._accepts_keyword(self._executor, "metadata"):
+                kwargs["metadata"] = metadata
+            if self._accepts_keyword(self._executor, "trace_sink"):
+                kwargs["trace_sink"] = trace_sink
+            raw_result = self._executor(text, **kwargs)
 
             status_hint = (
                 ConversationStatus.EXIT_SESSION.name
@@ -298,7 +428,7 @@ class ConversationManager:
                 error_category="executor_error",
             )
 
-        self._update_execution_trace(trace, result)
+        self._update_execution_trace(trace, result, trace_sink)
         return self._complete(result, timestamp, source, text, language, started, trace)
 
     def _complete(

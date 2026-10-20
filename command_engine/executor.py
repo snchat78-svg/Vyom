@@ -17,6 +17,7 @@ from ai_core.brain import Brain
 from ai_core.ui_autonomous_agent import UIAutonomousAgent
 from command_engine.intent import IntentEngine
 from ai_core.goal_router import GoalRouter
+import hashlib
 import re
 
 from tools.tool_manager import ToolManager
@@ -50,6 +51,36 @@ autonomous_agent = UIAutonomousAgent(
 )
 
 response_engine = ResponseEngine()
+
+
+def _trace_sink_update(trace_sink, **values):
+    """Write compact telemetry to the active conversation turn, when supplied."""
+    if isinstance(trace_sink, dict):
+        trace_sink.update(values)
+
+
+def _trace_intent(trace_sink, intent):
+    if not isinstance(trace_sink, dict) or not isinstance(intent, dict):
+        return
+    target = str(intent.get("target") or "").strip()
+    hypotheses = intent.get("hypotheses")
+    if not isinstance(hypotheses, list):
+        hypotheses = intent.get("alternatives")
+    confidence = intent.get("confidence")
+    compact = {
+        "type": str(intent.get("intent") or "unknown")[:80],
+        "target_present": bool(target),
+        "selection_present": bool(str(intent.get("selection") or "").strip()),
+        "hypothesis_count": min(16, len(hypotheses)) if isinstance(hypotheses, list) else 0,
+    }
+    if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+        try:
+            value = float(confidence)
+            if 0.0 <= value <= 1.0 and value == value and value not in (float("inf"), float("-inf")):
+                compact["confidence"] = round(value, 4)
+        except (TypeError, ValueError, OverflowError):
+            pass
+    trace_sink["intent"] = compact
 
 
 # =============================================================
@@ -642,6 +673,7 @@ def _result_to_message(
 def execute(
     command,
     metadata=None,
+    trace_sink=None,
 ):
 
     # =========================================================
@@ -649,6 +681,7 @@ def execute(
     # =========================================================
 
     if command is None:
+        _trace_sink_update(trace_sink, routing_path="input_validation")
 
         return _structured_response(
             "Please tell me what you want me to do.",
@@ -662,6 +695,7 @@ def execute(
     ).strip()
 
     if not command:
+        _trace_sink_update(trace_sink, routing_path="input_validation")
 
         return (
             "Please tell me what you want me to do."
@@ -677,6 +711,7 @@ def execute(
         "shutdown vyom",
         "close vyom"
     ):
+        _trace_sink_update(trace_sink, routing_path="exit_session")
 
         autonomous_agent.reset()
 
@@ -696,6 +731,7 @@ def execute(
     if callable(recovery_handler):
         recovery = recovery_handler(command)
         if recovery is not None:
+            _trace_sink_update(trace_sink, routing_path="recovery_confirmation")
             return _recovery_confirmation_response(command, recovery, metadata)
 
     # =========================================================
@@ -737,6 +773,7 @@ def execute(
             "target": command
         }
 
+    _trace_intent(trace_sink, intent)
     log("[PIPELINE] INPUT -> INTENT: %s -> %s" % (command.encode("unicode_escape", errors="backslashreplace").decode("ascii"), str(intent.get("intent", "unknown"))))
 
     # =========================================================
@@ -785,9 +822,18 @@ def execute(
             "goal": False,
         }
 
+    _trace_sink_update(
+        trace_sink,
+        route={
+            "name": str(route_preview.get("route") or "unknown")[:80],
+            "reason": str(route_preview.get("reason") or "")[:120],
+            "goal": bool(route_preview.get("goal")),
+        },
+    )
     log("[PIPELINE] ROUTE PREVIEW: %s reason=%s" % (str(route_preview.get("route", "unknown")), str(route_preview.get("reason", ""))))
 
     if route_preview.get("route") == "goal":
+        _trace_sink_update(trace_sink, routing_path="autonomous_goal")
 
         try:
 
@@ -831,6 +877,8 @@ def execute(
     # =========================================================
 
     if intent_type == "unknown":
+        _trace_sink_update(trace_sink, routing_path="semantic_goal")
+
         try:
             # Preserve the parser's unknown classification as metadata only.
             # AutonomousAgent/semantic reasoning must decide the actual
@@ -965,6 +1013,7 @@ def execute(
     # =========================================================
 
     if intent_type == "conversation":
+        _trace_sink_update(trace_sink, routing_path="conversation")
 
         return _natural_response(
             command,
@@ -1080,6 +1129,7 @@ def execute(
     }
 
     if intent_type in fast_intents:
+        _trace_sink_update(trace_sink, routing_path="deterministic_fast_lane")
 
         target = str(
             intent.get(

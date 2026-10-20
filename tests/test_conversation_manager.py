@@ -102,6 +102,89 @@ def test_voice_controller_forwards_current_utterance_metadata():
     assert metadata["voice"]["command_corrections"][0]["to"] == "calculator"
 
 
+def test_executor_emits_compact_intent_and_route_into_trace_sink(monkeypatch):
+    import command_engine.executor as executor_module
+
+    monkeypatch.setattr(
+        executor_module.intent_engine,
+        "detect",
+        lambda command, metadata=None: {
+            "intent": "conversation",
+            "target": "conversation",
+            "conversation_type": "conversation",
+            "hypotheses": [{"intent": "conversation"}, {"intent": "unknown"}],
+        },
+    )
+    monkeypatch.setattr(
+        executor_module.goal_router,
+        "route",
+        lambda command, intent=None: {"route": "command", "reason": "test_path", "goal": False},
+    )
+    monkeypatch.setattr(executor_module.response_engine, "format", lambda **kwargs: "Hello.")
+    sink = {"trace_id": "trace-test-1"}
+
+    executor_module.execute("hello", trace_sink=sink)
+
+    assert sink["intent"]["type"] == "conversation"
+    assert sink["intent"]["target_present"] is True
+    assert sink["intent"]["hypothesis_count"] == 2
+    assert sink["route"]["name"] == "command"
+    assert sink["routing_path"] == "conversation"
+
+
+def test_pipeline_trace_has_mission_and_goal_summaries_without_plan_payloads():
+    manager = ConversationManager(executor=lambda command: {
+        "success": False,
+        "status": "failed",
+        "stage": "mission_blocked",
+        "message": "Blocked.",
+        "goal_compilation": {
+            "success": True,
+            "understood": True,
+            "complexity": "compound",
+            "goal": "private original task text",
+            "sub_goals": [{"goal": "private subgoal"}],
+            "suggested_intents": [{"intent": "open", "target": "private app"}],
+        },
+        "mission": {
+            "mission_state": "blocked",
+            "plan": [{
+                "id": "step-1",
+                "status": "pending",
+                "action": "send private content",
+                "args": {"text": "private payload"},
+            }],
+            "progress": {"total": 1, "pending": 1, "completed": 0, "failed": 0, "executing": 0},
+            "replay_lock": {"active": True},
+            "recovery_journal_status": "active",
+        },
+        "context": {
+            "current_app": "private-app-name",
+            "current_file": "/private/path",
+            "current_target": "private-target",
+            "pending_selection": False,
+            "awaiting_confirmation": True,
+            "task_state": "private state",
+        },
+    })
+
+    result = manager.process_text("run complex task")
+    trace = result["trace"]
+    encoded = str(trace)
+
+    assert trace["mission"]["available"] is True
+    assert trace["mission"]["state"] == "blocked"
+    assert trace["mission"]["step_status_counts"]["pending"] == 1
+    assert trace["mission"]["replay_lock_active"] is True
+    assert trace["goal_compilation"]["sub_goal_count"] == 1
+    assert trace["goal_compilation"]["suggested_intent_types"] == ["open"]
+    assert trace["context"]["current_app_present"] is True
+    assert trace["context"]["awaiting_confirmation"] is True
+    for secret in ("private original task text", "private subgoal", "private payload",
+                   "private-app-name", "/private/path", "private-target", "private state"):
+        assert secret not in encoded
+
+
 def test_success_without_explicit_verification_is_not_reported_verified():
     manager = ConversationManager(executor=lambda command: {
         "success": True,

@@ -18,6 +18,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 **Status:** Existing Phase 1–5 work is in the repository; end-to-end acceptance still requires testing on the user's Windows PC.
 **M0.1 progress:** Voice metadata now carries the raw STT transcript, normalized Roman command, recognizer language/status, command-normalizer confidence and bounded correction records into the shared ConversationManager. Each bounded in-memory conversation turn returns a structured trace containing source, input surfaces, corrections, execution status/stage, duration and explicit verification status. Generic execution success is not treated as verified unless verification evidence is present. This trace is in-memory only in this phase; disk-persistent raw-transcript logging is deliberately not added.
 
+**M0.2 progress:** Each conversation turn now has a unique trace ID and receives compact IntentEngine and GoalRouter telemetry through an optional trace sink. The trace correlates intent type, target-presence (not target content), selected route, summarized goal compilation, mission state/progress/replay lock and presence-only session context. Plan arguments, goal text, target names, file paths and context values are deliberately excluded from these summaries. Legacy custom executors remain supported without being passed unsupported keywords. CI tests cover the real executor intent/route handoff and verify that synthetic private plan/context values do not appear in the compact trace.
+
+
 
 ## M1 — Noisy speech recovery
 
