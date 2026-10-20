@@ -93,6 +93,40 @@ def test_restart_retry_is_not_attempted_and_cancel_clears_marker(tmp_path):
     assert not path.exists()
 
 
+def test_inaccessible_journal_path_fails_closed_not_missing(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    path = tmp_path / "restricted" / "recovery_state.json"
+    original_stat = Path.stat
+
+    def denied_stat(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError("simulated inaccessible journal")
+        return original_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", denied_stat)
+    runtime = MissionRuntime()
+
+    assert runtime.configure_recovery_journal(path) == "read_failed"
+    lock = runtime.snapshot()["replay_lock"]
+    assert lock["active"] is True
+    assert lock["category"] == "recovery_journal_unreadable"
+    assert runtime.snapshot()["recovery_journal_status"] == "read_failed"
+
+    result = runtime.start("open calculator", [{
+        "id": "new_task",
+        "step": 1,
+        "type": "action",
+        "action": "open_application",
+        "capability": "windows_app",
+        "target": "Calculator",
+        "args": {},
+        "depends_on": [],
+    }])
+    assert result["mission_state"] == "blocked"
+    assert runtime.snapshot()["plan"] == []
+
+
 def test_corrupt_journal_fails_closed_until_explicit_cancel(tmp_path):
     path = tmp_path / "recovery_state.json"
     path.write_text("{not json", encoding="utf-8")

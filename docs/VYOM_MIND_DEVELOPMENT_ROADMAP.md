@@ -99,6 +99,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M6.5 progress:** Added a local per-user atomic recovery journal configured by the desktop entry point. It persists only the active marker, outcome category, SHA-256 fingerprint and timestamp—never action text, target, arguments or the mission plan. On restart, the unresolved marker restores a blocker before normal command routing; the old plan is intentionally unavailable, so automatic retry is prohibited. Invalid/unreadable journals fail closed, and explicit cancellation/user confirmation clears the marker. This is best-effort filesystem persistence, not a guarantee against disk loss or forced termination during the write; the journal status is exposed in the mission snapshot.
 
+**M6.6 progress:** Hardened recovery-journal discovery so only a definite FileNotFoundError is treated as a missing marker. Permission/stat errors now restore an in-memory blocker and return read_failed rather than treating the marker as absent. Regression coverage simulates an inaccessible journal path and confirms a new mission remains blocked without retaining an executable plan.
+
 ## M7 — Web research and source-grounded answers
 
 - Use configurable search/retrieval providers and public-source fetchers with URL safety, timeouts, page limits, and source attribution.

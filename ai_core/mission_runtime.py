@@ -192,8 +192,25 @@ class MissionRuntime:
         self._recovery_journal_path = Path(path).expanduser()
         self._recovery_restored_after_restart = False
 
-        if not self._recovery_journal_path.exists():
+        # Do not use Path.exists() here: it can report False when the
+        # operating system denies access to the path. Only a definite
+        # FileNotFoundError means there is no marker; every other stat error
+        # must stop new actions until recovery is explicitly resolved.
+        try:
+            self._recovery_journal_path.stat()
+        except FileNotFoundError:
             self._recovery_journal_status = "clear"
+            return self._recovery_journal_status
+        except Exception as error:
+            self._restore_recovery_lock(
+                category="recovery_journal_unreadable",
+                fingerprint_sha256=None,
+            )
+            self._recovery_journal_status = "read_failed"
+            self.history.append({
+                "event": "recovery_journal_stat_failed",
+                "error_type": type(error).__name__,
+            })
             return self._recovery_journal_status
 
         try:
