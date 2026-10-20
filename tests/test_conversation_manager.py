@@ -204,6 +204,19 @@ def test_success_without_explicit_verification_is_not_reported_verified():
     assert trace["execution"]["verification_status"] == "not_reported"
 
 
+def test_empty_input_returns_trace_without_calling_executor():
+    calls = []
+    manager = ConversationManager(executor=lambda command: calls.append(command))
+
+    result = manager.process_text("")
+
+    assert result["status"] == "needs_clarification"
+    assert result["trace"]["trace_id"]
+    assert result["trace"]["execution"]["status"] == "needs_clarification"
+    assert result["trace"]["pipeline"] == {}
+    assert calls == []
+
+
 def test_input_trace_history_stays_bounded():
     manager = ConversationManager(max_history=1, executor=lambda command: {
         "success": False, "status": "failed", "stage": "test_failure", "message": "No."

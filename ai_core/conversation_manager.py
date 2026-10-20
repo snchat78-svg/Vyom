@@ -389,6 +389,7 @@ class ConversationManager:
         started = time.monotonic()
         timestamp = datetime.now(timezone.utc).isoformat()
         trace = self._build_input_trace(text, source, metadata, timestamp, language)
+        trace_sink: Dict[str, Any] = {"trace_id": trace["trace_id"]}
 
         if not text:
             result = ConversationResult(
@@ -405,7 +406,6 @@ class ConversationManager:
         self.last_user_message = text
         trace["turn"] = self.turn_count
 
-        trace_sink: Dict[str, Any] = {"trace_id": trace["trace_id"]}
         try:
             kwargs: Dict[str, Any] = {}
             if metadata is not None and self._accepts_keyword(self._executor, "metadata"):
