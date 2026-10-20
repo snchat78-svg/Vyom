@@ -259,6 +259,47 @@ class ConversationManager:
         path = trace_sink.get("routing_path")
         if isinstance(path, str):
             compact["routing_path"] = path[:80]
+
+        evidence = trace_sink.get("observation_evidence")
+        if isinstance(evidence, dict):
+            events = []
+            supplied_events = evidence.get("events")
+            if isinstance(supplied_events, list):
+                for item in supplied_events[-12:]:
+                    if not isinstance(item, dict):
+                        continue
+                    event: Dict[str, Any] = {}
+                    timestamp = item.get("timestamp")
+                    if isinstance(timestamp, (int, float)) and not isinstance(timestamp, bool):
+                        numeric_timestamp = float(timestamp)
+                        if numeric_timestamp == numeric_timestamp and numeric_timestamp not in (float("inf"), float("-inf")):
+                            event["timestamp"] = round(numeric_timestamp, 3)
+                    for key, limit in (
+                        ("phase", 80), ("step_type", 64), ("status", 80),
+                        ("stage", 80), ("state", 80), ("verification_level", 80),
+                    ):
+                        value = item.get(key)
+                        if isinstance(value, str):
+                            event[key] = value[:limit]
+                    for key in ("world_snapshot_available", "result_success"):
+                        if isinstance(item.get(key), bool):
+                            event[key] = item[key]
+                    verification_status = item.get("verification_status")
+                    if verification_status in {"verified", "failed", "not_reported"}:
+                        event["verification_status"] = verification_status
+                    events.append(event)
+
+            event_count = evidence.get("event_count")
+            if not isinstance(event_count, int) or isinstance(event_count, bool):
+                event_count = len(events)
+            compact["observation_evidence"] = {
+                "available": evidence.get("available") is True,
+                "status": str(evidence.get("status") or "unknown")[:80],
+                "event_count": min(500, max(0, event_count)),
+                "events": events,
+            }
+            if isinstance(evidence.get("trace_id"), str):
+                compact["observation_evidence"]["trace_id"] = evidence["trace_id"][:64]
         return compact
 
     @staticmethod

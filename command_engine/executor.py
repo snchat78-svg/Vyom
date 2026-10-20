@@ -19,6 +19,7 @@ from command_engine.intent import IntentEngine
 from ai_core.goal_router import GoalRouter
 import hashlib
 import re
+import time
 
 from tools.tool_manager import ToolManager
 from ai_core.response_engine import ResponseEngine
@@ -670,7 +671,7 @@ def _result_to_message(
 # EXECUTE
 # =============================================================
 
-def execute(
+def _execute_internal(
     command,
     metadata=None,
     trace_sink=None,
@@ -1360,3 +1361,96 @@ def execute(
         result,
         intent
     )
+
+
+def _trace_observation_evidence(started_at: float, trace_id: Any = None) -> Dict[str, Any]:
+    """Summarize only observations recorded during the current command turn."""
+    world_state = getattr(autonomous_agent, "world_state", None)
+    history = getattr(world_state, "observation_history", None)
+    if not isinstance(history, list):
+        return {
+            "available": False,
+            "status": "observation_source_unavailable",
+            "event_count": 0,
+            "events": [],
+            "trace_id": str(trace_id or "")[:64] or None,
+        }
+
+    events = []
+    event_count = 0
+    for item in history[-50:]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            timestamp = float(item.get("timestamp"))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if timestamp != timestamp or timestamp in (float("inf"), float("-inf")):
+            continue
+        if timestamp < started_at:
+            continue
+
+        event_count += 1
+        event = {
+            "timestamp": round(timestamp, 3),
+            "phase": str(item.get("phase") or "unknown")[:80],
+            "world_snapshot_available": isinstance(item.get("world_state"), dict),
+        }
+        step_type = item.get("step_type")
+        if isinstance(step_type, str):
+            event["step_type"] = step_type[:64]
+
+        result = item.get("result")
+        if isinstance(result, dict):
+            if isinstance(result.get("success"), bool):
+                event["result_success"] = result["success"]
+            for key in ("status", "stage"):
+                value = result.get(key)
+                if isinstance(value, str) and value:
+                    event[key] = value[:80]
+
+        verification = item.get("verification")
+        if isinstance(verification, dict):
+            verified = verification.get("verified")
+            if isinstance(verified, bool):
+                event["verification_status"] = "verified" if verified else "failed"
+            else:
+                state = str(verification.get("state") or "").strip().lower()
+                if state in {"verified", "passed", "success", "observed"}:
+                    event["verification_status"] = "verified"
+                elif state in {"failed", "verification_error", "unverified", "mismatch", "execution_failed"}:
+                    event["verification_status"] = "failed"
+                else:
+                    event["verification_status"] = "not_reported"
+            for key in ("state", "verification_level"):
+                value = verification.get(key)
+                if isinstance(value, str) and value:
+                    event[key] = value[:80]
+        else:
+            event["verification_status"] = "not_reported"
+
+        events.append(event)
+
+    events = events[-12:]
+    return {
+        "available": True,
+        "status": "captured" if event_count else "no_new_observations",
+        "event_count": event_count,
+        "events": events,
+        "trace_id": str(trace_id or "")[:64] or None,
+    }
+
+
+def execute(command, metadata=None, trace_sink=None):
+    """Instrument the existing executor without changing its routing behaviour."""
+    if not isinstance(trace_sink, dict):
+        return _execute_internal(command, metadata=metadata, trace_sink=trace_sink)
+
+    started_at = time.time()
+    try:
+        return _execute_internal(command, metadata=metadata, trace_sink=trace_sink)
+    finally:
+        trace_sink["observation_evidence"] = _trace_observation_evidence(
+            started_at,
+            trace_id=trace_sink.get("trace_id"),
+        )

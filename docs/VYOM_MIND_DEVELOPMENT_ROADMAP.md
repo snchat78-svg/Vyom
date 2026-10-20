@@ -20,6 +20,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M0.2 progress:** Each conversation turn now has a unique trace ID and receives compact IntentEngine and GoalRouter telemetry through an optional trace sink. The trace correlates intent type, target-presence (not target content), selected route, summarized goal compilation, mission state/progress/replay lock and presence-only session context. Plan arguments, goal text, target names, file paths and context values are deliberately excluded from these summaries. Legacy custom executors remain supported without being passed unsupported keywords. CI tests cover the real executor intent/route handoff and verify that synthetic private plan/context values do not appear in the compact trace.
 
+**M0.3 progress:** Reuses the existing M4 WorldState observation history and M5/M6 verification outputs; it does not add another observer or verifier. The shared executor wrapper correlates only observations timestamped during the current command turn into the same trace ID. Each event contains the phase/time, compact result state, and explicit verification state/level where reported; action IDs, target/window/control names, payloads, observation reasons and full world snapshots are excluded. A turn with no new observation reports `no_new_observations`, not fabricated evidence. Regression tests cover stale-turn exclusion, correlation, payload redaction and absent observations.
+
+
 
 
 ## M1 — Noisy speech recovery

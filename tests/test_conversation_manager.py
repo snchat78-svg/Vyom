@@ -185,6 +185,100 @@ def test_pipeline_trace_has_mission_and_goal_summaries_without_plan_payloads():
         assert secret not in encoded
 
 
+def test_executor_correlates_only_current_turn_observations_without_payloads(monkeypatch):
+    import time
+    import command_engine.executor as executor_module
+
+    world = executor_module.autonomous_agent.world_state
+    now = time.time()
+    monkeypatch.setattr(world, "observation_history", [{
+        "timestamp": now - 10,
+        "phase": "old_turn",
+        "result": {"success": True, "stage": "verified"},
+        "verification": {"verified": True},
+        "world_state": {"timestamp": now - 10, "current_window": {"title": "stale private window"}},
+    }])
+
+    def fake_internal(command, metadata=None, trace_sink=None):
+        timestamp = time.time()
+        world.observation_history.append({
+            "timestamp": timestamp,
+            "phase": "after_action",
+            "step_id": "private-step-id",
+            "step_type": "action",
+            "result": {
+                "success": True,
+                "status": "success",
+                "stage": "verified",
+                "private_result_payload": "do not leak",
+            },
+            "verification": {
+                "verified": True,
+                "state": "observed",
+                "verification_level": "state",
+                "target": "private target name",
+                "reason": "private observation detail",
+            },
+            "world_state": {
+                "timestamp": timestamp,
+                "current_window": {"title": "private window title"},
+                "focused_control": {"name": "private control"},
+            },
+        })
+        return {
+            "success": True,
+            "status": "success",
+            "stage": "verified",
+            "message": "completed",
+            "verification": {"verified": True, "state": "observed"},
+        }
+
+    monkeypatch.setattr(executor_module, "_execute_internal", fake_internal)
+    manager = ConversationManager(executor=executor_module.execute)
+    result = manager.process_text("do the test action")
+
+    trace = result["trace"]
+    evidence = trace["pipeline"]["observation_evidence"]
+    assert evidence["trace_id"] == trace["trace_id"]
+    assert evidence["status"] == "captured"
+    assert evidence["event_count"] == 1
+    assert len(evidence["events"]) == 1
+    event = evidence["events"][0]
+    assert event["phase"] == "after_action"
+    assert event["verification_status"] == "verified"
+    assert event["verification_level"] == "state"
+
+    encoded = str(trace)
+    for private_value in (
+        "private-step-id", "do not leak", "private target name",
+        "private observation detail", "private window title",
+        "private control", "stale private window",
+    ):
+        assert private_value not in encoded
+
+
+def test_executor_trace_marks_missing_observations_explicitly(monkeypatch):
+    import command_engine.executor as executor_module
+
+    world = executor_module.autonomous_agent.world_state
+    monkeypatch.setattr(world, "observation_history", [])
+    monkeypatch.setattr(
+        executor_module,
+        "_execute_internal",
+        lambda command, metadata=None, trace_sink=None: {
+            "success": True, "status": "success", "stage": "legacy_completed", "message": "done"
+        },
+    )
+    manager = ConversationManager(executor=executor_module.execute)
+    result = manager.process_text("simple response without observation")
+
+    evidence = result["trace"]["pipeline"]["observation_evidence"]
+    assert evidence["available"] is True
+    assert evidence["status"] == "no_new_observations"
+    assert evidence["event_count"] == 0
+    assert evidence["events"] == []
+
+
 def test_success_without_explicit_verification_is_not_reported_verified():
     manager = ConversationManager(executor=lambda command: {
         "success": True,
