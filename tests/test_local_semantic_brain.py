@@ -225,3 +225,51 @@ def test_local_brain_resolves_pending_selection_number():
     assert result["route"] == "capability"
     assert result["plan"][0]["action"] == "open_application"
     assert result["plan"][0]["target"] == "Example Application"
+
+
+def test_low_confidence_action_is_clarified_before_dispatch(monkeypatch):
+    brain = LocalSemanticBrain()
+    monkeypatch.setattr(
+        brain,
+        "_reason_existing_pipeline",
+        lambda _goal, context=None: {
+            "success": True,
+            "route": "mission",
+            "confidence": 0.42,
+            "message": "",
+            "plan": [{
+                "type": "action",
+                "action": "click_ui_element",
+                "target": "Save",
+                "args": {},
+            }],
+            "semantic_interpretation": [{
+                "operation": "click_ui_element",
+                "target": "Save",
+            }],
+            "transcript_recovery": {"ambiguities": []},
+            "source": "local_semantic_brain",
+        },
+    )
+
+    result = brain.reason("click Save", context={})
+
+    assert result["route"] == "clarification"
+    assert result["plan"] == []
+    assert result["needs_confirmation"] is True
+    assert result["terminal"] is True
+    assert result["needs_model"] is False
+    assert result["meaning"]["requires_clarification"] is True
+    assert "अनुमान" in result["message"]
+    assert result["semantic_interpretation"][0]["reason"] == "low_confidence_action"
+
+
+def test_low_confidence_gate_preserves_high_confidence_local_action():
+    brain = LocalSemanticBrain()
+    result = brain.reason("search box click karo", context={})
+
+    assert result["route"] == "capability"
+    assert result["plan"]
+    assert result["plan"][0]["target"] == "search box"
+    assert result["meaning"]["requires_clarification"] is False
+

@@ -1382,11 +1382,12 @@ class LocalSemanticBrain:
         goal: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Run the established planner, then enrich it with M2 meaning hypotheses.
+        """Run the established planner and gate unresolved actions before dispatch.
 
-        The existing route/action selection remains the fast path. M2 adds a
-        structured frame and blocks dispatch only when runtime target evidence
-        contains multiple similarly plausible matches.
+        M2 attaches a provider-independent meaning frame and converts low-
+        confidence action hypotheses or ambiguous runtime targets into a
+        terminal clarification with an empty plan. Safe, resolved actions keep
+        the established execution route.
         """
         raw_original = self._normalize(goal)
         ctx = dict(context or {})
@@ -1427,39 +1428,65 @@ class LocalSemanticBrain:
         )
         if (
             meaning.get("requires_clarification")
-            and recovery.get("ambiguities")
             and str(result.get("route") or "").lower() in {"capability", "mission"}
         ):
-            ambiguity = recovery["ambiguities"][0]
-            observed = str(ambiguity.get("observed") or "").strip()
-            candidates = ambiguity.get("candidates")
-            names = [
-                str(item.get("value") or "").strip()
-                for item in (candidates if isinstance(candidates, list) else [])
-                if isinstance(item, dict) and str(item.get("value") or "").strip()
-            ][:3]
-            operation = str(ambiguity.get("operation") or "open").lower()
-            verb = "बंद करना" if operation == "close" else "खोलना"
-            choices = " या ".join(names)
-            message = (
-                f'मैंने "{observed}" सुना, लेकिन एक से अधिक संभावित target मिले'
-                f'{": " + choices if choices else ""}। कृपया स्पष्ट करें कि किसे {verb} है।'
-            )
+            ambiguities = recovery.get("ambiguities")
+            ambiguities = ambiguities if isinstance(ambiguities, list) else []
+            ambiguity = ambiguities[0] if ambiguities and isinstance(ambiguities[0], dict) else {}
+            if ambiguity:
+                observed = str(ambiguity.get("observed") or "").strip()
+                candidates = ambiguity.get("candidates")
+                names = [
+                    str(item.get("value") or "").strip()
+                    for item in (candidates if isinstance(candidates, list) else [])
+                    if isinstance(item, dict) and str(item.get("value") or "").strip()
+                ][:3]
+                operation = str(ambiguity.get("operation") or "open").lower()
+                verb = "बंद करना" if operation == "close" else "खोलना"
+                choices = " या ".join(names)
+                message = (
+                    f'मैंने "{observed}" सुना, लेकिन एक से अधिक संभावित target मिले'
+                    f'{": " + choices if choices else ""}। कृपया स्पष्ट करें कि किसे {verb} है।'
+                )
+                reason = "ambiguous_runtime_target"
+                interpretation = {
+                    "operation": operation,
+                    "target": observed,
+                    "alternatives": names,
+                    "reason": reason,
+                }
+            else:
+                message = (
+                    "मैं इस निर्देश का अर्थ लेकर पूरी तरह आश्वस्त नहीं हूँ। "
+                    "कृपया action या target स्पष्ट करें; मैं अनुमान से action नहीं चलाऊँगा।"
+                )
+                reason = "low_confidence_action"
+                interpretation = {
+                    "operation": "unresolved",
+                    "target": "",
+                    "alternatives": [],
+                    "reason": reason,
+                }
+
+            semantic_intent = meaning.get("intent")
+            semantic_intent = semantic_intent if isinstance(semantic_intent, dict) else {}
+            try:
+                safe_confidence = float(semantic_intent.get("confidence", 0.0))
+                if not 0.0 <= safe_confidence <= 1.0:
+                    safe_confidence = 0.0
+            except (TypeError, ValueError, OverflowError):
+                safe_confidence = 0.0
+
             result.update({
                 "success": True,
                 "route": "clarification",
                 "message": message,
-                "confidence": min(float(result.get("confidence", 0.4) or 0.4), 0.45),
+                "confidence": min(safe_confidence, 0.45),
                 "plan": [],
                 "needs_confirmation": True,
                 "terminal": True,
                 "needs_model": False,
-                "semantic_interpretation": [{
-                    "operation": operation,
-                    "target": observed,
-                    "alternatives": names,
-                    "reason": "ambiguous_runtime_target",
-                }],
+                "semantic_interpretation": [interpretation],
             })
             meaning = meaning_engine.analyze(
                 raw_original, result, context=ctx, recovery=recovery
