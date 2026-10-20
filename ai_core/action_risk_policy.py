@@ -23,22 +23,22 @@ class ActionRiskPolicy:
     _OPERATION_PATTERN = re.compile(
         r"\b(?:delete|erase|wipe|format|uninstall|overwrite|truncate|destroy|purge|drop|remove|"
         r"reset|submit|publish|purchase|buy|pay|payment|make payment|charge card|transfer|withdraw|revoke|"
-        r"grant access|revoke access|change password|close account|account closure|factory reset|format disk|format drive|"
-        r"send email|send message|send document|send file|send request|send order|send notification|"
-        r"share publicly|post publicly|issue refund|refund|hatao|hatana|hata do|mitao|mitana|mita do|"
+        r"grant access|revoke access|change password|close account|account closure|delete account|disable account|factory reset|format disk|format drive|"
+        r"send email|send message|send document|send file|send request|send order|send notification|send invite|invite user|"
+        r"share publicly|make public|publish publicly|post publicly|unpublish|cancel subscription|cancel order|place order|confirm order|revoke token|disconnect integration|delete user|block user|ban user|unsubscribe|issue refund|refund|hatao|hatana|hata do|mitao|mitana|mita do|"
         r"bhejo|bhejna|bhej do|jama karo|kharido|khareedo|paise transfer|paise bhejo|bhugtan|bhugtan karo|"
         r"डिलीट|हटाओ|हटाना|हटा दो|हटाएं|हटाएँ|मिटाओ|मिटाना|मिटा दो|भेजो|भेजना|भेज दो|"
         r"जमा करो|खरीदो|खरीदना|भुगतान|भुगतान करो|पैसे ट्रांसफर|पैसे भेजो|रकम भेजो|"
-        r"खाता बंद|पासवर्ड बदलो|फैक्टरी रीसेट|फॉर्मैट ड्राइव|प्रकाशित करो|पब्लिश करो|सबमिट करो)(?=$|\W)",
+        r"खाता बंद|खाता हटाओ|पासवर्ड बदलो|फैक्टरी रीसेट|फॉर्मैट ड्राइव|प्रकाशित करो|पब्लिश करो|सबमिट करो|सदस्यता रद्द|ऑर्डर रद्द|सार्वजनिक करो|एक्सेस हटाओ|टोकन रद्द करो|इंटीग्रेशन डिस्कनेक्ट करो)(?=$|\W)",
         re.IGNORECASE,
     )
     _TARGET_PATTERN = re.compile(
         r"\b(?:delete|erase|wipe|format|uninstall|overwrite|remove|submit|send|publish|post|"
         r"purchase|buy|pay|payment|transfer|withdraw|reset|trash|recycle bin|close account|account closure|"
-        r"change password|grant access|revoke access|share publicly|charge card|"
+        r"change password|grant access|revoke access|share publicly|make public|charge card|cancel subscription|cancel order|delete account|disable account|revoke token|disconnect integration|delete user|block user|ban user|unsubscribe|"
         r"hatao|hatana|hata do|mitao|mita do|bhejo|bhej do|"
         r"डिलीट|हटाओ|हटाना|हटा दो|हटाएं|हटाएँ|मिटाओ|मिटाना|मिटा दो|भेजो|भेजना|भेज दो|"
-        r"भुगतान|भुगतान करो|खाता बंद|पासवर्ड बदलो|प्रकाशित करो|पब्लिश करो|सबमिट|ट्रांसफर करो)(?=$|\W)",
+        r"भुगतान|भुगतान करो|खाता बंद|खाता हटाओ|पासवर्ड बदलो|प्रकाशित करो|सदस्यता रद्द|ऑर्डर रद्द|सार्वजनिक करो|एक्सेस हटाओ|टोकन रद्द करो|पब्लिश करो|सबमिट|ट्रांसफर करो)(?=$|\W)",
         re.IGNORECASE,
     )
 

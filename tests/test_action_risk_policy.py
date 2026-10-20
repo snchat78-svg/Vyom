@@ -101,6 +101,20 @@ class ActionRiskPolicyTests(unittest.TestCase):
 
         self.assertTrue(result["requires_confirmation"])
         self.assertEqual(result["step_ids"], ["delete_hindi", "account_hindi", "payment_hindi", "publish_hindi", "remove_hindi"])
+    def test_account_subscription_order_and_access_changes_require_confirmation(self):
+        plan = [
+            {"id": "account", "type": "action", "action": "delete_account", "target": "user profile"},
+            {"id": "subscription", "type": "action", "action": "cancel_subscription", "target": "premium plan"},
+            {"id": "order", "type": "action", "action": "place_order", "target": "checkout"},
+            {"id": "token", "type": "action", "action": "revoke_token", "target": "API token"},
+            {"id": "public", "type": "action", "action": "click_ui_element", "target": "सार्वजनिक करो"},
+            {"id": "membership", "type": "action", "action": "click_ui_element", "target": "सदस्यता रद्द"},
+        ]
+
+        result = ActionRiskPolicy.assess_plan(plan)
+
+        self.assertTrue(result["requires_confirmation"])
+        self.assertEqual(result["step_ids"], ["account", "subscription", "order", "token", "public", "membership"])
     def test_schema_rejects_malformed_risk_contracts(self):
         with self.assertRaises(ActionSchemaError):
             ActionSchema(action="delete_file", capability="file_manager", risk_level="unknown")
