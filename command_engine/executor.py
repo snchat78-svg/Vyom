@@ -20,6 +20,7 @@ from ai_core.goal_router import GoalRouter
 import hashlib
 import re
 import time
+from typing import Any, Dict
 
 from tools.tool_manager import ToolManager
 from ai_core.response_engine import ResponseEngine
