@@ -16,24 +16,29 @@ class ActionRiskPolicy:
     ALLOWED_RISK_LEVELS = {"low", "normal", "medium", "high", "critical", "irreversible"}
     HIGH_RISK_LEVELS = {"high", "critical", "irreversible"}
     NON_ACTION_KEYWORDS = {
-        "send_key", "send_keys", "keypress", "key_press", "press_key",
-        "hotkey", "type_text", "write_text",
+        "send key", "send keys", "keypress", "key press", "press key",
+        "hotkey", "type text", "write text",
     }
 
     _OPERATION_PATTERN = re.compile(
         r"\b(?:delete|erase|wipe|format|uninstall|overwrite|truncate|destroy|purge|drop|remove|"
-        r"reset|submit|publish|purchase|buy|pay|transfer|withdraw|revoke|"
-        r"grant access|revoke access|change password|close account|factory reset|"
-        r"send email|send message|send document|send file|send request|send order|"
-        r"share publicly|hatao|hatana|hata do|mitao|mita do|bhejo|bhej do|"
-        r"jama karo|kharido|khareedo|paise transfer|bhugtan karo)\b",
+        r"reset|submit|publish|purchase|buy|pay|payment|make payment|charge card|transfer|withdraw|revoke|"
+        r"grant access|revoke access|change password|close account|account closure|factory reset|format disk|format drive|"
+        r"send email|send message|send document|send file|send request|send order|send notification|"
+        r"share publicly|post publicly|issue refund|refund|hatao|hatana|hata do|mitao|mitana|mita do|"
+        r"bhejo|bhejna|bhej do|jama karo|kharido|khareedo|paise transfer|paise bhejo|bhugtan|bhugtan karo|"
+        r"डिलीट|हटाओ|हटाना|हटा दो|हटाएं|हटाएँ|मिटाओ|मिटाना|मिटा दो|भेजो|भेजना|भेज दो|"
+        r"जमा करो|खरीदो|खरीदना|भुगतान|भुगतान करो|पैसे ट्रांसफर|पैसे भेजो|रकम भेजो|"
+        r"खाता बंद|पासवर्ड बदलो|फैक्टरी रीसेट|फॉर्मैट ड्राइव|प्रकाशित करो|पब्लिश करो|सबमिट करो)\b",
         re.IGNORECASE,
     )
     _TARGET_PATTERN = re.compile(
         r"\b(?:delete|erase|wipe|format|uninstall|overwrite|remove|submit|send|publish|post|"
-        r"purchase|buy|pay|transfer|withdraw|reset|trash|recycle bin|close account|"
-        r"change password|grant access|revoke access|share publicly|"
-        r"hatao|hata do|mitao|mita do|bhejo|bhej do)\b",
+        r"purchase|buy|pay|payment|transfer|withdraw|reset|trash|recycle bin|close account|account closure|"
+        r"change password|grant access|revoke access|share publicly|charge card|"
+        r"hatao|hatana|hata do|mitao|mita do|bhejo|bhej do|"
+        r"डिलीट|हटाओ|हटाना|हटा दो|हटाएं|हटाएँ|मिटाओ|मिटाना|मिटा दो|भेजो|भेजना|भेज दो|"
+        r"भुगतान|भुगतान करो|खाता बंद|पासवर्ड बदलो|प्रकाशित करो|पब्लिश करो|सबमिट|ट्रांसफर करो)\b",
         re.IGNORECASE,
     )
 

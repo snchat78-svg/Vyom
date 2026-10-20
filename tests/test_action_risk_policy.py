@@ -39,14 +39,30 @@ class ActionRiskPolicyTests(unittest.TestCase):
         self.assertIn("delete file", result["summary"])
         self.assertNotIn("args", result["summary"])
 
-    def test_typed_payload_is_not_mistaken_for_an_action(self):
-        result = ActionRiskPolicy.assess_plan([{
-            "id": "type_text",
-            "type": "action",
-            "action": "type_text",
-            "target": "focused_element",
-            "args": {"text": "Please delete the old draft tomorrow."},
-        }])
+    def test_typed_payload_and_keyboard_send_are_not_mistaken_for_actions(self):
+        result = ActionRiskPolicy.assess_plan([
+            {
+                "id": "type_text",
+                "type": "action",
+                "action": "type_text",
+                "target": "focused_element",
+                "args": {"text": "Please delete the old draft tomorrow."},
+            },
+            {
+                "id": "send_key",
+                "type": "action",
+                "action": "send_key",
+                "target": "Enter",
+                "args": {"key": "ENTER"},
+            },
+            {
+                "id": "save_click",
+                "type": "action",
+                "action": "click_ui_element",
+                "target": "Save",
+                "args": {},
+            },
+        ])
         self.assertFalse(result["requires_confirmation"])
         self.assertEqual(result["findings"], [])
 
@@ -72,6 +88,18 @@ class ActionRiskPolicyTests(unittest.TestCase):
         self.assertFalse(action["reversible"])
         self.assertTrue(ActionRiskPolicy.assess_plan([action])["requires_confirmation"])
 
+    def test_devanagari_destructive_and_financial_labels_require_confirmation(self):
+        plan = [
+            {"id": "delete_hindi", "type": "action", "action": "click_ui_element", "target": "डिलीट"},
+            {"id": "account_hindi", "type": "action", "action": "click_ui_element", "target": "खाता बंद करें"},
+            {"id": "payment_hindi", "type": "action", "action": "भुगतान करो", "target": "बिल"},
+            {"id": "publish_hindi", "type": "action", "action": "click_ui_element", "target": "प्रकाशित करो"},
+        ]
+
+        result = ActionRiskPolicy.assess_plan(plan)
+
+        self.assertTrue(result["requires_confirmation"])
+        self.assertEqual(result["step_ids"], ["delete_hindi", "account_hindi", "payment_hindi", "publish_hindi"])
     def test_schema_rejects_malformed_risk_contracts(self):
         with self.assertRaises(ActionSchemaError):
             ActionSchema(action="delete_file", capability="file_manager", risk_level="unknown")
