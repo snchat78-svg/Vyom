@@ -91,8 +91,8 @@ def _mock_appsfolder_items(monkeypatch, stdout):
 
 def test_direct_appsfolder_duplicate_names_require_explicit_selection(monkeypatch):
     stdout = (
-        "MATCH\\tDuplicate App\\tshell:AppsFolder\\\\Publisher.AppOne!Main\\n"
-        "MATCH\\tDuplicate App\\tshell:AppsFolder\\\\Publisher.AppTwo!Main\\n"
+        "MATCH\tDuplicate App\tshell:AppsFolder\\Publisher.AppOne!Main\n"
+        "MATCH\tDuplicate App\tshell:AppsFolder\\Publisher.AppTwo!Main\n"
     )
     _mock_appsfolder_items(monkeypatch, stdout)
 
@@ -125,7 +125,7 @@ def test_direct_appsfolder_duplicate_names_require_explicit_selection(monkeypatc
 
 
 def test_direct_appsfolder_unique_name_still_launches(monkeypatch):
-    stdout = "MATCH\\tUnique App\\tshell:AppsFolder\\\\Publisher.UniqueApp!Main\\n"
+    stdout = "MATCH\tUnique App\tshell:AppsFolder\\Publisher.UniqueApp!Main\n"
     _mock_appsfolder_items(monkeypatch, stdout)
 
     launcher = UniversalAppLauncher()

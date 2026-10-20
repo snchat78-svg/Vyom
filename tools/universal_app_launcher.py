@@ -1836,9 +1836,9 @@ exit 3
         results = []
         seen = set()
         for line in str(stdout or "").splitlines():
-            if not line.startswith("MATCH\\t"):
+            if not line.startswith("MATCH\t"):
                 continue
-            parts = line.split("\\t", 2)
+            parts = line.split("\t", 2)
             if len(parts) != 3:
                 continue
             name = parts[1].strip()
