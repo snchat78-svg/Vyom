@@ -113,8 +113,8 @@ def main():
     _configure_console()
 
     from command_engine.parser import CommandParser
+    from ai_core.conversation_manager import ConversationManager
     import command_engine.executor as command_executor
-    execute = command_executor.execute
 
     # The durable journal stores only a hashed recovery fingerprint and status,
     # never the action payload or mission plan. A restored marker blocks actions
@@ -131,8 +131,9 @@ def main():
     # ============================================================
 
     parser = CommandParser()
-
-    voice_controller = VoiceController()
+    # Text and voice share one turn manager, history, trace contract and executor.
+    conversation_manager = ConversationManager()
+    voice_controller = VoiceController(conversation_manager=conversation_manager)
 
     # ============================================================
     # STARTUP
@@ -276,7 +277,7 @@ def main():
                 command
             )
 
-            response = execute(
+            response = conversation_manager.process_text(
                 parsed
             )
 

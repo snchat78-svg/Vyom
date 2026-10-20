@@ -22,6 +22,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M0.3 progress:** Reuses the existing M4 WorldState observation history and M5/M6 verification outputs; it does not add another observer or verifier. The shared executor wrapper correlates only observations timestamped during the current command turn into the same trace ID. Each event contains the phase/time, compact result state, and explicit verification state/level where reported; action IDs, target/window/control names, payloads, observation reasons and full world snapshots are excluded. A turn with no new observation reports `no_new_observations`, not fabricated evidence. Regression tests cover stale-turn exclusion, correlation, payload redaction and absent observations.
 
+**M0.4 progress:** The entry point now creates one ConversationManager and injects that exact instance into VoiceController; typed input calls `process_text` on the same manager rather than bypassing it to call the executor directly. This closes the M0.1 trace gap for typed turns while preserving the existing CommandParser and executor boundary. `tests/test_m0_4_shared_frontend.py` guards manager identity, text routing and absence of direct executor calls from the desktop text path. Current-commit CI must pass before this checkpoint is accepted.
+
+
 
 
 
