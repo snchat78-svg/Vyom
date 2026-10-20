@@ -24,6 +24,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M0.4 progress:** The entry point now creates one ConversationManager and injects that exact instance into VoiceController; typed input calls `process_text` on the same manager rather than bypassing it to call the executor directly. This closes the M0.1 trace gap for typed turns while preserving the existing CommandParser and executor boundary. `tests/test_m0_4_shared_frontend.py` guards manager identity, text routing and absence of direct executor calls from the desktop text path. CI run 39400224264 passed 300 tests and 12 subtests and built/verified the Windows EXE. The remaining platform acceptance is real interactive Windows/microphone validation.
 
+**M0 exit-gate audit — implementation awaiting CI:** The audit found mission traces summarized counts and state but did not preserve plan topology. The trace now includes at most 16 payload-free step summaries (position, allowlisted step type, sanitized status, dependency count, and pre/postcondition presence) plus an explicit truncation flag; IDs, action/target text, arguments, and condition contents are excluded. Regression tests also exercise typed and voice turns through one injected executor and check that generic executor success without verification remains `not_reported`. The exact-commit CI result and external Windows/microphone validation must be recorded separately.
+
 
 
 

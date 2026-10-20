@@ -18,13 +18,13 @@ This file is the hand-off record across conversations. The repository code and C
 - Verified M0.4 implementation: `a499f3e61a30b7a5afb4ed3aacba47406c7fe06b`, [CI run 39400224264](https://github.com/snchat78-svg/Vyom/actions/runs/39400224264) succeeded with 300 passed and 12 subtests; Windows `Vyom.exe` built, verified and uploaded.
 - M0.3 reuses existing M4 WorldState history and M5/M6 verification output; do not rebuild observers/verifiers.
 - M0.4 routes typed and spoken turns through the same `ConversationManager` instance. The former direct text-to-executor bypass is covered by `tests/test_m0_4_shared_frontend.py`.
-- M0.1–M0.4 are implemented and CI-tested at the listed source commits. The next task is an **M0 exit-gate audit only**, not another trace/pipeline implementation. Read the newest workflow for the exact current branch SHA first.
+- M0.1–M0.4 are implemented and CI-tested at the listed source commits. M0 exit-gate audit identified missing bounded plan topology in the mission trace; this patch adds payload-free step summaries and shared-executor voice/text parity tests. Exact-commit CI is pending for this patch; do not mark the exit gate passed until that workflow succeeds.
 
 ## Phase matrix
 
 | Phase/checkpoint | Existing implementation and evidence | Status before M0.3 | Remaining acceptance |
 |---|---|---|---|
-| M0 baseline | Shared ConversationManager, canonical result schema, bounded history, no success-by-response-text inference | Partial | Whole shared pipeline trace and regression evidence |
+| M0 baseline / exit gate | Shared ConversationManager, canonical result schema, bounded history, trace summaries, and bounded plan topology added by current audit patch | Implementation under CI validation | Exact-commit CI, then real Windows/microphone and cross-app acceptance |
 | M0.1 input trace | `voice/voice_controller.py`, `ai_core/conversation_manager.py`, `tests/test_conversation_manager.py`; raw STT text, normalized input, confidence, corrections, result stage and verification status | Implemented + CI tested | Real Windows microphone/voice round-trip |
 | M0.2 pipeline trace | `command_engine/executor.py`, `ai_core/conversation_manager.py`; trace ID, intent/route, compact goal-compilation/mission/context summaries and privacy tests | Implemented + CI tested | Observation events linked to the same trace |
 | M0.3 observation correlation | Same-turn timestamped observations linked to trace ID; payload-free event summaries and no-observation state; validated by run 39399731304 | Implemented + CI tested | Real Windows observation behavior remains part of integration validation |
@@ -42,4 +42,4 @@ This file is the hand-off record across conversations. The repository code and C
 
 ## Current phase hand-off
 
-M0.1–M0.4 are implemented and CI-tested at the source commits recorded above. The next task is the M0 exit-gate audit: compare each M0 acceptance bullet against existing source/tests, especially shared executor parity and the rule that an action must not be reported as verified without evidence. Do not implement another trace/observer or redo M0.1–M0.4. If automated gates are complete, record the remaining external Windows/microphone checks as platform validation—not as missing code.
+M0.1–M0.4 remain complete and must not be repeated. The current M0 exit-audit patch adds the missing bounded, payload-free plan topology and a shared-executor regression test for typed/voice parity, including explicit handling of missing verification evidence. Its CI result is pending; re-check branch head and the newest workflow for that exact SHA before proceeding. If green, record the automated M0 gate as passed while keeping real Windows, microphone, and cross-app interaction checks marked as external platform validation.

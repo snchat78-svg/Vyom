@@ -149,10 +149,14 @@ def test_pipeline_trace_has_mission_and_goal_summaries_without_plan_payloads():
         "mission": {
             "mission_state": "blocked",
             "plan": [{
-                "id": "step-1",
+                "id": "private-step-id",
+                "type": "execute_existing_intent",
                 "status": "pending",
                 "action": "send private content",
                 "args": {"text": "private payload"},
+                "depends_on": ["private-parent-step"],
+                "precondition": {"window": "private precondition content"},
+                "postcondition": {"state": "private postcondition content"},
             }],
             "progress": {"total": 1, "pending": 1, "completed": 0, "failed": 0, "executing": 0},
             "replay_lock": {"active": True},
@@ -175,12 +179,23 @@ def test_pipeline_trace_has_mission_and_goal_summaries_without_plan_payloads():
     assert trace["mission"]["available"] is True
     assert trace["mission"]["state"] == "blocked"
     assert trace["mission"]["step_status_counts"]["pending"] == 1
+    assert trace["mission"]["plan_steps"] == [{
+        "position": 1,
+        "type": "execute_existing_intent",
+        "status": "pending",
+        "dependency_count": 1,
+        "precondition_present": True,
+        "postcondition_present": True,
+    }]
+    assert trace["mission"]["plan_steps_truncated"] is False
     assert trace["mission"]["replay_lock_active"] is True
     assert trace["goal_compilation"]["sub_goal_count"] == 1
     assert trace["goal_compilation"]["suggested_intent_types"] == ["open"]
     assert trace["context"]["current_app_present"] is True
     assert trace["context"]["awaiting_confirmation"] is True
     for secret in ("private original task text", "private subgoal", "private payload",
+                   "send private content", "private-step-id", "private-parent-step",
+                   "private precondition content", "private postcondition content",
                    "private-app-name", "/private/path", "private-target", "private state"):
         assert secret not in encoded
 
@@ -277,6 +292,40 @@ def test_executor_trace_marks_missing_observations_explicitly(monkeypatch):
     assert evidence["status"] == "no_new_observations"
     assert evidence["event_count"] == 0
     assert evidence["events"] == []
+
+
+
+
+def test_mission_plan_summary_is_bounded_and_never_copies_step_payloads():
+    plan = [
+        {
+            "id": "secret-step-id-" + str(index),
+            "type": "action",
+            "status": "pending",
+            "depends_on": ["secret-dependency"] if index else [],
+            "args": {"text": "private payload"},
+            "target": "private target",
+            "precondition": {"control": "private condition"},
+            "postcondition": {"value": "private state"},
+        }
+        for index in range(24)
+    ]
+
+    summary = ConversationManager._mission_summary({
+        "mission": {"mission_state": "running", "plan": plan}
+    })
+
+    assert summary["step_count"] == 24
+    assert len(summary["plan_steps"]) == 16
+    assert summary["plan_steps_truncated"] is True
+    assert summary["plan_steps"][0]["dependency_count"] == 0
+    assert summary["plan_steps"][1]["dependency_count"] == 1
+    encoded = str(summary)
+    for private_value in (
+        "secret-step-id", "secret-dependency", "private payload",
+        "private target", "private condition", "private state",
+    ):
+        assert private_value not in encoded
 
 
 def test_success_without_explicit_verification_is_not_reported_verified():

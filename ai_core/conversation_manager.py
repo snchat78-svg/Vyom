@@ -324,12 +324,48 @@ class ConversationManager:
                 if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                     counts[key] = value
 
+        # M0 exit-gate audit: preserve useful plan topology without copying
+        # action payloads, target names, step IDs, or condition contents.
+        allowed_step_types = {
+            "action", "execute_existing_intent", "capability", "generic_action",
+            "reasoning", "decision", "observation", "wait", "user_input",
+            "clarification", "control_flow", "subgoal", "sub_goal", "plan",
+        }
+        allowed_step_statuses = {
+            "pending", "executing", "completed", "failed", "blocked",
+            "skipped", "cancelled", "waiting", "needs_confirmation",
+        }
+        plan_step_limit = 16
+        plan_steps = []
+        for position, step in enumerate(plan[:plan_step_limit], start=1):
+            if not isinstance(step, dict):
+                continue
+            raw_type = str(step.get("type") or step.get("step_type") or "").strip().lower()
+            raw_status = str(step.get("status") or "").strip().lower()
+            dependencies = step.get("depends_on")
+            plan_steps.append({
+                "position": position,
+                "type": raw_type if raw_type in allowed_step_types else "other",
+                "status": raw_status if raw_status in allowed_step_statuses else "other",
+                "dependency_count": len(dependencies) if isinstance(dependencies, list) else 0,
+                "precondition_present": any(
+                    key in step and step.get(key) is not None
+                    for key in ("precondition", "preconditions", "requires")
+                ),
+                "postcondition_present": any(
+                    key in step and step.get(key) is not None
+                    for key in ("postcondition", "postconditions", "completion_criteria", "expected_state")
+                ),
+            })
+
         replay_lock = mission.get("replay_lock")
         return {
             "available": True,
             "state": str(mission.get("mission_state") or "unknown")[:80],
             "step_count": len(plan),
             "step_status_counts": counts,
+            "plan_steps": plan_steps,
+            "plan_steps_truncated": len(plan) > plan_step_limit,
             "current_step_present": isinstance(mission.get("current_step"), dict),
             "replay_lock_active": bool(
                 isinstance(replay_lock, dict) and replay_lock.get("active") is True
