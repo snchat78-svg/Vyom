@@ -59,7 +59,9 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **Current implementation:** `ai_core/meaning_intent_engine.py` derives a provider-independent meaning frame from the existing action plan (intent, targets, payloads, constraints, references, desired result and competing hypotheses). It does not replace the existing execution/planning route. Close runtime-target candidates force a clarification and an empty plan rather than dispatching a guessed target.
 
-**Status:** Foundation implemented; CI and regression tests are the current acceptance gate. Windows end-to-end behavior remains unverified until tested with the user's microphone and desktop.
+**M1 automated gate passed:** Commit `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including clear runtime typo recovery with raw transcript retention, tied-target ambiguity and an empty plan at the semantic dispatch boundary. M1's real microphone/accent benchmark and interactive Windows behavior remain external validation.
+
+**M2 audit finding — UI target preservation awaiting CI:** The existing meaning frame omitted explicit targets for all operations outside its app/file allowlist, which erased a generic UI target such as `click Save` even though the target is core meaning. The frame now preserves every explicit non-placeholder target across generic and legacy actions, while keeping contextual placeholders such as `focused_element` out of the entity list. New tests cover target/payload separation, pre/postconditions and verification checks, competing target alternatives, and paraphrases producing an identical structured goal. M2 remains in progress until exact-SHA CI passes and the remaining confidence/ambiguity matrix is audited. Windows end-to-end behavior remains external validation.
 
 ## M3 — Complex goal decomposition and planning
 

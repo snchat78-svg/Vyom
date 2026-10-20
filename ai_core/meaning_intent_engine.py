@@ -65,8 +65,9 @@ class MeaningIntentEngine:
         else:
             target = step.get("target")
         value = cls._text(target, 300)
-        if operation not in cls._ENTITY_ACTIONS:
-            return ""
+        # Targets are meaningful for generic UI actions too (for example,
+        # click "Save" or focus a named control). Only contextual placeholders
+        # are omitted; action type must not erase an explicitly grounded target.
         if value.casefold() in cls._PLACEHOLDER_TARGETS:
             return ""
         return value
