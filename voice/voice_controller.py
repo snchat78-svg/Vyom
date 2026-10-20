@@ -173,8 +173,9 @@ class VoiceController:
             self.state = "executing"
             self._log("STATE -> EXECUTING")
             voice_metadata = None
-            if self.last_voice_metadata or self.last_raw_text or self.last_voice_language:
-                voice_trace = dict(self.last_voice_metadata or {})
+            last_voice_metadata = getattr(self, "last_voice_metadata", {})
+            if last_voice_metadata or getattr(self, "last_raw_text", "") or getattr(self, "last_voice_language", ""):
+                voice_trace = dict(last_voice_metadata or {})
                 voice_trace.setdefault("raw_text", self.last_raw_text)
                 voice_trace.setdefault("recognized_language", self.last_voice_language)
                 voice_trace["roman_text"] = command

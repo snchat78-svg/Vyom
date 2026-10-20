@@ -131,6 +131,12 @@ class ConversationManager:
             voice.get("recognized_language") or voice.get("language") or ""
         ).strip() or None
 
+        try:
+            alternatives_count = int(voice.get("transcription_alternatives_count") or 0) if voice else 0
+        except (TypeError, ValueError, OverflowError):
+            alternatives_count = 0
+        alternatives_count = min(16, max(0, alternatives_count))
+
         return {
             "schema_version": 1,
             "timestamp": timestamp,
@@ -141,9 +147,7 @@ class ConversationManager:
             "language": language,
             "recognized_language": recognized_language,
             "stt_status": str(voice.get("stt_status") or "") or None,
-            "transcription_alternatives_count": min(
-                16, max(0, int(voice.get("transcription_alternatives_count") or 0))
-            ) if voice else 0,
+            "transcription_alternatives_count": alternatives_count,
             "input_confidence": confidence,
             "input_confidence_source": "command_normalizer" if confidence is not None else None,
             "corrections": self._safe_corrections(voice.get("command_corrections")),

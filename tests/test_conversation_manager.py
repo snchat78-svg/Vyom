@@ -62,6 +62,46 @@ def test_voice_trace_preserves_raw_text_confidence_corrections_and_verification(
     assert manager.get_history()[-1]["trace"] == trace
 
 
+def test_voice_controller_forwards_current_utterance_metadata():
+    from voice.voice_controller import VoiceController
+
+    class CaptureConversationManager:
+        def __init__(self):
+            self.call = None
+
+        def process_voice(self, command, metadata=None):
+            self.call = (command, metadata)
+            return {
+                "success": True,
+                "status": "success",
+                "stage": "test",
+                "message": "captured",
+            }
+
+    controller = VoiceController.__new__(VoiceController)
+    controller.state = "listening"
+    controller.last_raw_text = "Open calcuator"
+    controller.last_voice_language = "en-IN"
+    controller.last_voice_metadata = {
+        "raw_text": "Open calcuator",
+        "recognized_language": "en-IN",
+        "roman_text": "open calculator",
+        "command_confidence": 0.91,
+        "command_corrections": [{"from": "calcuator", "to": "calculator", "score": 0.91, "position": 1}],
+    }
+    controller.conversation_manager = CaptureConversationManager()
+    controller._log = lambda message: None
+
+    result = controller.process_text("open calculator")
+
+    command, metadata = controller.conversation_manager.call
+    assert result["success"] is True
+    assert command == "open calculator"
+    assert metadata["voice"]["raw_text"] == "Open calcuator"
+    assert metadata["voice"]["command_confidence"] == 0.91
+    assert metadata["voice"]["command_corrections"][0]["to"] == "calculator"
+
+
 def test_success_without_explicit_verification_is_not_reported_verified():
     manager = ConversationManager(executor=lambda command: {
         "success": True,
