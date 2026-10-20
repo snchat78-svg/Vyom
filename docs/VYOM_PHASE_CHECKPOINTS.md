@@ -18,13 +18,14 @@ This file is the hand-off record across conversations. The repository code and C
 - Verified M0.4 implementation: `a499f3e61a30b7a5afb4ed3aacba47406c7fe06b`, [CI run 39400224264](https://github.com/snchat78-svg/Vyom/actions/runs/39400224264) succeeded with 300 passed and 12 subtests; Windows `Vyom.exe` built, verified and uploaded.
 - M0.3 reuses existing M4 WorldState history and M5/M6 verification output; do not rebuild observers/verifiers.
 - M0.4 routes typed and spoken turns through the same `ConversationManager` instance. The former direct text-to-executor bypass is covered by `tests/test_m0_4_shared_frontend.py`.
-- M0.1–M0.4 are implemented and CI-tested at the listed source commits. M0 exit-gate audit identified missing bounded plan topology in the mission trace; this patch adds payload-free step summaries and shared-executor voice/text parity tests. Exact-commit CI is pending for this patch; do not mark the exit gate passed until that workflow succeeds.
+- M0 exit-gate audit implementation: `b92d277ebdb5a9bb49469612e4388b1979ff044c`, [CI run 39401980752](https://github.com/snchat78-svg/Vyom/actions/runs/39401980752) succeeded for the exact SHA. The full suite passed; Windows EXE build, verification, and artifact upload succeeded. The change added bounded payload-free mission plan topology and tested text/voice executor and verification parity.
+- M0.1–M0.4 and the M0 automated exit gate are implemented and CI-tested. Real Windows, microphone, and cross-app interaction checks remain external validation.
 
 ## Phase matrix
 
 | Phase/checkpoint | Existing implementation and evidence | Status before M0.3 | Remaining acceptance |
 |---|---|---|---|
-| M0 baseline / exit gate | Shared ConversationManager, canonical result schema, bounded history, trace summaries, and bounded plan topology added by current audit patch | Implementation under CI validation | Exact-commit CI, then real Windows/microphone and cross-app acceptance |
+| M0 baseline / exit gate | Shared ConversationManager, canonical result schema, bounded history, trace summaries, bounded plan topology, and voice/text executor parity | Implemented + exact-commit CI tested (run 39401980752) | Real Windows/microphone and cross-app acceptance |
 | M0.1 input trace | `voice/voice_controller.py`, `ai_core/conversation_manager.py`, `tests/test_conversation_manager.py`; raw STT text, normalized input, confidence, corrections, result stage and verification status | Implemented + CI tested | Real Windows microphone/voice round-trip |
 | M0.2 pipeline trace | `command_engine/executor.py`, `ai_core/conversation_manager.py`; trace ID, intent/route, compact goal-compilation/mission/context summaries and privacy tests | Implemented + CI tested | Observation events linked to the same trace |
 | M0.3 observation correlation | Same-turn timestamped observations linked to trace ID; payload-free event summaries and no-observation state; validated by run 39399731304 | Implemented + CI tested | Real Windows observation behavior remains part of integration validation |
@@ -42,4 +43,4 @@ This file is the hand-off record across conversations. The repository code and C
 
 ## Current phase hand-off
 
-M0.1–M0.4 remain complete and must not be repeated. The current M0 exit-audit patch adds the missing bounded, payload-free plan topology and a shared-executor regression test for typed/voice parity, including explicit handling of missing verification evidence. Its CI result is pending; re-check branch head and the newest workflow for that exact SHA before proceeding. If green, record the automated M0 gate as passed while keeping real Windows, microphone, and cross-app interaction checks marked as external platform validation.
+M0.1–M0.4 and the automated M0 exit gate are complete; source commit `b92d277ebdb5a9bb49469612e4388b1979ff044c` passed exact-SHA CI run 39401980752. Do not repeat any M0 trace, observer, or frontend work. Next task: M1 acceptance audit—inspect `voice/command_normalizer.py` and existing tests for command-boundary typo repair, dynamic target candidates, tied-match clarification, and unchanged user payload. Only implement the first actual unmet M1 acceptance item; real microphone/accent benchmark and desktop interaction remain external platform checks.
