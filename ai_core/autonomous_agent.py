@@ -1076,6 +1076,10 @@ class AutonomousAgent:
             return False
         if isinstance(ui, dict) and ui.get("available") is True:
             ui_timestamp = ui.get("timestamp")
+            # The strict mission re-plan path requires evidence that this UI
+            # was actually observed recently; "available" alone is not enough.
+            if require_live_ui and ui_timestamp is None:
+                return False
             if ui_timestamp is not None:
                 if isinstance(ui_timestamp, bool) or not isinstance(ui_timestamp, (int, float)):
                     return False

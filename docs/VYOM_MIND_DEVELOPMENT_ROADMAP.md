@@ -109,6 +109,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.11 live-UI re-planning gate — implementation + tests added; CI pending:** The re-planning boundary now requires the current snapshot to contain `ui.available=True`; a recent outer timestamp cannot mask omitted or explicitly unavailable UI evidence. The generic freshness helper remains backward-compatible for summary-only callers, while mission re-planning opts into the stricter live-UI contract. Tests cover missing/unavailable UI and prove the reasoning provider is not called. Exact-SHA CI and actual Windows UIA validation remain pending.
 
+**M4.12 live-UI timestamp gate — implementation + tests added; CI pending:** When the strict mission re-planning path is active, a UI payload must have a valid, fresh capture timestamp as well as `available=True`. A fresh outer world timestamp or a bare UI availability flag cannot substitute for recent live evidence. Legacy callers that do not opt into the strict contract retain timestamp-optional compatibility. Tests reject missing and stale nested UI timestamps.
+
 **Status:** M4 remains in progress. Automated tests cover compact history, single-snapshot re-planning, reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding

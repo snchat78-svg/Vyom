@@ -131,6 +131,23 @@ class Phase5ObservationTests(unittest.TestCase):
             now=now,
             require_live_ui=True,
         ))
+        # A UI availability flag without a capture timestamp is not live evidence.
+        self.assertFalse(AutonomousAgent._is_fresh_world_observation(
+            {
+                "timestamp": now,
+                "ui": {"available": True},
+            },
+            now=now,
+            require_live_ui=True,
+        ))
+        self.assertFalse(AutonomousAgent._is_fresh_world_observation(
+            {
+                "timestamp": now,
+                "ui": {"available": True, "timestamp": now - 11},
+            },
+            now=now,
+            require_live_ui=True,
+        ))
 
 
     def test_replanning_stops_before_reasoning_when_foreground_snapshot_is_incoherent(self):
