@@ -2,6 +2,7 @@ import time
 import unittest
 
 from ai_core.context_action_compiler import ContextActionCompiler
+from ai_core.world_state import WorldStateModel
 
 
 class FakeGoalCompiler:
@@ -228,6 +229,61 @@ class ContextActionCompilerTests(unittest.TestCase):
     def test_click_it_does_not_use_a_stale_observation(self):
         context = self._runtime_context(timestamp=time.time() - 60)
         result = self.compiler.compile("click it", context)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["clarification"])
+
+
+    def _canonical_world_snapshot(self, ui_timestamp=None):
+        target = {
+            "exists": True,
+            "name": "Search",
+            "control_type": "Button",
+            "visible": True,
+            "enabled": True,
+        }
+        stamp = time.time() if ui_timestamp is None else ui_timestamp
+
+        class FakeUIObserver:
+            def snapshot(self, action=None):
+                return {
+                    "timestamp": stamp,
+                    "available": True,
+                    "active_window": {
+                        "exists": True,
+                        "name": "Test Window",
+                        "visible": True,
+                        "enabled": True,
+                    },
+                    "focused_element": dict(target),
+                    "selected_element": dict(target),
+                    "ui_tree_signature": [dict(target)],
+                }
+
+        world = WorldStateModel(ui_observer=FakeUIObserver())
+        return world.snapshot(
+            {"current_app": "Old Session Application"},
+            include_clipboard=False,
+        )
+
+    def test_world_state_snapshot_contract_resolves_live_reference(self):
+        snapshot = self._canonical_world_snapshot()
+
+        result = self.compiler.compile("click it", snapshot)
+
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["plan"][0]["action"], "click_ui_element")
+        self.assertEqual(result["plan"][0]["target"], "Search")
+        self.assertEqual(snapshot["current_window"]["name"], "Test Window")
+        self.assertEqual(snapshot["focused_control"]["name"], "Search")
+
+    def test_world_state_snapshot_contract_rejects_stale_nested_ui(self):
+        snapshot = self._canonical_world_snapshot(ui_timestamp=time.time() - 60)
+
+        # The outer world snapshot is fresh, but its nested UI evidence is stale.
+        self.assertLess(time.time() - snapshot["timestamp"], 10)
+        result = self.compiler.compile("click it", snapshot)
+
         self.assertFalse(result["complete"])
         self.assertEqual(result["plan"], [])
         self.assertTrue(result["clarification"])
