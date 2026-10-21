@@ -39,6 +39,7 @@ fallbacks. OCR/visual grounding remains a separate future capability.
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -346,7 +347,7 @@ class WindowsUICapability:
             return False
         current = time.time() if now is None else float(now)
         captured_at = float(captured_at)
-        if not (time.isfinite(current) and time.isfinite(captured_at)):
+        if not (math.isfinite(current) and math.isfinite(captured_at)):
             return False
         age = current - captured_at
         return -future_tolerance_seconds <= age <= max_age_seconds
