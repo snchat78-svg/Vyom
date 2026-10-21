@@ -375,6 +375,46 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertEqual(result["stage"], "ui_target_window_mismatch")
         self.assertEqual(element.calls, [])
 
+    def test_execute_refuses_incoherent_foreground_observation_before_dispatch(self):
+        from windows_agent.ui_automation import WindowsUICapability
+
+        element = FakeElement()
+
+        class Grounder:
+            calls = 0
+            def ground(self, target, args=None):
+                self.calls += 1
+                return {"success": True, "element": element, "element_info": {
+                    "name": "Search", "control_type": "Button", "automation_id": "searchButton"
+                }}
+
+        class Observer:
+            calls = 0
+            def snapshot(self, action=None, primary_element=None):
+                self.calls += 1
+                return {
+                    "available": True, "coherent": False,
+                    "coherence_reason": "active_window_changed_or_identity_unavailable",
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "target_element": {
+                        "exists": True, "name": "Search", "control_type": "Button",
+                        "automation_id": "searchButton",
+                        "window_identity": {"name": "Example", "hwnd": 7},
+                    },
+                    "ui_tree_signature": [{"name": "Search"}],
+                }
+
+        grounder, observer = Grounder(), Observer()
+        provider = WindowsUICapability(ui_grounder=grounder, ui_observer=observer)
+        result = provider.execute({"action": "click_ui_element", "target": "Search"})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_observation_incoherent_before_action")
+        self.assertEqual(element.calls, [])
+        self.assertEqual(grounder.calls, 1)
+        self.assertEqual(observer.calls, 1)
+
+
     def test_same_grounded_element_is_observed_before_and_after_action(self):
         from windows_agent.ui_automation import WindowsUICapability
 
@@ -481,6 +521,47 @@ class Phase2UIAutomationTests(unittest.TestCase):
             "post_action_observation_unavailable",
         )
         self.assertIn("focus", element.calls)
+
+
+    def test_incoherent_post_action_observation_cannot_verify_semantic_success(self):
+        from windows_agent.ui_automation import WindowsUICapability
+
+        element = FakeElement()
+
+        class Grounder:
+            def ground(self, target, args=None):
+                return {"success": True, "element": element, "element_info": {
+                    "name": "Search", "control_type": "Button", "automation_id": "searchButton"
+                }}
+
+        class Observer:
+            def __init__(self):
+                self.calls = 0
+            def snapshot(self, action=None, primary_element=None):
+                self.calls += 1
+                coherent = self.calls == 1
+                return {
+                    "available": True, "coherent": coherent,
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "focused_element": {"exists": True, "name": "Editor" if coherent else "Search"},
+                    "target_element": {
+                        "exists": True, "name": "Search", "control_type": "Button",
+                        "automation_id": "searchButton", "focused": not coherent,
+                        "window_identity": {"name": "Example", "hwnd": 7},
+                    },
+                    "ui_tree_signature": [{"name": "Search", "focused": not coherent}],
+                }
+
+        observer = Observer()
+        provider = WindowsUICapability(ui_grounder=Grounder(), ui_observer=observer)
+        result = provider.execute({"action": "focus_ui_element", "target": "Search"})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "verification_failed")
+        self.assertEqual(result["verification"]["verification_level"], "post_action_observation_incoherent")
+        self.assertIn("cannot be verified", result["verification"]["reason"])
+        self.assertEqual(observer.calls, 2)
+        self.assertTrue(element.calls)
 
 
     def test_set_value_reuses_single_grounded_element_for_dispatch_and_observation(self):

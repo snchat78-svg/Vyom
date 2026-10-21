@@ -234,6 +234,18 @@ class WindowsUICapability:
                 result["message"] = result["verification"]["reason"]
                 return result
 
+            if prepared_grounding is not None and after.get("coherent") is False:
+                result["success"] = False
+                result["stage"] = "verification_failed"
+                result["verification"] = {
+                    "verified": False,
+                    "verification_level": "post_action_observation_incoherent",
+                    "method": "windows_ui_state",
+                    "reason": "The action was dispatched, but the post-action UI observation detected a foreground/window identity race; completion cannot be verified.",
+                }
+                result["message"] = result["verification"]["reason"]
+                return result
+
             verification = self.ui_verifier.verify(
                 action=action,
                 before=before if isinstance(before, dict) else {},
@@ -346,6 +358,11 @@ class WindowsUICapability:
             return reject(
                 "ui_observation_unavailable_before_action",
                 "Live UI Automation observation is unavailable; the target action was not dispatched.",
+            )
+        if before.get("coherent") is False:
+            return reject(
+                "ui_observation_incoherent_before_action",
+                "The UI observation detected a foreground/window identity race; the target action was not dispatched.",
             )
 
         target = before.get("target_element")
