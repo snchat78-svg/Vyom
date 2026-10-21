@@ -1,3 +1,4 @@
+import time
 import unittest
 
 from ai_core.context_action_compiler import ContextActionCompiler
@@ -312,6 +313,7 @@ class Phase2UIAutomationTests(unittest.TestCase):
                 self.calls += 1
                 return {
                     "available": True,
+                    "timestamp": time.time(),
                     "active_window": {"exists": True, "name": "Example", "hwnd": 7},
                     "focused_element": {"exists": True, "name": "Editor"},
                     "target_element": {
@@ -335,6 +337,81 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertEqual(grounder.calls, 1)
         self.assertEqual(observer.calls, 1)
 
+    def test_semantic_action_rejects_stale_pre_action_ui_snapshot(self):
+        element = FakeElement()
+
+        class Grounder:
+            def ground(self, target, args=None):
+                return {"success": True, "element": element, "element_info": {
+                    "name": "Search", "control_type": "Button", "automation_id": "searchButton"
+                }}
+
+        class Observer:
+            calls = 0
+            def snapshot(self, action=None, primary_element=None):
+                self.calls += 1
+                return {
+                    "timestamp": time.time() - 30,
+                    "available": True,
+                    "coherent": True,
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "target_element": {
+                        "exists": True, "name": "Search", "control_type": "Button",
+                        "automation_id": "searchButton",
+                        "window_identity": {"name": "Example", "hwnd": 7},
+                    },
+                    "ui_tree_signature": [{"name": "Search"}],
+                }
+
+        observer = Observer()
+        provider = WindowsUICapability(ui_grounder=Grounder(), ui_observer=observer)
+        result = provider.execute({"action": "click_ui_element", "target": "Search"})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "ui_observation_stale_before_action")
+        self.assertEqual(result["verification"]["verification_level"], "pre_dispatch_observation_stale")
+        self.assertEqual(element.calls, [])
+        self.assertEqual(observer.calls, 1)
+
+    def test_semantic_action_cannot_claim_success_from_stale_post_action_snapshot(self):
+        element = FakeElement()
+
+        class Grounder:
+            def ground(self, target, args=None):
+                return {"success": True, "element": element, "element_info": {
+                    "name": "Search", "control_type": "Button", "automation_id": "searchButton"
+                }}
+
+        class Observer:
+            calls = 0
+            def snapshot(self, action=None, primary_element=None):
+                self.calls += 1
+                timestamp = time.time() if self.calls == 1 else time.time() - 30
+                return {
+                    "timestamp": timestamp,
+                    "available": True,
+                    "coherent": True,
+                    "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+                    "focused_element": {"exists": True, "name": "Editor" if self.calls == 1 else "Search"},
+                    "target_element": {
+                        "exists": True, "name": "Search", "control_type": "Button",
+                        "automation_id": "searchButton", "focused": self.calls > 1,
+                        "window_identity": {"name": "Example", "hwnd": 7},
+                    },
+                    "ui_tree_signature": [{"name": "Search", "focused": self.calls > 1}],
+                }
+
+        observer = Observer()
+        provider = WindowsUICapability(ui_grounder=Grounder(), ui_observer=observer)
+        result = provider.execute({"action": "focus_ui_element", "target": "Search"})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "verification_failed")
+        self.assertEqual(result["verification"]["verification_level"], "post_action_observation_stale")
+        self.assertIn("cannot be verified", result["verification"]["reason"])
+        self.assertEqual(observer.calls, 2)
+        self.assertTrue(element.calls)
+
     def test_execute_refuses_target_from_different_active_window(self):
         from windows_agent.ui_automation import WindowsUICapability
 
@@ -356,6 +433,7 @@ class Phase2UIAutomationTests(unittest.TestCase):
             def snapshot(self, action=None, primary_element=None):
                 return {
                     "available": True,
+                    "timestamp": time.time(),
                     "active_window": {"exists": True, "name": "Example", "hwnd": 7},
                     "focused_element": {"exists": True, "name": "Editor"},
                     "target_element": {
@@ -393,7 +471,8 @@ class Phase2UIAutomationTests(unittest.TestCase):
             def snapshot(self, action=None, primary_element=None):
                 self.calls += 1
                 return {
-                    "available": True, "coherent": False,
+                    "available": True,
+                    "timestamp": time.time(), "coherent": False,
                     "coherence_reason": "active_window_changed_or_identity_unavailable",
                     "active_window": {"exists": True, "name": "Example", "hwnd": 7},
                     "target_element": {
@@ -444,6 +523,7 @@ class Phase2UIAutomationTests(unittest.TestCase):
                 after = len(self.elements) > 1
                 return {
                     "available": True,
+                    "timestamp": time.time(),
                     "active_window": {"exists": True, "name": "Example", "hwnd": 7},
                     "focused_element": {"exists": True, "name": "Search" if after else "Editor"},
                     "target_element": {
@@ -497,6 +577,7 @@ class Phase2UIAutomationTests(unittest.TestCase):
                 available = self.calls == 1
                 return {
                     "available": available,
+                    "timestamp": time.time(),
                     "active_window": {"exists": True, "name": "Example", "hwnd": 7},
                     "focused_element": {"exists": True, "name": "Editor"},
                     "target_element": {
@@ -541,7 +622,8 @@ class Phase2UIAutomationTests(unittest.TestCase):
                 self.calls += 1
                 coherent = self.calls == 1
                 return {
-                    "available": True, "coherent": coherent,
+                    "available": True,
+                    "timestamp": time.time(), "coherent": coherent,
                     "active_window": {"exists": True, "name": "Example", "hwnd": 7},
                     "focused_element": {"exists": True, "name": "Editor" if coherent else "Search"},
                     "target_element": {
@@ -593,6 +675,7 @@ class Phase2UIAutomationTests(unittest.TestCase):
                 after = len(self.elements) > 1
                 return {
                     "available": True,
+                    "timestamp": time.time(),
                     "active_window": {"exists": True, "name": "Example", "hwnd": 7},
                     "focused_element": {"exists": True, "name": "Editor"},
                     "target_element": {
