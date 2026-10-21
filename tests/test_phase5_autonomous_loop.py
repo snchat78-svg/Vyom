@@ -706,6 +706,75 @@ class Phase5ObservationTests(unittest.TestCase):
         self.assertEqual(agent.mission_runtime.snapshot()["mission_state"], "blocked")
         self.assertFalse(any(item.get("event") == "step_retry" for item in agent.mission_runtime.history))
 
+    def test_failed_prerequisite_never_dispatches_dependent_step(self):
+        agent = AutonomousAgent(max_steps=3)
+        dispatched = []
+
+        def observe(**kwargs):
+            now = time.time()
+            world = {
+                "timestamp": now,
+                "ui": {
+                    "available": True,
+                    "timestamp": now,
+                    "elements": [],
+                },
+            }
+            return {
+                "phase": kwargs.get("phase", ""),
+                "timestamp": now,
+                "world_state": world,
+            }
+
+        def fail_first_step(step):
+            dispatched.append(step.get("id"))
+            return {
+                "success": False,
+                "stage": "execution_failed",
+                "result": {
+                    "success": False,
+                    "stage": "ui_pattern_unsupported",
+                    "message": "The required UI pattern is unavailable.",
+                },
+                "verification": {"verified": False},
+            }
+
+        agent._observe_cycle = observe
+        agent._execute_step = fail_first_step
+        result = agent._run_mission(
+            goal="open an app and then type text",
+            plan=[
+                {
+                    "id": "open",
+                    "type": "action",
+                    "action": "open_application",
+                    "capability": "windows_ui",
+                    "target": "Calculator",
+                    "args": {},
+                    "depends_on": [],
+                },
+                {
+                    "id": "type",
+                    "type": "action",
+                    "action": "type_text",
+                    "capability": "windows_ui",
+                    "target": "focused_element",
+                    "args": {"text": "must not be typed"},
+                    "depends_on": ["open"],
+                },
+            ],
+            intent=None,
+            analysis={},
+            compilation={},
+            route={},
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(dispatched, ["open"])
+        self.assertEqual(result["mission"]["plan"][0]["status"], "failed")
+        self.assertEqual(result["mission"]["plan"][1]["status"], "pending")
+
+
 
 if __name__ == "__main__":
     unittest.main()
