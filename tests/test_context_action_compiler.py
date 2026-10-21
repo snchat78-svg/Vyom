@@ -233,6 +233,16 @@ class ContextActionCompilerTests(unittest.TestCase):
         self.assertEqual(result["plan"], [])
         self.assertTrue(result["clarification"])
 
+    def test_click_it_rejects_incoherent_fresh_ui_snapshot(self):
+        context = self._runtime_context()
+        context["ui"]["coherent"] = False
+
+        result = self.compiler.compile("click it", context)
+
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["clarification"])
+
 
     def _canonical_world_snapshot(self, ui_timestamp=None):
         target = {

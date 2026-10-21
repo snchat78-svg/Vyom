@@ -4,6 +4,7 @@ from ai_core.context_action_compiler import ContextActionCompiler
 from windows_agent.ui_element_finder import UIElementFinder
 from windows_agent.ui_grounder import UIElementGrounder
 from windows_agent import ui_patterns
+from windows_agent.ui_state_observer import UIStateObserver
 
 
 class FakeElement:
@@ -540,6 +541,44 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertIs(observer.elements[0], element)
         self.assertIs(observer.elements[1], element)
         self.assertIn(("set_value", "Hello"), element.calls)
+
+
+    def test_snapshot_marks_foreground_switch_during_observation_incoherent(self):
+        observer = UIStateObserver()
+        windows = iter([
+            {"exists": True, "hwnd": 11, "pid": 101, "name": "Window A"},
+            {"exists": True, "hwnd": 22, "pid": 202, "name": "Window B"},
+        ])
+        observer.active_window_state = lambda: next(windows)
+        observer.element_state = lambda element: {"exists": False} if element is None else {"exists": True, "name": "Search", "control_type": "Button"}
+        observer.focused_element_state = lambda: {"exists": True, "name": "Editor"}
+        observer.selected_element_state = lambda: {"exists": True, "name": "Search"}
+        observer.running_windows_state = lambda: []
+        observer._tree_signature = lambda: []
+        observer.is_available = lambda: True
+
+        snapshot = observer.snapshot()
+
+        self.assertFalse(snapshot["coherent"])
+        self.assertEqual(snapshot["active_window"]["name"], "Window B")
+        self.assertEqual(snapshot["coherence_reason"], "active_window_changed_or_identity_unavailable")
+
+    def test_snapshot_accepts_stable_active_window_identity(self):
+        observer = UIStateObserver()
+        window = {"exists": True, "hwnd": 11, "pid": 101, "name": "Window A"}
+        windows = iter([dict(window), dict(window)])
+        observer.active_window_state = lambda: next(windows)
+        observer.element_state = lambda element: {"exists": False} if element is None else {"exists": True, "name": "Search", "control_type": "Button"}
+        observer.focused_element_state = lambda: {"exists": True, "name": "Editor"}
+        observer.selected_element_state = lambda: {"exists": True, "name": "Search"}
+        observer.running_windows_state = lambda: []
+        observer._tree_signature = lambda: []
+        observer.is_available = lambda: True
+
+        snapshot = observer.snapshot()
+
+        self.assertTrue(snapshot["coherent"])
+        self.assertNotIn("coherence_reason", snapshot)
 
 
 if __name__ == "__main__":

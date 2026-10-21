@@ -103,6 +103,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.8 clipboard privacy default — implementation + tests added; CI pending:** `WorldStateModel.snapshot()` no longer reads clipboard contents by default. Callers must explicitly pass `include_clipboard=True` when clipboard content is required for the task; existing autonomous observations already opt out by default. Tests preserve explicit clipboard reads while guarding that default snapshots only return a skipped marker. This is a privacy-by-default boundary and does not inspect or clear clipboard data.
 
+**M4.9 coherent foreground observation — implementation + tests added; CI pending:** UIStateObserver now compares active-window identity before and after collecting focus/selection/tree data. A foreground switch or insufficient identity evidence marks the snapshot `coherent=False`; ContextActionCompiler refuses contextual-reference resolution from such a snapshot and asks for clarification. Legacy/custom observers with no coherence field remain compatible. This prevents a single context snapshot from silently combining controls across windows; exact-SHA CI and real Windows foreground-switch testing remain pending.
+
 **Status:** M4 remains in progress. Automated tests cover compact history, single-snapshot re-planning, reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding

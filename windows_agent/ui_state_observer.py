@@ -188,6 +188,37 @@ class UIStateObserver:
         window = self._top_level(active) or active
         return self.element_state(window)
 
+    @staticmethod
+    def _same_active_window(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
+        """Return True only when both observations identify the same active window."""
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            return False
+        if before.get("exists") is not True or after.get("exists") is not True:
+            return False
+
+        before_hwnd = before.get("hwnd")
+        after_hwnd = after.get("hwnd")
+        if before_hwnd not in (None, "") or after_hwnd not in (None, ""):
+            if before_hwnd in (None, "") or after_hwnd in (None, ""):
+                return False
+            if str(before_hwnd) != str(after_hwnd):
+                return False
+            before_pid, after_pid = before.get("pid"), after.get("pid")
+            return before_pid in (None, "") or after_pid in (None, "") or str(before_pid) == str(after_pid)
+
+        # Without HWND, require process and title identity; a PID alone can own several windows.
+        before_pid, after_pid = before.get("pid"), after.get("pid")
+        before_name = UIStateObserver._text(before.get("name"))
+        after_name = UIStateObserver._text(after.get("name"))
+        if before_pid in (None, "") or after_pid in (None, "") or not before_name or not after_name:
+            return False
+        if str(before_pid) != str(after_pid) or before_name.casefold() != after_name.casefold():
+            return False
+        before_class = UIStateObserver._text(before.get("class_name"))
+        after_class = UIStateObserver._text(after.get("class_name"))
+        return not (before_class and after_class and before_class != after_class)
+
+
     def _win32_focused_handle(self) -> int:
         """Return the OS-reported focused child HWND when available."""
         if self._user32 is None:
@@ -409,6 +440,11 @@ class UIStateObserver:
         action: Optional[Dict[str, Any]] = None,
         primary_element: Any = None,
     ) -> Dict[str, Any]:
+        # UIA queries are separate reads. Detect a foreground switch while
+        # focus, selection and the visible tree are being collected.
+        captured_at = time.time()
+        active_before = self.active_window_state()
+
         target_element = primary_element
         if target_element is None and isinstance(action, dict):
             target_element = self._find_target(action)
@@ -425,16 +461,28 @@ class UIStateObserver:
             if identity:
                 target_state["window_identity"] = identity
 
-        return {
+        focused = self.focused_element_state()
+        selected = self.selected_element_state()
+        windows = self.running_windows_state()
+        tree = self._tree_signature()
+        active_after = self.active_window_state()
+        coherent = self._same_active_window(active_before, active_after)
+
+        snapshot = {
             "timestamp": time.time(),
+            "capture_started_at": captured_at,
             "available": self.is_available(),
-            "active_window": self.active_window_state(),
-            "focused_element": self.focused_element_state(),
-            "selected_element": self.selected_element_state(),
+            "active_window": active_after,
+            "focused_element": focused,
+            "selected_element": selected,
             "target_element": target_state,
-            "running_windows": self.running_windows_state(),
-            "ui_tree_signature": self._tree_signature(),
+            "running_windows": windows,
+            "ui_tree_signature": tree,
+            "coherent": coherent,
         }
+        if not coherent:
+            snapshot["coherence_reason"] = "active_window_changed_or_identity_unavailable"
+        return snapshot
 
 
 __all__ = ["UIStateObserver"]

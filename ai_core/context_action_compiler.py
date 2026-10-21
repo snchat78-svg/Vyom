@@ -96,6 +96,10 @@ class ContextActionCompiler:
         if not isinstance(ui, dict) or ui.get("available") is not True:
             return None
 
+        # Refuse contextual routing if the observer detected a foreground-window race.
+        if ui.get("coherent") is False:
+            return None
+
         # The nested UI observation is the source of truth for controls. A
         # fresh outer world snapshot must not make an old nested UI payload
         # appear fresh when contexts are combined or partially refreshed.
