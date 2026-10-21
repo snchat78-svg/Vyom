@@ -1057,10 +1057,14 @@ class AutonomousAgent:
         if age < -future_tolerance_seconds or age > max_age_seconds:
             return False
 
-        # A fresh outer snapshot must not disguise an old nested UI payload.
+        # A fresh outer snapshot must not disguise old or internally mixed UI
+        # evidence. A foreground switch during capture makes the observation
+        # unsafe for re-planning even when both timestamps are recent.
         # UI providers from older versions may omit their own timestamp, so
         # validate it when present instead of rejecting the compatibility case.
         ui = snapshot.get("ui")
+        if isinstance(ui, dict) and ui.get("coherent") is False:
+            return False
         if isinstance(ui, dict) and ui.get("available") is True:
             ui_timestamp = ui.get("timestamp")
             if ui_timestamp is not None:

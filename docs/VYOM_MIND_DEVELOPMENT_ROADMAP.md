@@ -105,6 +105,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.9 coherent foreground observation — implementation + tests added; CI pending:** UIStateObserver now compares active-window identity before and after collecting focus/selection/tree data. A foreground switch or insufficient identity evidence marks the snapshot `coherent=False`; ContextActionCompiler refuses contextual-reference resolution from such a snapshot and asks for clarification. Legacy/custom observers with no coherence field remain compatible. This prevents a single context snapshot from silently combining controls across windows; exact-SHA CI and real Windows foreground-switch testing remain pending.
 
+**M4.10 re-planning coherence gate — implementation + tests added; CI pending:** AutonomousAgent's shared world-observation freshness validator now rejects UI snapshots explicitly marked `coherent=False`, even when outer and nested timestamps are fresh. Re-planning stops before calling the reasoning provider on mixed-window evidence. Legacy UI providers without a coherence field retain timestamp-based compatibility; exact-SHA CI is pending.
+
 **Status:** M4 remains in progress. Automated tests cover compact history, single-snapshot re-planning, reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding

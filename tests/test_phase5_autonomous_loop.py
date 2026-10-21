@@ -107,6 +107,72 @@ class Phase5ObservationTests(unittest.TestCase):
             now=now,
         ))
 
+        # Fresh timestamps must not override a foreground race detected by UIA.
+        self.assertFalse(AutonomousAgent._is_fresh_world_observation(
+            {
+                "timestamp": now,
+                "ui": {"available": True, "timestamp": now, "coherent": False},
+            },
+            now=now,
+        ))
+
+
+    def test_replanning_stops_before_reasoning_when_foreground_snapshot_is_incoherent(self):
+        agent = AutonomousAgent(max_steps=3)
+        reason_calls = []
+
+        class IncoherentWorld:
+            def __init__(self):
+                self.observation_history = []
+                self.last_snapshot = None
+
+            def snapshot(self, *args, **kwargs):
+                now = time.time()
+                return {
+                    "timestamp": now,
+                    "ui": {
+                        "available": True,
+                        "timestamp": now,
+                        "coherent": False,
+                    },
+                    "observation_history": [],
+                }
+
+            def record_observation(self, observation):
+                self.observation_history.append({
+                    "phase": observation.get("phase"),
+                    "timestamp": observation.get("timestamp"),
+                    "world_state": {},
+                })
+
+        class ReplanRuntime:
+            def start(self, goal, plan):
+                return {"mission_state": "running"}
+
+            def needs_replan(self):
+                return True
+
+            def snapshot(self):
+                return {"mission_state": "running", "plan": []}
+
+        agent.world_state = IncoherentWorld()
+        agent.mission_runtime = ReplanRuntime()
+        agent.reasoning_engine.reason = lambda *args, **kwargs: reason_calls.append(args) or {}
+
+        result = agent._run_mission(
+            goal="continue task safely",
+            plan=[{"id": "step1", "type": "action"}],
+            intent=None,
+            analysis={},
+            compilation={},
+            route={},
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "replanning_error")
+        self.assertIn("fresh world-state/UI observation", result["error"])
+        self.assertEqual(reason_calls, [])
+
     def test_replanning_stops_before_reasoning_when_observation_is_stale(self):
         agent = AutonomousAgent(max_steps=3)
         reason_calls = []
