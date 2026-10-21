@@ -107,6 +107,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.10 re-planning coherence gate — implementation + tests added; CI pending:** AutonomousAgent's shared world-observation freshness validator now rejects UI snapshots explicitly marked `coherent=False`, even when outer and nested timestamps are fresh. Re-planning stops before calling the reasoning provider on mixed-window evidence. Legacy UI providers without a coherence field retain timestamp-based compatibility; exact-SHA CI is pending.
 
+**M4.11 live-UI re-planning gate — implementation + tests added; CI pending:** The re-planning boundary now requires the current snapshot to contain `ui.available=True`; a recent outer timestamp cannot mask omitted or explicitly unavailable UI evidence. The generic freshness helper remains backward-compatible for summary-only callers, while mission re-planning opts into the stricter live-UI contract. Tests cover missing/unavailable UI and prove the reasoning provider is not called. Exact-SHA CI and actual Windows UIA validation remain pending.
+
 **Status:** M4 remains in progress. Automated tests cover compact history, single-snapshot re-planning, reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding
