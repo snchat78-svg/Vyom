@@ -179,6 +179,20 @@ class WindowsUICapability:
                 }
 
         if prepared_grounding is not None:
+            if not self._is_fresh_ui_snapshot(before):
+                return {
+                    "success": False,
+                    "stage": "ui_observation_stale_before_action",
+                    "message": "The semantic target observation is missing or stale; the action was not dispatched.",
+                    "action": name,
+                    "target": str(action.get("target") or ""),
+                    "verification": {
+                        "verified": False,
+                        "verification_level": "pre_dispatch_observation_stale",
+                        "method": "windows_ui_state",
+                        "reason": "A fresh UI Automation capture timestamp is required before dispatch.",
+                    },
+                }
             guard_failure = self._validate_target_observation(
                 action,
                 prepared_grounding,
@@ -246,6 +260,18 @@ class WindowsUICapability:
                 result["message"] = result["verification"]["reason"]
                 return result
 
+            if prepared_grounding is not None and not self._is_fresh_ui_snapshot(after):
+                result["success"] = False
+                result["stage"] = "verification_failed"
+                result["verification"] = {
+                    "verified": False,
+                    "verification_level": "post_action_observation_stale",
+                    "method": "windows_ui_state",
+                    "reason": "The action was dispatched, but its UI snapshot is missing or stale; completion cannot be verified.",
+                }
+                result["message"] = result["verification"]["reason"]
+                return result
+
             verification = self.ui_verifier.verify(
                 action=action,
                 before=before if isinstance(before, dict) else {},
@@ -303,6 +329,27 @@ class WindowsUICapability:
                 result["stage"] = "verified"
 
         return result
+
+    @staticmethod
+    def _is_fresh_ui_snapshot(
+        snapshot: Any,
+        *,
+        now: Optional[float] = None,
+        max_age_seconds: float = 10.0,
+        future_tolerance_seconds: float = 2.0,
+    ) -> bool:
+        """Require a recent, timestamped live UI snapshot at semantic action boundaries."""
+        if not isinstance(snapshot, dict) or snapshot.get("available") is not True:
+            return False
+        captured_at = snapshot.get("timestamp")
+        if isinstance(captured_at, bool) or not isinstance(captured_at, (int, float)):
+            return False
+        current = time.time() if now is None else float(now)
+        captured_at = float(captured_at)
+        if not (time.isfinite(current) and time.isfinite(captured_at)):
+            return False
+        age = current - captured_at
+        return -future_tolerance_seconds <= age <= max_age_seconds
 
     def _ground(self, action: Dict[str, Any]) -> Dict[str, Any]:
         prepared = action.get("_prepared_grounding")
