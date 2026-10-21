@@ -101,6 +101,8 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 
 **M4.7 integration contract — tests added; CI pending:** New regression tests pass the actual `WorldStateModel.snapshot()` schema into `ContextActionCompiler` using a controlled UI observer. A coherent fresh focus/selection resolves “click it” to the live target, while stale nested UI evidence is rejected even when the outer world snapshot is fresh. This bridges the existing components without duplicating their logic; interactive Windows focus/window validation remains pending.
 
+**M4.8 clipboard privacy default — implementation + tests added; CI pending:** `WorldStateModel.snapshot()` no longer reads clipboard contents by default. Callers must explicitly pass `include_clipboard=True` when clipboard content is required for the task; existing autonomous observations already opt out by default. Tests preserve explicit clipboard reads while guarding that default snapshots only return a skipped marker. This is a privacy-by-default boundary and does not inspect or clear clipboard data.
+
 **Status:** M4 remains in progress. Automated tests cover compact history, single-snapshot re-planning, reference freshness, ambiguity, and verified-only context updates. Real desktop focus/window behavior still requires end-to-end validation on Windows.
 
 ## M5 — Generic action grounding

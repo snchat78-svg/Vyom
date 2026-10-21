@@ -66,6 +66,7 @@ class Phase4WorldStateTests(unittest.TestCase):
                 "last_success": True,
             },
             mission_state={"mission_state": "running", "current_step": "a1"},
+            include_clipboard=True,
         )
 
         self.assertEqual(state["current_app"], "Test App")
@@ -129,6 +130,12 @@ class Phase4WorldStateTests(unittest.TestCase):
 
         clipboard = TrackingClipboard()
         world = WorldStateModel(clipboard_manager=clipboard)
+
+        # Reading clipboard text is opt-in, including for plain snapshot calls.
+        state = world.snapshot()
+        self.assertEqual(clipboard.reads, 0)
+        self.assertTrue(state["clipboard"]["skipped"])
+
         state = world.snapshot(include_clipboard=False)
         self.assertEqual(clipboard.reads, 0)
         self.assertTrue(state["clipboard"]["skipped"])

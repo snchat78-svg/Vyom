@@ -267,7 +267,7 @@ class WorldStateModel:
         *,
         mission_state: Optional[Dict[str, Any]] = None,
         include_ui: bool = True,
-        include_clipboard: bool = True,
+        include_clipboard: bool = False,
         include_screen_snapshot: bool = False,
     ):
         ctx = session_context if isinstance(session_context, dict) else {}
