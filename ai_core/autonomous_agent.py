@@ -1039,8 +1039,9 @@ class AutonomousAgent:
         now: Optional[float] = None,
         max_age_seconds: float = 10.0,
         future_tolerance_seconds: float = 2.0,
+        require_live_ui: bool = False,
     ) -> bool:
-        """Return whether a world/UI snapshot is recent enough to re-plan from."""
+        """Validate snapshot freshness, optionally requiring usable live UI evidence."""
         if not isinstance(snapshot, dict) or snapshot.get("observation_error"):
             return False
 
@@ -1063,6 +1064,14 @@ class AutonomousAgent:
         # UI providers from older versions may omit their own timestamp, so
         # validate it when present instead of rejecting the compatibility case.
         ui = snapshot.get("ui")
+        # Re-planning desktop actions requires a live UI observation, not just
+        # a fresh wrapper timestamp or cached process/session context. Keep the
+        # default permissive for summary-only legacy callers; the re-plan gate
+        # opts into this stricter contract explicitly.
+        if require_live_ui and (
+            not isinstance(ui, dict) or ui.get("available") is not True
+        ):
+            return False
         if isinstance(ui, dict) and ui.get("coherent") is False:
             return False
         if isinstance(ui, dict) and ui.get("available") is True:
@@ -1921,7 +1930,10 @@ class AutonomousAgent:
                     if isinstance(replan_observation, dict)
                     else None
                 )
-                if not self._is_fresh_world_observation(refreshed_state):
+                if not self._is_fresh_world_observation(
+                    refreshed_state,
+                    require_live_ui=True,
+                ):
                     raise RuntimeError(
                         "A fresh world-state/UI observation is unavailable or stale; "
                         "re-planning stopped safely."
