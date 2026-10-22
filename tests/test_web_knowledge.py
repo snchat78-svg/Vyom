@@ -82,6 +82,7 @@ class WebKnowledgeTests(unittest.TestCase):
         self.assertEqual(result["evidence"]["independent_corroboration"], "not_checked")
         self.assertEqual(result["evidence"]["source_content_trust"], "untrusted")
         self.assertTrue(result["sources"][0]["url"].startswith("https://"))
+        self.assertEqual(result["source"]["url"], result["sources"][0]["url"])
 
 
     def test_public_redirect_handler_blocks_local_and_private_destinations(self):
