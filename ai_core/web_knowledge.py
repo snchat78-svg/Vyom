@@ -344,6 +344,7 @@ class WebKnowledge:
             "query": url,
             "language": "hi" if has_hindi else "en",
             "evidence_type": "webpage_extract",
+            "evidence_text": summary,
             "source": {"title": title, "url": url, "site": parsed.hostname or "वेबसाइट"},
         }
 
@@ -446,6 +447,7 @@ class WebKnowledge:
                 "query": query,
                 "language": language,
                 "evidence_type": "encyclopedia_extract",
+                "evidence_text": summary,
                 "source": {"title": title, "url": page_url, "site": language_label + " Wikipedia"},
             }
         return None
@@ -504,8 +506,99 @@ class WebKnowledge:
             "query": query,
             "language": "hi" if has_hindi else "en",
             "evidence_type": "search_result_snippet",
+            "evidence_text": snippet,
             "source": {"title": title, "url": source_url, "site": "वेब खोज"},
         }
+
+    @staticmethod
+    def _source_host(source: Dict[str, Any]) -> str:
+        """Return a normalized hostname, not an assertion of publisher independence."""
+        try:
+            parsed = urllib.parse.urlparse(str(source.get("url") or "").strip())
+            host = (parsed.hostname or "").lower().rstrip(".")
+            return host[4:] if host.startswith("www.") else host
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _sentence_facts(text: str) -> List[Dict[str, Any]]:
+        """Extract language-agnostic token context and numeric/date-like values."""
+        sentences = re.split(r"(?<=[.!?।])\\s+|[\\r\\n]+", str(text or ""))
+        facts: List[Dict[str, Any]] = []
+        for sentence in sentences:
+            value = sentence.strip()
+            if not value:
+                continue
+            terms = {
+                token.casefold()
+                for token in re.findall(r"[^\\W_]+", value, flags=re.UNICODE)
+                if not token.isdigit()
+            }
+            numbers = set(
+                re.findall(r"(?<!\\w)\\d+(?:[.,:/-]\\d+)*(?:%|[A-Za-z]+)?", value)
+            )
+            if terms:
+                facts.append({"terms": terms, "numbers": numbers})
+        return facts
+
+    @classmethod
+    def _compare_source_evidence(cls, sources: List[Dict[str, Any]]) -> str:
+        """Conservatively compare retrieved excerpts without inventing semantic certainty."""
+        if len(sources) < 2:
+            return "single_source"
+
+        excerpts = [
+            cls._sentence_facts(str(source.get("excerpt") or ""))
+            for source in sources
+        ]
+        potential_numeric_conflict = False
+        textually_aligned = False
+
+        for left_index in range(len(excerpts)):
+            for right_index in range(left_index + 1, len(excerpts)):
+                for left in excerpts[left_index]:
+                    for right in excerpts[right_index]:
+                        left_terms = left["terms"]
+                        right_terms = right["terms"]
+                        smaller_context = min(len(left_terms), len(right_terms))
+                        if smaller_context == 0:
+                            continue
+                        shared = len(left_terms & right_terms)
+                        context_coverage = shared / smaller_context
+
+                        # Only flag a *potential* conflict when sentence context
+                        # substantially overlaps and both excerpts report numeric
+                        # or date-like values that differ. This is deliberately
+                        # not a claim that every natural-language contradiction
+                        # can be recognized without a semantic model.
+                        if (
+                            context_coverage >= 0.65
+                            and left["numbers"]
+                            and right["numbers"]
+                            and left["numbers"] != right["numbers"]
+                        ):
+                            potential_numeric_conflict = True
+                            break
+
+                        union_size = len(left_terms | right_terms)
+                        similarity = shared / union_size if union_size else 0.0
+                        if (
+                            similarity >= 0.72
+                            and left["numbers"] == right["numbers"]
+                        ):
+                            textually_aligned = True
+                    if potential_numeric_conflict:
+                        break
+                if potential_numeric_conflict:
+                    break
+            if potential_numeric_conflict:
+                break
+
+        if potential_numeric_conflict:
+            return "potential_numeric_conflict"
+        if textually_aligned:
+            return "textually_aligned"
+        return "divergent_unresolved"
 
     @staticmethod
     def _unknown_result(question: str, reason: str) -> Dict[str, Any]:
@@ -549,6 +642,7 @@ class WebKnowledge:
                 attempts.append((variants[1], other, preferred))
             attempts.extend((query, "ddg", preferred) for query in variants)
 
+            collected: List[Dict[str, Any]] = []
             for query, source_language, output_language in attempts:
                 if self._deadline is not None and time.monotonic() >= self._deadline:
                     break
@@ -556,34 +650,102 @@ class WebKnowledge:
                     result = self._duckduckgo(query, preferred)
                 else:
                     result = self._wikipedia(query, source_language, output_language=output_language)
-                if result:
-                    source = result.get("source")
-                    if (
-                        not isinstance(source, dict)
-                        or not self._is_public_web_url(source.get("url", ""))
-                    ):
-                        # Never present a factual excerpt without a safe citation.
-                        continue
-                    result["sources"] = [dict(source)]
-                    result["answer_status"] = "sourced_excerpt"
-                    result["evidence"] = {
-                        "type": str(result.get("evidence_type") or "source_excerpt"),
-                        "source_count": 1,
-                        "inference_used": False,
-                        "independent_corroboration": "not_checked",
-                        "source_content_trust": "untrusted",
-                    }
-                    result["limitations"] = [
-                        "Only one source was used; independent corroboration and conflict checks were not performed."
-                    ]
-                    return result
+                if not result:
+                    continue
+                source = result.get("source")
+                if (
+                    not isinstance(source, dict)
+                    or not self._is_public_web_url(source.get("url", ""))
+                ):
+                    # Never present a factual excerpt without a safe citation.
+                    continue
+                collected.append(result)
 
-            reason = (
-                "lookup_deadline_exceeded"
-                if self._deadline is not None and time.monotonic() >= self._deadline
-                else "no_source_or_network_unavailable"
-            )
-            return self._unknown_result(question, reason)
+            if not collected:
+                reason = (
+                    "lookup_deadline_exceeded"
+                    if self._deadline is not None and time.monotonic() >= self._deadline
+                    else "no_source_or_network_unavailable"
+                )
+                return self._unknown_result(question, reason)
+
+            # Preserve the first usable result as the primary excerpt, then add
+            # only additional distinct hostnames. Different hosts are not proof
+            # of independent publishers, so provenance remains explicitly cautious.
+            primary = dict(collected[0])
+            sources: List[Dict[str, Any]] = []
+            seen_hosts = set()
+            for candidate in collected:
+                source = candidate.get("source")
+                if not isinstance(source, dict):
+                    continue
+                host = self._source_host(source)
+                if not host or host in seen_hosts:
+                    continue
+                seen_hosts.add(host)
+                excerpt = self._trim_summary(
+                    str(candidate.get("evidence_text") or ""), 1200
+                )
+                source_entry = {
+                    "title": str(source.get("title") or "")[:240],
+                    "url": str(source.get("url") or ""),
+                    "site": str(source.get("site") or host)[:160],
+                    "host": host,
+                    "excerpt": excerpt,
+                }
+                sources.append(source_entry)
+
+            if not sources:
+                return self._unknown_result(question, "no_safe_source_after_validation")
+
+            relation = self._compare_source_evidence(sources)
+            primary["sources"] = sources
+            primary.pop("source", None)
+            primary.pop("evidence_text", None)
+            primary["evidence_type"] = str(primary.get("evidence_type") or "source_excerpt")
+            primary["evidence"] = {
+                "type": primary["evidence_type"],
+                "source_count": len(sources),
+                "inference_used": False,
+                "independent_corroboration": "not_established",
+                "source_content_trust": "untrusted",
+                "cross_source_relation": relation,
+            }
+            primary["limitations"] = []
+            if relation == "single_source":
+                primary["answer_status"] = "sourced_excerpt"
+                primary["limitations"].append(
+                    "Only one distinct hostname was available; independent corroboration was not established."
+                )
+            elif relation == "textually_aligned":
+                primary["answer_status"] = "sourced_excerpt"
+                primary["limitations"].append(
+                    "Retrieved excerpts have strong textual overlap, but publisher independence and factual correctness were not established."
+                )
+            elif relation == "potential_numeric_conflict":
+                primary["answer_status"] = "conflicting_sources"
+                if preferred == "en":
+                    primary["answer"] = (
+                        "The retrieved sources differ on numeric or date-like values in similar sentence contexts. "
+                        "I cannot resolve that conflict reliably from these excerpts; treat the claim as unresolved "
+                        "and compare the cited sources before relying on either value."
+                    )
+                else:
+                    primary["answer"] = (
+                        "मिले हुए स्रोतों में मिलते-जुलते संदर्भ के संख्यात्मक या तारीख़-संबंधी दावों में अंतर है। "
+                        "इन अंशों से इस अंतर का भरोसेमंद समाधान नहीं हो सका; किसी एक मान को निश्चित न मानें और "
+                        "नीचे दिए स्रोतों की तुलना करें।"
+                    )
+                primary["limitations"].append(
+                    "A potential numeric/date conflict was detected by generic sentence-context overlap; broader semantic conflicts may remain undetected."
+                )
+            else:
+                primary["answer_status"] = "sourced_excerpt"
+                primary["limitations"].append(
+                    "Multiple hostnames returned excerpts, but their claims did not align closely enough to confirm agreement or a specific conflict."
+                )
+            primary["query"] = question
+            return primary
         finally:
             self._deadline = previous_deadline
 
