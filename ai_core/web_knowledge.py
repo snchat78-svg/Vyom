@@ -1,9 +1,12 @@
 """Website-backed factual lookup without a conversational AI provider.
 
-The lookup layer retrieves concise article introductions/snippets directly from
-Wikipedia and public web-search results. It never asks an LLM to generate facts.
-Hindi pages are preferred by default; retrieved text is kept extractive and the
-source title/domain is returned with the answer.
+Wikipedia and DuckDuckGo are the bounded default retrieval providers. Local
+integrations may supply a finite set of RetrievalProvider callbacks, whose
+results are validated and normalized before they can become cited answers.
+Provider network retrieval should use WebKnowledge.fetch_text so public-URL
+validation, DNS-pinned connections, response limits, and lookup deadlines apply.
+No provider is an instruction source for desktop actions, and no LLM generates
+facts in this module.
 """
 from __future__ import annotations
 
@@ -702,8 +705,9 @@ class WebKnowledge:
     ) -> bool:
         """Fail closed unless every resolved address is globally routable.
 
-        This is a pre-connection DNS check. Because urllib performs its own
-        later resolution, it does not fully eliminate DNS-rebinding/TOCTOU risk.
+        This early rejection gate is complemented by the HTTP/HTTPS connection
+        classes, which independently validate the exact DNS result whose numeric
+        sockaddr is passed to socket.connect().
         """
         if not cls._is_public_web_url(url) or resolver is None:
             return False
