@@ -523,7 +523,7 @@ class WebKnowledge:
     @staticmethod
     def _sentence_facts(text: str) -> List[Dict[str, Any]]:
         """Extract language-agnostic token context and numeric/date-like values."""
-        sentences = re.split(r"(?<=[.!?।])\\s+|[\\r\\n]+", str(text or ""))
+        sentences = re.split(r"(?<=[.!?।])\s+|[\r\n]+", str(text or ""))
         facts: List[Dict[str, Any]] = []
         for sentence in sentences:
             value = sentence.strip()
@@ -531,11 +531,11 @@ class WebKnowledge:
                 continue
             terms = {
                 token.casefold()
-                for token in re.findall(r"[^\\W_]+", value, flags=re.UNICODE)
+                for token in re.findall(r"[^\W_]+", value, flags=re.UNICODE)
                 if not token.isdigit()
             }
             numbers = set(
-                re.findall(r"(?<!\\w)\\d+(?:[.,:/-]\\d+)*(?:%|[A-Za-z]+)?", value)
+                re.findall(r"(?<!\w)\d+(?:[.,:/-]\d+)*(?:%|[A-Za-z]+)?", value)
             )
             if terms:
                 facts.append({"terms": terms, "numbers": numbers})
