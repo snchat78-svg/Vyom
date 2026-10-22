@@ -510,7 +510,7 @@ class WebKnowledgeTests(unittest.TestCase):
             "potential_semantic_conflict",
         )
         self.assertIn("unresolved", result["answer"])
-        self.assertTrue(any("rule-based conflict signal" in item for item in result["limitations"]))
+        self.assertTrue(any("bounded polarity/opposition vocabulary" in item for item in result["limitations"]))
 
     def test_same_hostname_is_not_counted_as_two_sources(self):
         client = WebKnowledge(total_timeout=2.0)
