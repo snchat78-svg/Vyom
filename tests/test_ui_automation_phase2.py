@@ -6,6 +6,7 @@ from windows_agent.ui_element_finder import UIElementFinder
 from windows_agent.ui_grounder import UIElementGrounder
 from windows_agent import ui_patterns
 from windows_agent.ui_state_observer import UIStateObserver
+from windows_agent.ui_automation import WindowsUICapability
 
 
 class FakeElement:
