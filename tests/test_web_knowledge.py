@@ -4,9 +4,15 @@ import socket
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
-from ai_core.web_knowledge import WebKnowledge, _PublicOnlyRedirectHandler
+from ai_core.web_knowledge import (
+    WebKnowledge,
+    _PinnedPublicHTTPConnection,
+    _PinnedPublicHTTPSConnection,
+    _PublicOnlyRedirectHandler,
+)
 
 
 class FakeResponse:
@@ -160,6 +166,118 @@ class WebKnowledgeTests(unittest.TestCase):
         )
         self.assertEqual(client._read_url("https://example.com/page"), "public content")
         self.assertEqual(len(calls), 1)
+
+    def test_pinned_http_connection_uses_validated_numeric_sockaddr(self):
+        resolver_calls = []
+        base_resolver = self._resolver_for("93.184.216.34")
+
+        def resolver(host, port, type=0):
+            resolver_calls.append((host, port))
+            return base_resolver(host, port, type=type)
+
+        class RecordingSocket:
+            def __init__(self):
+                self.connected_to = None
+                self.timeout = None
+                self.closed = False
+
+            def settimeout(self, value):
+                self.timeout = value
+
+            def connect(self, sockaddr):
+                self.connected_to = sockaddr
+
+            def bind(self, address):
+                self.bound_to = address
+
+            def close(self):
+                self.closed = True
+
+        raw_socket = RecordingSocket()
+        with mock.patch("ai_core.web_knowledge.socket.socket", return_value=raw_socket) as socket_factory:
+            connection = _PinnedPublicHTTPConnection(
+                "example.com", timeout=0.5, resolver=resolver
+            )
+            connection.connect()
+
+        self.assertEqual(resolver_calls, [("example.com", 80)])
+        self.assertEqual(raw_socket.connected_to, ("93.184.216.34", 80))
+        self.assertEqual(connection.host, "example.com")
+        socket_factory.assert_called_once()
+
+    def test_pinned_http_connection_rejects_mixed_dns_before_socket_creation(self):
+        resolver = self._resolver_for("93.184.216.34", "10.0.0.8")
+        with mock.patch("ai_core.web_knowledge.socket.socket") as socket_factory:
+            connection = _PinnedPublicHTTPConnection(
+                "example.com", timeout=0.5, resolver=resolver
+            )
+            with self.assertRaisesRegex(OSError, "non-public"):
+                connection.connect()
+        socket_factory.assert_not_called()
+
+    def test_pinned_https_connection_keeps_hostname_for_tls_sni(self):
+        resolver_calls = []
+        base_resolver = self._resolver_for("93.184.216.34")
+
+        def resolver(host, port, type=0):
+            resolver_calls.append((host, port))
+            return base_resolver(host, port, type=type)
+
+        class RecordingSocket:
+            def __init__(self):
+                self.connected_to = None
+                self.timeout = None
+                self.closed = False
+
+            def settimeout(self, value):
+                self.timeout = value
+
+            def connect(self, sockaddr):
+                self.connected_to = sockaddr
+
+            def close(self):
+                self.closed = True
+
+        raw_socket = RecordingSocket()
+        tls_socket = object()
+        context = mock.Mock()
+        context.check_hostname = True
+        context.wrap_socket.return_value = tls_socket
+
+        with mock.patch("ai_core.web_knowledge.socket.socket", return_value=raw_socket):
+            connection = _PinnedPublicHTTPSConnection(
+                "example.com", timeout=0.5, resolver=resolver, context=context
+            )
+            connection.connect()
+
+        self.assertEqual(resolver_calls, [("example.com", 443)])
+        self.assertEqual(raw_socket.connected_to, ("93.184.216.34", 443))
+        context.wrap_socket.assert_called_once_with(
+            raw_socket, server_hostname="example.com"
+        )
+        self.assertIs(connection.sock, tls_socket)
+        self.assertEqual(connection.host, "example.com")
+
+    def test_default_web_opener_disables_ambient_proxy_and_uses_pinned_handlers(self):
+        client = WebKnowledge()
+        opener = client._opener.__self__
+        proxy_handlers = [
+            handler for handler in opener.handlers
+            if isinstance(handler, urllib.request.ProxyHandler)
+        ]
+        self.assertEqual(len(proxy_handlers), 1)
+        self.assertEqual(proxy_handlers[0].proxies, {})
+        self.assertTrue(any(
+            isinstance(handler, _PinnedPublicHTTPConnection) for handler in []
+        ) is False)  # Connections are constructed by the HTTP handler, not stored on the opener.
+        self.assertTrue(any(
+            handler.__class__.__name__ == "_PinnedPublicHTTPHandler"
+            for handler in opener.handlers
+        ))
+        self.assertTrue(any(
+            handler.__class__.__name__ == "_PinnedPublicHTTPSHandler"
+            for handler in opener.handlers
+        ))
 
     def test_redirect_handler_blocks_hostname_resolving_to_private_address(self):
         handler = _PublicOnlyRedirectHandler(
