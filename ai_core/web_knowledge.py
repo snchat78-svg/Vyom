@@ -707,7 +707,9 @@ class WebKnowledge:
                 "type": primary["evidence_type"],
                 "source_count": len(sources),
                 "inference_used": False,
-                "independent_corroboration": "not_established",
+                "independent_corroboration": (
+                    "not_checked" if len(sources) == 1 else "not_established"
+                ),
                 "source_content_trust": "untrusted",
                 "cross_source_relation": relation,
             }
