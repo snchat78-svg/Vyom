@@ -1098,6 +1098,19 @@ class WebKnowledge:
         return normalized
 
     @classmethod
+    def _sentence_has_cue(cls, facts: Dict[str, Any], cues: frozenset) -> bool:
+        terms = facts.get("terms", set())
+        if terms & cues:
+            return True
+        # Devanagari combining marks can split in Unicode word tokenizers;
+        # also search the original sentence for Hindi cue phrases.
+        sentence = str(facts.get("sentence") or "")
+        return any(
+            re.search(r"[\u0900-\u097F]", cue) and cue in sentence
+            for cue in cues
+        )
+
+    @classmethod
     def _semantic_sentence_conflict(cls, left: Dict[str, Any], right: Dict[str, Any]) -> bool:
         """Detect narrow, high-context polarity/opposition signals across sentences."""
         left_semantic = left.get("semantic_terms", set())
@@ -1127,13 +1140,11 @@ class WebKnowledge:
                 len(shared_anchors) / smaller_anchors if smaller_anchors else 0.0
             )
             if shared_anchors and anchor_coverage >= 0.60:
-                left_terms = left.get("terms", set())
-                right_terms = right.get("terms", set())
                 for left_side, right_side in cls._SEMANTIC_OPPOSITION_GROUPS:
-                    left_first = bool(left_terms & left_side)
-                    left_second = bool(left_terms & right_side)
-                    right_first = bool(right_terms & left_side)
-                    right_second = bool(right_terms & right_side)
+                    left_first = cls._sentence_has_cue(left, left_side)
+                    left_second = cls._sentence_has_cue(left, right_side)
+                    right_first = cls._sentence_has_cue(right, left_side)
+                    right_second = cls._sentence_has_cue(right, right_side)
                     if (
                         (left_first and not left_second and right_second and not right_first)
                         or (left_second and not left_first and right_first and not right_second)
@@ -1160,6 +1171,7 @@ class WebKnowledge:
             )
             if terms:
                 facts.append({
+                    "sentence": value,
                     "terms": terms,
                     "semantic_terms": WebKnowledge._semantic_tokens(value),
                     "numbers": numbers,
