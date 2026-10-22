@@ -11,6 +11,8 @@ from ai_core.web_knowledge import (
     WebKnowledge,
     _PinnedPublicHTTPConnection,
     _PinnedPublicHTTPSConnection,
+    _PinnedPublicHTTPHandler,
+    _PinnedPublicHTTPSHandler,
     _PublicOnlyRedirectHandler,
 )
 
@@ -268,14 +270,11 @@ class WebKnowledgeTests(unittest.TestCase):
         self.assertEqual(len(proxy_handlers), 1)
         self.assertEqual(proxy_handlers[0].proxies, {})
         self.assertTrue(any(
-            isinstance(handler, _PinnedPublicHTTPConnection) for handler in []
-        ) is False)  # Connections are constructed by the HTTP handler, not stored on the opener.
-        self.assertTrue(any(
-            handler.__class__.__name__ == "_PinnedPublicHTTPHandler"
+            isinstance(handler, _PinnedPublicHTTPHandler)
             for handler in opener.handlers
         ))
         self.assertTrue(any(
-            handler.__class__.__name__ == "_PinnedPublicHTTPSHandler"
+            isinstance(handler, _PinnedPublicHTTPSHandler)
             for handler in opener.handlers
         ))
 
