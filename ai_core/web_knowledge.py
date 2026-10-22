@@ -11,6 +11,7 @@ import html
 import ipaddress
 import json
 import re
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -168,14 +169,21 @@ class _ReadablePageParser(HTMLParser):
 
 
 class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Reject redirects to URLs the public-source fetcher would not request."""
+    """Reject redirects to non-public URLs and hostnames resolving to non-public IPs."""
+
+    def __init__(self, resolver: Optional[Callable[..., Any]] = None) -> None:
+        super().__init__()
+        self._resolver = resolver if resolver is not None else socket.getaddrinfo
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if not WebKnowledge._is_public_web_url(newurl):
+        if (
+            not WebKnowledge._is_public_web_url(newurl)
+            or not WebKnowledge._dns_destination_is_public(newurl, self._resolver)
+        ):
             raise urllib.error.HTTPError(
                 req.full_url,
                 code,
-                "Blocked redirect to a non-public URL",
+                "Blocked redirect to a non-public URL or DNS destination",
                 headers,
                 fp,
             )
@@ -217,6 +225,7 @@ class WebKnowledge:
         total_timeout: float = 6.0,
         opener: Optional[Callable[..., Any]] = None,
         max_response_bytes: int = 1_000_000,
+        resolver: Optional[Callable[..., Any]] = None,
     ) -> None:
         # Each socket request is short, and the complete lookup has its own
         # deadline. A series of failed sources must not freeze a voice turn for
@@ -229,8 +238,18 @@ class WebKnowledge:
             configured_limit = 1_000_000
         self.max_response_bytes = min(1_000_000, max(1, configured_limit))
         self._deadline: Optional[float] = None
+        # The production opener validates DNS answers before each connection.
+        # Injected openers default to no DNS lookup so deterministic offline tests
+        # and explicitly supplied transports remain usable; tests that exercise
+        # the security guard pass a resolver explicitly.
+        self._resolver = (
+            resolver if resolver is not None
+            else (None if opener is not None else socket.getaddrinfo)
+        )
         self._opener = opener or urllib.request.build_opener(
-            _PublicOnlyRedirectHandler()
+            _PublicOnlyRedirectHandler(
+                resolver=self._resolver if self._resolver is not None else socket.getaddrinfo
+            )
         ).open
 
     @classmethod
@@ -316,6 +335,43 @@ class WebKnowledge:
         except Exception:
             return False
 
+    @classmethod
+    def _dns_destination_is_public(
+        cls,
+        url: str,
+        resolver: Optional[Callable[..., Any]],
+    ) -> bool:
+        """Fail closed unless every resolved address is globally routable.
+
+        This is a pre-connection DNS check. Because urllib performs its own
+        later resolution, it does not fully eliminate DNS-rebinding/TOCTOU risk.
+        """
+        if not cls._is_public_web_url(url) or resolver is None:
+            return False
+        try:
+            parsed = urllib.parse.urlparse(str(url or "").strip())
+            host = str(parsed.hostname or "").lower().rstrip(".")
+            port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+            try:
+                literal = ipaddress.ip_address(host)
+                return literal.is_global
+            except ValueError:
+                pass
+            try:
+                records = resolver(host, port, type=socket.SOCK_STREAM)
+            except TypeError:
+                # Support narrow test resolvers that accept only host and port.
+                records = resolver(host, port)
+            addresses = []
+            for record in records:
+                sockaddr = record[4]
+                address = ipaddress.ip_address(str(sockaddr[0]))
+                addresses.append(address.is_global)
+            return bool(addresses) and all(addresses)
+        except Exception:
+            # DNS failures, malformed answers, and non-public mixed answers fail closed.
+            return False
+
     def _extract_webpage(self, url: str, preferred_language: str) -> Optional[Dict[str, Any]]:
         """Extract a bounded summary from a public search result."""
         if not self._is_public_web_url(url):
@@ -349,6 +405,13 @@ class WebKnowledge:
         }
 
     def _read_url(self, url: str) -> str:
+        if not self._is_public_web_url(url):
+            raise ValueError("Web fetch blocked for a non-public URL.")
+        if (
+            self._resolver is not None
+            and not self._dns_destination_is_public(url, self._resolver)
+        ):
+            raise ValueError("Web hostname did not resolve exclusively to public addresses.")
         request = urllib.request.Request(
             url,
             headers={

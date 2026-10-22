@@ -1,5 +1,6 @@
 import io
 import json
+import socket
 import unittest
 import urllib.error
 import urllib.request
@@ -100,6 +101,75 @@ class WebKnowledgeTests(unittest.TestCase):
                     handler.redirect_request(
                         request, None, 302, "Found", None, target
                     )
+
+    @staticmethod
+    def _resolver_for(*addresses):
+        def resolve(host, port, type=0):
+            records = []
+            for address in addresses:
+                if ":" in address:
+                    sockaddr = (address, port, 0, 0)
+                    family = socket.AF_INET6
+                else:
+                    sockaddr = (address, port)
+                    family = socket.AF_INET
+                records.append((family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", sockaddr))
+            return records
+        return resolve
+
+    def test_dns_guard_rejects_mixed_public_and_private_answers(self):
+        resolver = self._resolver_for("93.184.216.34", "10.0.0.8")
+        self.assertFalse(
+            WebKnowledge._dns_destination_is_public("https://example.com/page", resolver)
+        )
+
+    def test_dns_guard_rejects_resolution_failures_and_empty_answers(self):
+        def failed_resolver(host, port, type=0):
+            raise OSError("simulated DNS failure")
+
+        self.assertFalse(
+            WebKnowledge._dns_destination_is_public("https://example.com/page", failed_resolver)
+        )
+        self.assertFalse(
+            WebKnowledge._dns_destination_is_public("https://example.com/page", lambda host, port, type=0: [])
+        )
+
+    def test_read_url_blocks_private_dns_answers_before_opening_connection(self):
+        calls = []
+        def opener(request, timeout=0):
+            calls.append(request.full_url)
+            return FakeResponse("must not be fetched")
+
+        client = WebKnowledge(
+            opener=opener,
+            resolver=self._resolver_for("127.0.0.1"),
+        )
+        with self.assertRaisesRegex(ValueError, "public addresses"):
+            client._read_url("https://example.com/private")
+        self.assertEqual(calls, [])
+
+    def test_read_url_allows_exclusively_public_dns_answers(self):
+        calls = []
+        def opener(request, timeout=0):
+            calls.append(request.full_url)
+            return FakeResponse("public content")
+
+        client = WebKnowledge(
+            opener=opener,
+            resolver=self._resolver_for("93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"),
+        )
+        self.assertEqual(client._read_url("https://example.com/page"), "public content")
+        self.assertEqual(len(calls), 1)
+
+    def test_redirect_handler_blocks_hostname_resolving_to_private_address(self):
+        handler = _PublicOnlyRedirectHandler(
+            resolver=self._resolver_for("192.168.1.7")
+        )
+        request = urllib.request.Request("https://example.com/start")
+        with self.assertRaisesRegex(urllib.error.HTTPError, "DNS destination"):
+            handler.redirect_request(
+                request, None, 302, "Found", None, "https://internal-looking.example/next"
+            )
 
     def test_read_url_enforces_a_hard_response_byte_limit(self):
         class SizedResponse(FakeResponse):
