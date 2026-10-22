@@ -1,9 +1,11 @@
 import io
 import json
 import unittest
+import urllib.error
+import urllib.request
 from urllib.parse import parse_qs, urlparse
 
-from ai_core.web_knowledge import WebKnowledge
+from ai_core.web_knowledge import WebKnowledge, _PublicOnlyRedirectHandler
 
 
 class FakeResponse:
@@ -73,7 +75,56 @@ class WebKnowledgeTests(unittest.TestCase):
         self.assertIn("नई दिल्ली", result["answer"])
         self.assertIn("विकिपीडिया", result["answer"])
         self.assertGreaterEqual(len(calls), 2)
+        self.assertEqual(result["answer_status"], "sourced_excerpt")
+        self.assertEqual(result["evidence_type"], "encyclopedia_extract")
+        self.assertEqual(result["evidence"]["source_count"], 1)
+        self.assertFalse(result["evidence"]["inference_used"])
+        self.assertEqual(result["evidence"]["independent_corroboration"], "not_checked")
+        self.assertEqual(result["evidence"]["source_content_trust"], "untrusted")
+        self.assertTrue(result["sources"][0]["url"].startswith("https://"))
 
+
+    def test_public_redirect_handler_blocks_local_and_private_destinations(self):
+        handler = _PublicOnlyRedirectHandler()
+        request = urllib.request.Request("https://example.com/start")
+        unsafe_targets = (
+            "http://127.0.0.1/private",
+            "http://169.254.169.254/latest/meta-data",
+            "http://localhost/secret",
+            "file:///etc/passwd",
+        )
+        for target in unsafe_targets:
+            with self.subTest(target=target):
+                with self.assertRaises(urllib.error.HTTPError):
+                    handler.redirect_request(
+                        request, None, 302, "Found", None, target
+                    )
+
+    def test_read_url_enforces_a_hard_response_byte_limit(self):
+        class SizedResponse(FakeResponse):
+            def read(self, size=-1):
+                return self.value if size < 0 else self.value[:size]
+
+        def opener(_request, timeout=0):
+            return SizedResponse(b"0123456789abcdef")
+
+        client = WebKnowledge(opener=opener, max_response_bytes=8)
+        with self.assertRaisesRegex(ValueError, "byte limit"):
+            client._read_url("https://example.com/page")
+
+    def test_unknown_result_does_not_claim_a_source_or_inference(self):
+        def opener(_request, timeout=0):
+            return FakeResponse("{}")
+
+        result = WebKnowledge(opener=opener).answer("some unknown fact")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["answer_status"], "unknown")
+        self.assertEqual(result["sources"], [])
+        self.assertEqual(result["evidence"]["type"], "none")
+        self.assertEqual(result["evidence"]["source_count"], 0)
+        self.assertFalse(result["evidence"]["inference_used"])
+        self.assertEqual(result["evidence"]["source_content_trust"], "untrusted")
 
 if __name__ == "__main__":
     unittest.main()
