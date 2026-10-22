@@ -1,53 +1,44 @@
 # Vyom Phase State — Canonical Cross-Chat Handoff
 
-This is the **authoritative phase register** for continuing work across chats. Read it before starting a phase, then cross-check the branch head, this file, `docs/VYOM_PHASE_CHECKPOINTS.md`, and the latest exact-commit GitHub Actions run. Do not infer completion from a commit message or from code merely existing.
+This is the authoritative phase register for continuing work across chats. Read it first before each phase, then verify the branch head, detailed checkpoint, roadmap, and the newest exact-commit GitHub Actions run. Chat history alone is not the source of truth.
 
-## Repository identity
+## Repository
 - Repository: [snchat78-svg/Vyom](https://github.com/snchat78-svg/Vyom)
-- Active development branch: `updated`
-- Detailed implementation history: [VYOM_PHASE_CHECKPOINTS.md](VYOM_PHASE_CHECKPOINTS.md)
-- Roadmap: [VYOM_MIND_DEVELOPMENT_ROADMAP.md](VYOM_MIND_DEVELOPMENT_ROADMAP.md)
+- Active branch: `updated`
+- Detailed phase history: [VYOM_PHASE_CHECKPOINTS.md](VYOM_PHASE_CHECKPOINTS.md)
+- Ordered roadmap: [VYOM_MIND_DEVELOPMENT_ROADMAP.md](VYOM_MIND_DEVELOPMENT_ROADMAP.md)
+- Reusable cross-project policy: [PHASE_CONTINUITY_STANDARD.md](PHASE_CONTINUITY_STANDARD.md)
 
-## Last verified completed phase — M7.5
-- **M7.5 — Configurable and bounded retrieval providers**
-- Exact tested tree: `90ae4ead63c586b8da98191d5266254736c5269d`
-- Exact-SHA CI: [run 39753595589](https://github.com/snchat78-svg/Vyom/actions/runs/39753595589) — **success**.
-- CI result: **373 tests passed, 28 subtests passed**; tracked-file/syntax/import checks, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload passed.
-- Provider API: `RetrievalProvider(name, retrieve, max_results=3)`, callback signature `retrieve(client, query_variants, preferred_language)`.
-- Bounds: at most 4 configured providers, 3 accepted results/provider, 6 results/lookup, 6 fetches/provider and 12 total, 1,200-character excerpt, 2,048-character source URL, 240-character title, 160-character site and 2,400-character answer.
-- Safety: provider outputs require a successful mapping, evidence, answer and a public HTTP(S) citation. Exceptions and malformed output do not stop later providers. Custom HTTP retrieval should use `client.fetch_text()` for the shared URL/DNS-pinned transport, timeout, body-size and lookup-deadline checks. Empty configured provider list, invalid outputs or no usable sources return `answer_status=unknown`; legacy `source` remains alongside `sources`.
-- Limitation: provider callbacks are trusted local Python integrations, not a sandbox for arbitrary code. Network bounds apply when they use `client.fetch_text()`; real external-network behavior still needs environment-level validation. M7 overall is not complete.
-
-## Current phase — IN PROGRESS
+## Last verified completed phase — M7.6
 - **M7.6 — Broader semantic contradiction detection**
-- Start from M7.5 tested tree `90ae4ead63c586b8da98191d5266254736c5269d`; do not repeat M7.4/M7.5.
-- Improve conflict detection beyond numeric/date-like values while avoiding claims that lexical overlap proves truth.
-- Keep uncertain contradictions unresolved rather than guessing. Add deterministic tests for non-numeric opposing claims, paraphrased claims, unrelated sentences and compatible claims that use different wording.
-- Preserve source attribution and the existing `single_source`, `textually_aligned`, `potential_numeric_conflict`, and `divergent_unresolved` behaviors unless tests justify a documented schema change.
+- Exact tested tree: `6d5101f10a2c35d2f2bf2699d2960db861f6dfd9`
+- Exact-SHA CI: [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244) — **success**.
+- CI result: **380 tests passed, 28 subtests passed**; syntax/import checks, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload passed.
+- Behavior: keeps numeric/date conflict precedence and adds `potential_semantic_conflict` for selected non-numeric opposing predicate/negation signals when sentence context overlaps. Conflicts return `answer_status=conflicting_sources` and state that the claims remain unresolved; no source is automatically declared correct.
+- Regression coverage: open/closed, negation, permitted/prohibited paraphrase, unrelated statements, compatible differently worded claims, Hindi open/closed and an end-to-end unresolved answer.
+- Limitation: this is a bounded, auditable rule-based signal—not general semantic understanding or a language model. Implicit, low-overlap, unlisted-antonym and nuanced multilingual contradictions may remain unresolved. Do not claim M7 is complete.
 
-## Next phases after M7.6
-1. **M7.7:** source-quality evaluation and tests for stale, low-quality, duplicate, weakly attributed or low-evidence sources.
-2. Re-audit the full M7 gate. Only start M8 after M7.6, M7.7 and the overall acceptance audit pass.
+## Next phase — READY, NOT STARTED
+- **M7.7 — Source-quality evaluation**
+- Evaluate source quality independently of source count or textual agreement. Cover freshness/staleness when dates are available, evidence length/content quality, attribution quality, duplicate/reposted content and low-evidence excerpts.
+- Preserve the safety rule: source-quality scores are evidence metadata, not proof of truth. Weak or conflicting evidence must remain qualified/unknown instead of being guessed.
+- Add deterministic tests and complete exact-SHA CI before marking it complete.
 
-## Reusable cross-project phase continuity policy
-- General rule: before starting work in any project, locate/read its canonical phase-state file, inspect the current branch/revision and latest CI, then choose only the next incomplete phase recorded there.
-- After each phase, commit the code/tests and update the same canonical register, checkpoint and roadmap with exact tested SHA, CI URL/result, limitations, and the next phase. Do not mark a phase completed before exact-SHA tests/CI pass.
-- Reusable template for other repositories: [`PHASE_CONTINUITY_STANDARD.md`](PHASE_CONTINUITY_STANDARD.md). This template is stored in Vyom; other repositories must add/adopt their own copy to make the same guarantee there.
+## Remaining M7 gate
+1. **M7.7:** source-quality evaluation and its regression matrix.
+2. Re-audit M7.1–M7.7 together. Start M8 only after the whole M7 acceptance gate passes.
 
-## Remaining M7 work after M7.6
-1. **M7.7:** source-quality evaluation and tests for stale, low-quality, duplicate, weakly attributed or low-evidence sources.
-2. Re-audit the full M7 gate. Only start M8 after M7.6, M7.7 and the overall acceptance audit pass.
-
-## Cross-chat continuation rules
-- This file and `docs/VYOM_PHASE_CHECKPOINTS.md` are the durable handoff. Update both whenever phase status changes; keep the roadmap consistent too.
-- Before edits, verify the `updated` branch head and latest Actions run. If a phase is marked complete by exact-SHA CI, **never repeat it**; start the next ordered incomplete item.
-- Keep a phase in progress until deterministic tests and exact-commit CI pass. If CI fails, fix the same phase; do not advance.
-- For each completed phase, record the implementation/test SHA, exact Actions URL/result, test result, limitations, and next phase.
-- Do not claim local Windows UI/microphone acceptance from GitHub CI.
-- On a chat change, start here, verify GitHub's actual branch/run state, then resume only the recorded next phase.
+## Cross-chat and cross-project continuity rules
+- This file, the checkpoint and roadmap are durable handoff records. Update them whenever a phase changes status.
+- Before work in any repository, read that repository's canonical phase-state file, verify branch/head/latest CI, then choose only the next incomplete phase.
+- Never repeat a phase whose exact tested SHA has a successful CI run unless a new requirement or regression explicitly requires a revisit.
+- If tests or CI fail, keep the same phase in progress and fix it; do not skip to a later phase.
+- Mark complete only when the exact code/test SHA passes the required full CI. Record the SHA, run URL/result, test count, limitations and next phase.
+- This repository contains a reusable policy template at `docs/PHASE_CONTINUITY_STANDARD.md`. It does **not** automatically change every other repository; each other project needs its own canonical phase register and an adopted copy of the policy.
+- Do not claim local Windows UI, microphone, production network or interactive desktop acceptance based only on GitHub CI.
 
 ## Change log
-- 2026-10-22: M7.3 DNS preflight passed exact-SHA CI on `72815257ca2f7deb89a82b86bee17c904536414a`.
-- 2026-10-22: M7.4 DNS-pinned transport passed exact-SHA CI on `f417bebeecd902bbfe1111bbad623eaaaeceb4a0` in [run 39746025751](https://github.com/snchat78-svg/Vyom/actions/runs/39746025751).
-- 2026-10-22: M7.5 configurable/bounded retrieval providers passed exact-SHA CI on `90ae4ead63c586b8da98191d5266254736c5269d` in [run 39753595589](https://github.com/snchat78-svg/Vyom/actions/runs/39753595589): 373 tests and 28 subtests, Windows EXE verification/upload.
-- 2026-10-22: M7.6 started from the recorded next-phase entry; state/branch/latest CI checked before edits. M7 remains partial.
+- 2026-10-22: M7.3 DNS preflight passed on `72815257ca2f7deb89a82b86bee17c904536414a` in [run 39741822185](https://github.com/snchat78-svg/Vyom/actions/runs/39741822185).
+- 2026-10-22: M7.4 DNS-pinned transport passed on `f417bebeecd902bbfe1111bbad623eaaaeceb4a0` in [run 39746025751](https://github.com/snchat78-svg/Vyom/actions/runs/39746025751).
+- 2026-10-22: M7.5 configurable retrieval providers passed on `90ae4ead63c586b8da98191d5266254736c5269d` in [run 39753595589](https://github.com/snchat78-svg/Vyom/actions/runs/39753595589): 373 tests and 28 subtests.
+- 2026-10-22: M7.6 semantic contradiction signals passed on `6d5101f10a2c35d2f2bf2699d2960db861f6dfd9` in [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244): 380 tests and 28 subtests, Windows EXE verification/upload. Next: M7.7. M7 overall remains partial.
