@@ -152,6 +152,7 @@ class WebKnowledgeTests(unittest.TestCase):
                 "https://data.example.org/region-x", "Data report",
             ),
         }
+        client._query_variants = lambda question: ["variant one", "variant two"]
         client._wikipedia = lambda query, language, output_language="hi": results[language]
         client._duckduckgo = lambda query, preferred_language: None
 
@@ -175,6 +176,7 @@ class WebKnowledgeTests(unittest.TestCase):
             "hi": self._mock_source(excerpt, "https://facts.example.gov/region-x", "Fact sheet"),
             "en": self._mock_source(excerpt, "https://records.example.org/region-x", "Record"),
         }
+        client._query_variants = lambda question: ["variant one", "variant two"]
         client._wikipedia = lambda query, language, output_language="hi": results[language]
         client._duckduckgo = lambda query, preferred_language: None
 
@@ -198,6 +200,7 @@ class WebKnowledgeTests(unittest.TestCase):
                 "https://culture.example.org/region-x", "Culture page",
             ),
         }
+        client._query_variants = lambda question: ["variant one", "variant two"]
         client._wikipedia = lambda query, language, output_language="hi": results[language]
         client._duckduckgo = lambda query, preferred_language: None
 
@@ -214,6 +217,7 @@ class WebKnowledgeTests(unittest.TestCase):
             "hi": self._mock_source("The area is 500 square kilometres.", "https://www.example.com/one", "First page"),
             "en": self._mock_source("The area is 500 square kilometres.", "https://example.com/two", "Second page"),
         }
+        client._query_variants = lambda question: ["variant one", "variant two"]
         client._wikipedia = lambda query, language, output_language="hi": results[language]
         client._duckduckgo = lambda query, preferred_language: None
 
