@@ -8,10 +8,12 @@ source title/domain is returned with the answer.
 from __future__ import annotations
 
 import html
+import http.client
 import ipaddress
 import json
 import re
 import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -190,6 +192,149 @@ class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+
+def _validated_public_records(
+    host: str,
+    port: int,
+    resolver: Callable[..., Any],
+) -> List[Any]:
+    """Resolve once for a connection and fail closed unless every address is public."""
+    try:
+        try:
+            records = list(resolver(host, port, type=socket.SOCK_STREAM) or [])
+        except TypeError:
+            # Support deliberately narrow deterministic test resolvers.
+            records = list(resolver(host, port) or [])
+        if not records:
+            raise OSError("DNS returned no addresses for the public web destination.")
+        for record in records:
+            try:
+                address = ipaddress.ip_address(str(record[4][0]).split("%", 1)[0])
+            except Exception as exc:
+                raise OSError("DNS returned a malformed destination address.") from exc
+            if not address.is_global:
+                raise OSError("DNS destination resolved to a non-public address.")
+        return records
+    except OSError:
+        raise
+    except Exception as exc:
+        raise OSError("DNS resolution/validation failed for the public web destination.") from exc
+
+
+def _connect_to_validated_address(
+    host: str,
+    port: int,
+    resolver: Callable[..., Any],
+    timeout: Any,
+    source_address: Any = None,
+) -> socket.socket:
+    """Connect to a numeric sockaddr from one validated DNS answer set.
+
+    The validated sockaddr, not the hostname, is passed to socket.connect().
+    This closes the second-resolution gap present when a normal HTTP client
+    resolves the hostname again after a separate security preflight.
+    """
+    records = _validated_public_records(host, port, resolver)
+    last_error: Optional[OSError] = None
+    for family, socktype, proto, _canonname, sockaddr in records:
+        raw_socket = None
+        try:
+            raw_socket = socket.socket(family, socktype or socket.SOCK_STREAM, proto)
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                raw_socket.settimeout(timeout)
+            if source_address:
+                raw_socket.bind(source_address)
+            raw_socket.connect(sockaddr)
+            return raw_socket
+        except OSError as exc:
+            last_error = exc
+            if raw_socket is not None:
+                try:
+                    raw_socket.close()
+                except OSError:
+                    pass
+    if last_error is not None:
+        raise last_error
+    raise OSError("DNS returned no usable public destination addresses.")
+
+
+class _PinnedPublicHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection pinned to an individually validated numeric destination."""
+
+    def __init__(self, host, *args, resolver=None, **kwargs):
+        self._public_resolver = resolver or socket.getaddrinfo
+        super().__init__(host, *args, **kwargs)
+
+    def connect(self):
+        if getattr(self, "_tunnel_host", None):
+            raise OSError("Proxy tunnels are disabled for the pinned public fetch transport.")
+        self.sock = _connect_to_validated_address(
+            self.host, self.port, self._public_resolver, self.timeout, self.source_address
+        )
+
+
+class _PinnedPublicHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection pinned to a public IP while retaining hostname TLS checks."""
+
+    def __init__(self, host, *args, resolver=None, **kwargs):
+        self._public_resolver = resolver or socket.getaddrinfo
+        super().__init__(host, *args, **kwargs)
+
+    def connect(self):
+        if getattr(self, "_tunnel_host", None):
+            raise OSError("Proxy tunnels are disabled for the pinned public fetch transport.")
+        raw_socket = _connect_to_validated_address(
+            self.host, self.port, self._public_resolver, self.timeout, self.source_address
+        )
+        try:
+            # Preserve the original hostname for SNI and certificate hostname
+            # verification; only the underlying TCP destination is pinned to IP.
+            self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+        except Exception:
+            raw_socket.close()
+            raise
+
+
+class _PinnedPublicHTTPHandler(urllib.request.HTTPHandler):
+    """urllib handler that uses DNS-pinned HTTP connections."""
+
+    def __init__(self, resolver: Optional[Callable[..., Any]] = None):
+        super().__init__()
+        self._public_resolver = resolver or socket.getaddrinfo
+
+    def http_open(self, req):
+        def connection_factory(host, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, **kwargs):
+            return _PinnedPublicHTTPConnection(
+                host, timeout=timeout, resolver=self._public_resolver, **kwargs
+            )
+        return self.do_open(connection_factory, req)
+
+
+class _PinnedPublicHTTPSHandler(urllib.request.HTTPSHandler):
+    """urllib handler that pins TCP IP while preserving TLS hostname verification."""
+
+    def __init__(
+        self,
+        resolver: Optional[Callable[..., Any]] = None,
+        context: Optional[ssl.SSLContext] = None,
+        check_hostname: Optional[bool] = None,
+    ):
+        super().__init__(context=context, check_hostname=check_hostname)
+        self._public_resolver = resolver or socket.getaddrinfo
+
+    def https_open(self, req):
+        def connection_factory(host, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, **kwargs):
+            return _PinnedPublicHTTPSConnection(
+                host, timeout=timeout, resolver=self._public_resolver, **kwargs
+            )
+        return self.do_open(
+            connection_factory,
+            req,
+            context=self._context,
+            check_hostname=self._check_hostname,
+        )
+
+
 class WebKnowledge:
     """Searches public web sources and returns extractive answers."""
 
@@ -246,11 +391,18 @@ class WebKnowledge:
             resolver if resolver is not None
             else (None if opener is not None else socket.getaddrinfo)
         )
-        self._opener = opener or urllib.request.build_opener(
-            _PublicOnlyRedirectHandler(
-                resolver=self._resolver if self._resolver is not None else socket.getaddrinfo
-            )
-        ).open
+        if opener is not None:
+            self._opener = opener
+        else:
+            transport_resolver = self._resolver if self._resolver is not None else socket.getaddrinfo
+            self._opener = urllib.request.build_opener(
+                # Do not allow an environment-configured proxy to perform the
+                # destination connection outside this client's DNS-pinning gate.
+                urllib.request.ProxyHandler({}),
+                _PublicOnlyRedirectHandler(resolver=transport_resolver),
+                _PinnedPublicHTTPHandler(resolver=transport_resolver),
+                _PinnedPublicHTTPSHandler(resolver=transport_resolver),
+            ).open
 
     @classmethod
     def _query_variants(cls, question: str) -> List[str]:
