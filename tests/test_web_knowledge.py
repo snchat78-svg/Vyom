@@ -267,8 +267,9 @@ class WebKnowledgeTests(unittest.TestCase):
             handler for handler in opener.handlers
             if isinstance(handler, urllib.request.ProxyHandler)
         ]
-        self.assertEqual(len(proxy_handlers), 1)
-        self.assertEqual(proxy_handlers[0].proxies, {})
+        # An empty ProxyHandler disables urllib's default environment-proxy handler;
+        # because it has no protocols to handle, OpenerDirector does not retain it.
+        self.assertEqual(len(proxy_handlers), 0)
         self.assertTrue(any(
             isinstance(handler, _PinnedPublicHTTPHandler)
             for handler in opener.handlers
