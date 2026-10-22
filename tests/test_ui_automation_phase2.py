@@ -337,6 +337,32 @@ class Phase2UIAutomationTests(unittest.TestCase):
         self.assertEqual(grounder.calls, 1)
         self.assertEqual(observer.calls, 1)
 
+    def test_semantic_ui_snapshot_freshness_requires_finite_numeric_timestamp(self):
+        now = time.time()
+        is_fresh = WindowsUICapability._is_fresh_ui_snapshot
+
+        self.assertTrue(
+            is_fresh({"available": True, "timestamp": now}, now=now)
+        )
+        for timestamp in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(timestamp=timestamp):
+                self.assertFalse(
+                    is_fresh({"available": True, "timestamp": timestamp}, now=now)
+                )
+
+        for timestamp in (True, None, "123"):
+            with self.subTest(timestamp=timestamp):
+                self.assertFalse(
+                    is_fresh({"available": True, "timestamp": timestamp}, now=now)
+                )
+
+        self.assertFalse(
+            is_fresh({"available": True, "timestamp": now - 11}, now=now)
+        )
+        self.assertFalse(
+            is_fresh({"available": True, "timestamp": now + 3}, now=now)
+        )
+
     def test_semantic_action_rejects_stale_pre_action_ui_snapshot(self):
         element = FakeElement()
 
