@@ -512,7 +512,45 @@ class ResponseEngine:
                     str(source.get("url") or ""),
                 ))
                 return str(lookup["answer"]).strip()
-            log("[KNOWLEDGE] NO SOURCE: %s" % str((lookup or {}).get("reason") or "empty_result"))
+            lookup = lookup if isinstance(lookup, dict) else {}
+            answer_status = str(lookup.get("answer_status") or "unknown").strip().lower()
+            sources = lookup.get("sources")
+            sources = sources if isinstance(sources, list) else []
+            log("[KNOWLEDGE] NO SOURCE: %s | status=%s" % (
+                str(lookup.get("reason") or "empty_result"), answer_status
+            ))
+
+            # Keep epistemic outcomes distinct: disagreement is not the same as
+            # no retrieval, and weak evidence must not be presented as a fact.
+            if answer_status == "conflicting_sources":
+                if preferred_language == "en":
+                    return (
+                        "The available sources disagree on this answer, so I can't "
+                        "reliably choose one as correct. The claim remains unresolved."
+                    )
+                return (
+                    "उपलब्ध स्रोत इस उत्तर पर एक-दूसरे से असहमत हैं, इसलिए मैं किसी "
+                    "एक को सही घोषित नहीं कर सकता। यह तथ्य अभी अनिर्णीत है।"
+                )
+
+            evidence = lookup.get("evidence")
+            evidence = evidence if isinstance(evidence, dict) else {}
+            quality = evidence.get("source_quality")
+            weak_quality = isinstance(quality, dict) and (
+                str(quality.get("status") or "").lower() in {"weak", "insufficient", "low"}
+                or quality.get("sufficient") is False
+            )
+            if answer_status == "unknown" and (sources or weak_quality):
+                if preferred_language == "en":
+                    return (
+                        "I found some material, but it isn't strong enough to support "
+                        "a reliable answer. I won't guess; please check a more authoritative source."
+                    )
+                return (
+                    "कुछ सामग्री मिली है, लेकिन भरोसेमंद उत्तर देने के लिए प्रमाण पर्याप्त "
+                    "मज़बूत नहीं हैं। मैं अनुमान नहीं लगाऊँगा; कृपया किसी अधिक आधिकारिक स्रोत से जाँचें।"
+                )
+
             if preferred_language == "en":
                 return "I couldn't find a reliable answer on the available websites. Please check your internet connection and try again."
             return (
