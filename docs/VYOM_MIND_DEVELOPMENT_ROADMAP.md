@@ -149,6 +149,10 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 - Treat web content as untrusted data; never follow instructions embedded in a page as commands to the desktop.
 - **Gate:** relevant source links accompany supported answers; unavailable/weak sources produce an honest limitation instead of fabricated facts.
 
+**M7.1 progress — public-source boundary and evidence contract; automated gate passed:** Public retrieval now rejects redirects to URL targets disallowed by the public-URL validator, caps each response body at 1 MB (with a lower configurable limit), rejects search snippets without a safe public citation, and validates returned source links. Sourced results explicitly label the evidence type and report one source, no model inference, unverified independent corroboration, and untrusted source content. Empty/failed lookup returns `answer_status=unknown`, no source, and no invented answer. Regression tests cover explicit localhost/private-IP/file redirects, the response byte cap, source metadata, and unknown results. Exact-SHA CI passed on `09a59277a978d645292ecf4892e45e24cd24d99a` in [run 39720196175](https://github.com/snchat78-svg/Vyom/actions/runs/39720196175), including the full test suite and Windows EXE build/verification/upload.
+
+**M7 remaining:** The current lookup still returns one usable source at a time; it does not independently corroborate multiple sources, reconcile conflicting reports, or provide a general configurable provider registry. The URL guard blocks obvious non-public URL targets, but DNS resolution/rebinding and every network-level SSRF case are not fully solved. Keep M7 partial until these gates are covered.
+
 ## M8 — General conversation and reasoning
 
 - Support a configurable local/remote model provider for open-domain paraphrases and multi-step reasoning when available.
