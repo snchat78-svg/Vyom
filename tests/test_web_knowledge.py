@@ -126,5 +126,101 @@ class WebKnowledgeTests(unittest.TestCase):
         self.assertFalse(result["evidence"]["inference_used"])
         self.assertEqual(result["evidence"]["source_content_trust"], "untrusted")
 
+
+    @staticmethod
+    def _mock_source(excerpt, url, title):
+        from urllib.parse import urlparse
+        return {
+            "success": True,
+            "answer": excerpt + "\\nSource: " + title,
+            "query": "test query",
+            "language": "en",
+            "evidence_type": "webpage_extract",
+            "evidence_text": excerpt,
+            "source": {"title": title, "url": url, "site": urlparse(url).hostname},
+        }
+
+    def test_multiple_sources_flag_numeric_disagreement_as_unresolved(self):
+        client = WebKnowledge(total_timeout=2.0)
+        results = {
+            "hi": self._mock_source(
+                "Region X had a population of 1,200 people in 2020.",
+                "https://statistics.example.gov/region-x", "Statistics report",
+            ),
+            "en": self._mock_source(
+                "Region X had a population of 1,400 people in 2020.",
+                "https://data.example.org/region-x", "Data report",
+            ),
+        }
+        client._wikipedia = lambda query, language, output_language="hi": results[language]
+        client._duckduckgo = lambda query, preferred_language: None
+
+        result = client.answer("population of Region X")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["answer_status"], "conflicting_sources")
+        self.assertEqual(result["evidence"]["cross_source_relation"], "potential_numeric_conflict")
+        self.assertEqual(result["evidence"]["source_count"], 2)
+        self.assertEqual(result["evidence"]["independent_corroboration"], "not_established")
+        self.assertIn("अंतर", result["answer"])
+        self.assertEqual(
+            {item["host"] for item in result["sources"]},
+            {"statistics.example.gov", "data.example.org"},
+        )
+
+    def test_multiple_sources_with_matching_text_are_only_textually_aligned(self):
+        client = WebKnowledge(total_timeout=2.0)
+        excerpt = "Region X covers an area of 500 square kilometres."
+        results = {
+            "hi": self._mock_source(excerpt, "https://facts.example.gov/region-x", "Fact sheet"),
+            "en": self._mock_source(excerpt, "https://records.example.org/region-x", "Record"),
+        }
+        client._wikipedia = lambda query, language, output_language="hi": results[language]
+        client._duckduckgo = lambda query, preferred_language: None
+
+        result = client.answer("area of Region X")
+
+        self.assertEqual(result["answer_status"], "sourced_excerpt")
+        self.assertEqual(result["evidence"]["cross_source_relation"], "textually_aligned")
+        self.assertEqual(result["evidence"]["source_count"], 2)
+        self.assertEqual(result["evidence"]["independent_corroboration"], "not_established")
+        self.assertTrue(any("publisher independence" in item for item in result["limitations"]))
+
+    def test_different_excerpts_without_numeric_conflict_remain_unresolved(self):
+        client = WebKnowledge(total_timeout=2.0)
+        results = {
+            "hi": self._mock_source(
+                "Region X was founded by local communities and developed over many years.",
+                "https://history.example.gov/region-x", "History page",
+            ),
+            "en": self._mock_source(
+                "Region X is known for culture and has many historical sites.",
+                "https://culture.example.org/region-x", "Culture page",
+            ),
+        }
+        client._wikipedia = lambda query, language, output_language="hi": results[language]
+        client._duckduckgo = lambda query, preferred_language: None
+
+        result = client.answer("history of Region X")
+
+        self.assertEqual(result["answer_status"], "sourced_excerpt")
+        self.assertEqual(result["evidence"]["cross_source_relation"], "divergent_unresolved")
+        self.assertEqual(result["evidence"]["source_count"], 2)
+        self.assertTrue(any("did not align closely enough" in item for item in result["limitations"]))
+
+    def test_same_hostname_is_not_counted_as_two_sources(self):
+        client = WebKnowledge(total_timeout=2.0)
+        results = {
+            "hi": self._mock_source("The area is 500 square kilometres.", "https://www.example.com/one", "First page"),
+            "en": self._mock_source("The area is 500 square kilometres.", "https://example.com/two", "Second page"),
+        }
+        client._wikipedia = lambda query, language, output_language="hi": results[language]
+        client._duckduckgo = lambda query, preferred_language: None
+
+        result = client.answer("area")
+
+        self.assertEqual(result["evidence"]["source_count"], 1)
+        self.assertEqual(result["evidence"]["cross_source_relation"], "single_source")
+
 if __name__ == "__main__":
     unittest.main()
