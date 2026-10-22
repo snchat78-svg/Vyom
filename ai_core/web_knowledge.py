@@ -700,7 +700,7 @@ class WebKnowledge:
 
             relation = self._compare_source_evidence(sources)
             primary["sources"] = sources
-            primary.pop("source", None)
+            primary["source"] = dict(sources[0])  # Preserve the legacy singular-source contract.
             primary.pop("evidence_text", None)
             primary["evidence_type"] = str(primary.get("evidence_type") or "source_excerpt")
             primary["evidence"] = {
