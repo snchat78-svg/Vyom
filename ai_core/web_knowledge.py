@@ -201,10 +201,13 @@ def _validated_public_records(
     """Resolve once for a connection and fail closed unless every address is public."""
     try:
         try:
-            records = list(resolver(host, port, type=socket.SOCK_STREAM) or [])
+            raw_records = resolver(host, port, type=socket.SOCK_STREAM)
         except TypeError:
-            # Support deliberately narrow deterministic test resolvers.
-            records = list(resolver(host, port) or [])
+            # Support deliberately narrow deterministic test resolvers. Keep
+            # list/record parsing outside this signature-only fallback so a
+            # malformed answer can never trigger a second resolution attempt.
+            raw_records = resolver(host, port)
+        records = list(raw_records or [])
         if not records:
             raise OSError("DNS returned no addresses for the public web destination.")
         for record in records:
