@@ -1111,6 +1111,23 @@ class WebKnowledge:
         )
 
     @classmethod
+    def _semantic_anchor_terms(cls, facts: Dict[str, Any]) -> set:
+        """Return content terms after removing recognized predicate/opposition cues."""
+        sentence = str(facts.get("sentence") or "")
+        anchor_text = sentence
+        for cue in cls._SEMANTIC_CUE_TERMS:
+            if re.search(r"[\u0900-\u097F]", cue):
+                anchor_text = anchor_text.replace(cue, " ")
+            else:
+                anchor_text = re.sub(
+                    r"\\b" + re.escape(cue) + r"\\b",
+                    " ",
+                    anchor_text,
+                    flags=re.IGNORECASE,
+                )
+        return cls._semantic_tokens(anchor_text) - cls._SEMANTIC_STOP_WORDS
+
+    @classmethod
     def _semantic_sentence_conflict(cls, left: Dict[str, Any], right: Dict[str, Any]) -> bool:
         """Detect narrow, high-context polarity/opposition signals across sentences."""
         left_semantic = left.get("semantic_terms", set())
@@ -1132,8 +1149,8 @@ class WebKnowledge:
         # Opposing predicate families count only when each sentence has one
         # unambiguous side of a pair and their remaining anchor terms overlap.
         if not left_negated and not right_negated:
-            left_anchors = left_semantic - cls._SEMANTIC_STOP_WORDS - cls._SEMANTIC_CUE_TERMS
-            right_anchors = right_semantic - cls._SEMANTIC_STOP_WORDS - cls._SEMANTIC_CUE_TERMS
+            left_anchors = cls._semantic_anchor_terms(left)
+            right_anchors = cls._semantic_anchor_terms(right)
             shared_anchors = left_anchors & right_anchors
             smaller_anchors = min(len(left_anchors), len(right_anchors))
             anchor_coverage = (
