@@ -11,6 +11,7 @@ import html
 import ipaddress
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 import time
@@ -166,6 +167,21 @@ class _ReadablePageParser(HTMLParser):
         return " ".join(parts)
 
 
+class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject redirects to URLs the public-source fetcher would not request."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not WebKnowledge._is_public_web_url(newurl):
+            raise urllib.error.HTTPError(
+                req.full_url,
+                code,
+                "Blocked redirect to a non-public URL",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class WebKnowledge:
     """Searches public web sources and returns extractive answers."""
 
@@ -200,14 +216,22 @@ class WebKnowledge:
         timeout: float = 1.8,
         total_timeout: float = 6.0,
         opener: Optional[Callable[..., Any]] = None,
+        max_response_bytes: int = 1_000_000,
     ) -> None:
         # Each socket request is short, and the complete lookup has its own
         # deadline. A series of failed sources must not freeze a voice turn for
         # several independent per-request timeouts.
         self.timeout = min(2.0, max(1.0, float(timeout)))
         self.total_timeout = min(8.0, max(2.0, float(total_timeout)))
+        try:
+            configured_limit = int(max_response_bytes)
+        except (TypeError, ValueError, OverflowError):
+            configured_limit = 1_000_000
+        self.max_response_bytes = min(1_000_000, max(1, configured_limit))
         self._deadline: Optional[float] = None
-        self._opener = opener or urllib.request.urlopen
+        self._opener = opener or urllib.request.build_opener(
+            _PublicOnlyRedirectHandler()
+        ).open
 
     @classmethod
     def _query_variants(cls, question: str) -> List[str]:
@@ -319,6 +343,7 @@ class WebKnowledge:
             "answer": answer,
             "query": url,
             "language": "hi" if has_hindi else "en",
+            "evidence_type": "webpage_extract",
             "source": {"title": title, "url": url, "site": parsed.hostname or "वेबसाइट"},
         }
 
@@ -338,10 +363,20 @@ class WebKnowledge:
                 raise TimeoutError("Web knowledge lookup deadline reached.")
             request_timeout = min(request_timeout, remaining)
         with self._opener(request, timeout=request_timeout) as response:
-            raw = response.read()
+            try:
+                raw = response.read(self.max_response_bytes + 1)
+            except TypeError:
+                # Retain compatibility with simple injected test/readers that
+                # implement read() but not the standard optional size argument.
+                raw = response.read()
         if isinstance(raw, bytes):
+            if len(raw) > self.max_response_bytes:
+                raise ValueError("Web response exceeded the configured byte limit.")
             return raw.decode("utf-8", errors="replace")
-        return str(raw or "")
+        text = str(raw or "")
+        if len(text.encode("utf-8", errors="replace")) > self.max_response_bytes:
+            raise ValueError("Web response exceeded the configured byte limit.")
+        return text
 
     def _wikipedia(self, query: str, language: str, output_language: str = "hi") -> Optional[Dict[str, Any]]:
         api = "https://" + language + ".wikipedia.org/w/api.php?"
@@ -385,7 +420,9 @@ class WebKnowledge:
                     extract = str(page.get("extract") or "").strip()
                     if extract:
                         summary = extract
-                        page_url = str(page.get("fullurl") or page_url)
+                        candidate_url = str(page.get("fullurl") or "").strip()
+                        if candidate_url and self._is_public_web_url(candidate_url):
+                            page_url = candidate_url
             except Exception:
                 pass
 
@@ -408,6 +445,7 @@ class WebKnowledge:
                 "answer": answer,
                 "query": query,
                 "language": language,
+                "evidence_type": "encyclopedia_extract",
                 "source": {"title": title, "url": page_url, "site": language_label + " Wikipedia"},
             }
         return None
@@ -438,6 +476,9 @@ class WebKnowledge:
         title = self._clean_markup(selected.get("title"))
         snippet = self._trim_summary(self._clean_markup(selected.get("snippet")), 700)
         source_url = str(selected.get("url") or "").strip()
+        # A search snippet without a safe public citation is not a usable answer.
+        if not self._is_public_web_url(source_url):
+            return None
         if not snippet and not source_url:
             return None
         # Prefer readable text from a public result page when available.
@@ -462,14 +503,34 @@ class WebKnowledge:
             "answer": answer,
             "query": query,
             "language": "hi" if has_hindi else "en",
+            "evidence_type": "search_result_snippet",
             "source": {"title": title, "url": source_url, "site": "वेब खोज"},
+        }
+
+    @staticmethod
+    def _unknown_result(question: str, reason: str) -> Dict[str, Any]:
+        """Return an honest unknown result with explicit evidence limits."""
+        return {
+            "success": False,
+            "answer": "",
+            "sources": [],
+            "query": question,
+            "reason": reason,
+            "answer_status": "unknown",
+            "evidence": {
+                "type": "none",
+                "source_count": 0,
+                "inference_used": False,
+                "independent_corroboration": "not_checked",
+                "source_content_trust": "untrusted",
+            },
         }
 
     def answer(self, question: str, preferred_language: str = "hi") -> Dict[str, Any]:
         """Return a sourced, extractive answer; never call an AI chat model."""
         variants = self._query_variants(question)
         if not variants:
-            return {"success": False, "answer": "", "sources": [], "reason": "empty_query"}
+            return self._unknown_result(question, "empty_query")
 
         preferred = "en" if str(preferred_language or "hi").lower().startswith("en") else "hi"
         other = "en" if preferred == "hi" else "hi"
@@ -496,7 +557,25 @@ class WebKnowledge:
                 else:
                     result = self._wikipedia(query, source_language, output_language=output_language)
                 if result:
-                    result["sources"] = [result.get("source", {})]
+                    source = result.get("source")
+                    if (
+                        not isinstance(source, dict)
+                        or not self._is_public_web_url(source.get("url", ""))
+                    ):
+                        # Never present a factual excerpt without a safe citation.
+                        continue
+                    result["sources"] = [dict(source)]
+                    result["answer_status"] = "sourced_excerpt"
+                    result["evidence"] = {
+                        "type": str(result.get("evidence_type") or "source_excerpt"),
+                        "source_count": 1,
+                        "inference_used": False,
+                        "independent_corroboration": "not_checked",
+                        "source_content_trust": "untrusted",
+                    }
+                    result["limitations"] = [
+                        "Only one source was used; independent corroboration and conflict checks were not performed."
+                    ]
                     return result
 
             reason = (
@@ -504,10 +583,7 @@ class WebKnowledge:
                 if self._deadline is not None and time.monotonic() >= self._deadline
                 else "no_source_or_network_unavailable"
             )
-            return {
-                "success": False, "answer": "", "sources": [],
-                "query": question, "reason": reason,
-            }
+            return self._unknown_result(question, reason)
         finally:
             self._deadline = previous_deadline
 
