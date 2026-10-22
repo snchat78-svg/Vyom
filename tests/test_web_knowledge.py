@@ -435,6 +435,83 @@ class WebKnowledgeTests(unittest.TestCase):
         self.assertEqual(result["evidence"]["source_count"], 2)
         self.assertTrue(any("did not align closely enough" in item for item in result["limitations"]))
 
+    @staticmethod
+    def _semantic_relation(left_excerpt, right_excerpt):
+        return WebKnowledge._compare_source_evidence([
+            {"excerpt": left_excerpt},
+            {"excerpt": right_excerpt},
+        ])
+
+    def test_non_numeric_open_closed_claims_are_flagged_as_potential_conflict(self):
+        relation = self._semantic_relation(
+            "The museum is open to visitors every day.",
+            "The museum is closed to visitors every day.",
+        )
+        self.assertEqual(relation, "potential_semantic_conflict")
+
+    def test_negated_shared_predicate_is_flagged_as_potential_conflict(self):
+        relation = self._semantic_relation(
+            "The museum is open to visitors.",
+            "The museum is not open to visitors.",
+        )
+        self.assertEqual(relation, "potential_semantic_conflict")
+
+    def test_paraphrased_opposing_access_claims_are_flagged_conservatively(self):
+        relation = self._semantic_relation(
+            "Officials permitted public access to the archive.",
+            "Authorities prohibited public access to the archive.",
+        )
+        self.assertEqual(relation, "potential_semantic_conflict")
+
+    def test_unrelated_sentences_are_not_misclassified_as_semantic_conflict(self):
+        relation = self._semantic_relation(
+            "The museum is open to visitors during summer.",
+            "The garden is closed during winter.",
+        )
+        self.assertEqual(relation, "divergent_unresolved")
+
+    def test_compatible_different_wording_stays_unresolved_not_conflicting(self):
+        relation = self._semantic_relation(
+            "The clinic provides emergency care around the clock.",
+            "Emergency services at the clinic operate 24 hours every day.",
+        )
+        self.assertNotEqual(relation, "potential_semantic_conflict")
+        self.assertEqual(relation, "divergent_unresolved")
+
+    def test_hindi_open_closed_claims_are_flagged_as_potential_conflict(self):
+        relation = self._semantic_relation(
+            "संग्रहालय आगंतुकों के लिए खुला है।",
+            "संग्रहालय आगंतुकों के लिए बंद है।",
+        )
+        self.assertEqual(relation, "potential_semantic_conflict")
+
+    def test_semantic_conflict_is_returned_as_unresolved_not_a_chosen_fact(self):
+        client = WebKnowledge(total_timeout=2.0)
+        results = {
+            "hi": self._mock_source(
+                "The museum is closed to visitors every day.",
+                "https://museum.example.org/visiting", "Visitor information",
+            ),
+            "en": self._mock_source(
+                "The museum is open to visitors every day.",
+                "https://archive.example.net/museum-hours", "Hours page",
+            ),
+        }
+        client._query_variants = lambda question: ["variant one", "variant two"]
+        client._wikipedia = lambda query, language, output_language="hi": results[language]
+        client._duckduckgo = lambda query, preferred_language: None
+
+        result = client.answer("is the museum open?", preferred_language="en")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["answer_status"], "conflicting_sources")
+        self.assertEqual(
+            result["evidence"]["cross_source_relation"],
+            "potential_semantic_conflict",
+        )
+        self.assertIn("unresolved", result["answer"])
+        self.assertTrue(any("rule-based conflict signal" in item for item in result["limitations"]))
+
     def test_same_hostname_is_not_counted_as_two_sources(self):
         client = WebKnowledge(total_timeout=2.0)
         results = {
