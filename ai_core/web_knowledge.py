@@ -406,6 +406,9 @@ class WebKnowledge:
             configured_limit = 1_000_000
         self.max_response_bytes = min(1_000_000, max(1, configured_limit))
         self._deadline: Optional[float] = None
+        self._active_provider_name: Optional[str] = None
+        self._provider_fetch_counts: Dict[str, int] = {}
+        self._total_provider_fetches = 0
         # The production opener validates DNS answers before each connection.
         # Injected openers default to no DNS lookup so deterministic offline tests
         # and explicitly supplied transports remain usable; tests that exercise
@@ -438,6 +441,8 @@ class WebKnowledge:
     MAX_TOTAL_PROVIDER_RESULTS = 6
     MAX_PROVIDER_EXCERPT_CHARS = 1200
     MAX_PROVIDER_URL_CHARS = 2048
+    MAX_FETCHES_PER_PROVIDER = 6
+    MAX_TOTAL_PROVIDER_FETCHES = 12
 
     @staticmethod
     def _default_providers() -> tuple:
@@ -460,13 +465,14 @@ class WebKnowledge:
             iterator = iter(providers)
         except (TypeError, ValueError):
             return ()
-        # Stop after a small fixed number without exhausting an arbitrary iterator.
-        for provider in iterator:
-            if len(normalized) >= cls.MAX_PROVIDER_COUNT:
+        # Inspect at most a small fixed number; a generator of invalid entries
+        # cannot force unbounded provider-configuration work.
+        for provider_index, provider in enumerate(iterator):
+            if provider_index >= cls.MAX_PROVIDER_COUNT:
                 break
             if not isinstance(provider, RetrievalProvider):
                 continue
-            name = re.sub(r"\\s+", " ", str(provider.name or "")).strip()[:80]
+            name = re.sub(r"\s+", " ", str(provider.name or "")).strip()[:80]
             if not name or name.casefold() in seen_names or not callable(provider.retrieve):
                 continue
             if isinstance(provider.max_results, bool):
@@ -773,6 +779,19 @@ class WebKnowledge:
             and not self._dns_destination_is_public(url, self._resolver)
         ):
             raise ValueError("Web hostname did not resolve exclusively to public addresses.")
+        # Provider callbacks share an aggregate outbound-request budget.
+        # Built-in providers already have finite query-attempt caps; this gate
+        # also prevents a custom provider from repeatedly fetching in one turn.
+        if self._active_provider_name:
+            provider_name = self._active_provider_name
+            provider_count = self._provider_fetch_counts.get(provider_name, 0)
+            if provider_count >= self.MAX_FETCHES_PER_PROVIDER:
+                raise TimeoutError("Retrieval provider request budget exhausted.")
+            if self._total_provider_fetches >= self.MAX_TOTAL_PROVIDER_FETCHES:
+                raise TimeoutError("Total retrieval provider request budget exhausted.")
+            self._provider_fetch_counts[provider_name] = provider_count + 1
+            self._total_provider_fetches += 1
+
         request = urllib.request.Request(
             url,
             headers={
@@ -1054,6 +1073,9 @@ class WebKnowledge:
         previous_deadline = self._deadline
         new_deadline = time.monotonic() + self.total_timeout
         self._deadline = min(previous_deadline, new_deadline) if previous_deadline else new_deadline
+        self._provider_fetch_counts = {}
+        self._total_provider_fetches = 0
+        self._active_provider_name = None
 
         # Providers run in explicit configured order. Each is invoked once,
         # has a small result cap, and shares this lookup's deadline and the
@@ -1065,11 +1087,14 @@ class WebKnowledge:
                     break
                 if self._deadline is not None and time.monotonic() >= self._deadline:
                     break
+                self._active_provider_name = provider.name
                 try:
                     provider_output = provider.retrieve(self, tuple(variants[:2]), preferred)
                 except Exception:
                     # Provider failures are isolated; continue with the next configured provider.
                     continue
+                finally:
+                    self._active_provider_name = None
                 if self._deadline is not None and time.monotonic() >= self._deadline:
                     break
                 candidates = self._provider_values(
