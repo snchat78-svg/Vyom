@@ -1120,7 +1120,7 @@ class WebKnowledge:
                 anchor_text = anchor_text.replace(cue, " ")
             else:
                 anchor_text = re.sub(
-                    r"\\b" + re.escape(cue) + r"\\b",
+                    r"\b" + re.escape(cue) + r"\b",
                     " ",
                     anchor_text,
                     flags=re.IGNORECASE,
