@@ -651,5 +651,30 @@ class WebKnowledgeTests(unittest.TestCase):
         self.assertEqual(result["sources"], [])
         self.assertEqual(result["evidence"]["type"], "none")
 
+    def test_configured_provider_count_is_capped_even_when_early_providers_return_nothing(self):
+        calls = []
+
+        def empty_provider(index):
+            def provider(_client, _variants, _language):
+                calls.append(index)
+                return None
+            return provider
+
+        providers = [
+            RetrievalProvider(f"provider-{index}", empty_provider(index))
+            for index in range(4)
+        ]
+        providers.append(RetrievalProvider(
+            "fifth-provider",
+            lambda *_args: (_ for _ in ()).throw(AssertionError("provider-count cap ignored")),
+        ))
+        client = WebKnowledge(providers=providers)
+
+        result = client.answer("provider count bound")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["answer_status"], "unknown")
+        self.assertEqual(calls, [0, 1, 2, 3])
+
 if __name__ == "__main__":
     unittest.main()
