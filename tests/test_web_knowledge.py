@@ -217,6 +217,23 @@ class WebKnowledgeTests(unittest.TestCase):
                 connection.connect()
         socket_factory.assert_not_called()
 
+    def test_pinned_connection_fails_closed_on_malformed_dns_iterable(self):
+        valid_record = self._resolver_for("93.184.216.34")("example.com", 80)[0]
+
+        def malformed_resolver(host, port, type=0):
+            def records():
+                yield valid_record
+                raise TypeError("malformed resolver output")
+            return records()
+
+        with mock.patch("ai_core.web_knowledge.socket.socket") as socket_factory:
+            connection = _PinnedPublicHTTPConnection(
+                "example.com", timeout=0.5, resolver=malformed_resolver
+            )
+            with self.assertRaisesRegex(OSError, "resolution/validation failed"):
+                connection.connect()
+        socket_factory.assert_not_called()
+
     def test_pinned_https_connection_keeps_hostname_for_tls_sni(self):
         resolver_calls = []
         base_resolver = self._resolver_for("93.184.216.34")
