@@ -19,11 +19,12 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Regression coverage: open/closed, negation, permitted/prohibited paraphrase, unrelated statements, compatible differently worded claims, Hindi open/closed and an end-to-end unresolved answer.
 - Limitation: this is a bounded, auditable rule-based signal—not general semantic understanding or a language model. Implicit, low-overlap, unlisted-antonym and nuanced multilingual contradictions may remain unresolved. Do not claim M7 is complete.
 
-## Next phase — READY, NOT STARTED
+## Active phase — M7.7 IN PROGRESS (exact-SHA CI pending)
 - **M7.7 — Source-quality evaluation**
-- Evaluate source quality independently of source count or textual agreement. Cover freshness/staleness when dates are available, evidence length/content quality, attribution quality, duplicate/reposted content and low-evidence excerpts.
-- Preserve the safety rule: source-quality scores are evidence metadata, not proof of truth. Weak or conflicting evidence must remain qualified/unknown instead of being guessed.
-- Add deterministic tests and complete exact-SHA CI before marking it complete.
+- Code/tests add bounded metadata scoring for explicit publication freshness, excerpt sufficiency/boilerplate, source attribution, content specificity and exact/near-duplicate excerpts across the retrieved set.
+- Per-source quality is attached to `sources[]` and summarized under `evidence.source_quality`. Missing/unparseable dates are labelled `unknown` rather than treated as stale. Duplicate detection is limited to the current retrieved excerpts.
+- Very short/boilerplate or weak-metadata primary evidence is kept `answer_status=unknown` with its citation retained. Numeric/semantic source conflicts retain conflict precedence.
+- These are heuristic metadata assessments only—not truth probabilities, proof of source independence, or an authority ranking. Exact-SHA full CI must pass before M7.7 is marked complete.
 
 ## Remaining M7 gate
 1. **M7.7:** source-quality evaluation and its regression matrix.
@@ -42,4 +43,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-22: M7.3 DNS preflight passed on `72815257ca2f7deb89a82b86bee17c904536414a` in [run 39741822185](https://github.com/snchat78-svg/Vyom/actions/runs/39741822185).
 - 2026-10-22: M7.4 DNS-pinned transport passed on `f417bebeecd902bbfe1111bbad623eaaaeceb4a0` in [run 39746025751](https://github.com/snchat78-svg/Vyom/actions/runs/39746025751).
 - 2026-10-22: M7.5 configurable retrieval providers passed on `90ae4ead63c586b8da98191d5266254736c5269d` in [run 39753595589](https://github.com/snchat78-svg/Vyom/actions/runs/39753595589): 373 tests and 28 subtests.
-- 2026-10-22: M7.6 semantic contradiction signals passed on `6d5101f10a2c35d2f2bf2699d2960db861f6dfd9` in [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244): 380 tests and 28 subtests, Windows EXE verification/upload. Next: M7.7. M7 overall remains partial.
+- 2026-10-22: M7.6 semantic contradiction signals passed on `6d5101f10a2c35d2f2bf2699d2960db861f6dfd9` in [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244): 380 tests and 28 subtests, Windows EXE verification/upload.
+- 2026-10-22: M7.7 implementation and regression tests committed; exact-SHA CI pending. The quality score remains metadata-only and is not a probability of truth. M7 remains partial until M7.7's test gate and the overall M7 audit both pass.

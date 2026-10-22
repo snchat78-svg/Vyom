@@ -1,4 +1,5 @@
 import io
+from datetime import datetime, timezone
 import json
 import socket
 import unittest
@@ -752,6 +753,111 @@ class WebKnowledgeTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["answer_status"], "unknown")
         self.assertEqual(calls, [0, 1, 2, 3])
+
+    @staticmethod
+    def _quality_source(
+        excerpt="A detailed source excerpt describes a concrete result, a named institution, and its published findings.",
+        url="https://facts.example.org/item",
+        title="Published facts report",
+        site="Facts publisher",
+        published_date=None,
+    ):
+        from urllib.parse import urlparse
+        source = {
+            "title": title,
+            "url": url,
+            "site": site,
+            "host": urlparse(url).hostname,
+            "excerpt": excerpt,
+        }
+        if published_date is not None:
+            source["published_date"] = published_date
+        return source
+
+    def test_source_quality_scores_freshness_only_when_publication_date_exists(self):
+        as_of = datetime(2026, 10, 22, tzinfo=timezone.utc)
+        fresh_source = self._quality_source(
+            url="https://stats.example.org/current",
+            published_date="2026-10-01",
+        )
+        fresh_source["publisher"] = "Statistics Office"
+        stale_source = self._quality_source(
+            url="https://stats.example.net/archive",
+            published_date="2010-01-01",
+        )
+        stale_source["publisher"] = "Statistics Office"
+        fresh, stale = WebKnowledge._evaluate_source_quality(
+            [fresh_source, stale_source], reference_time=as_of
+        )
+        self.assertEqual(fresh["freshness"]["status"], "fresh")
+        self.assertEqual(stale["freshness"]["status"], "very_stale")
+        self.assertGreater(fresh["score"], stale["score"])
+        self.assertEqual(fresh["score_semantics"], "heuristic metadata quality only; not a probability of truth")
+
+        unknown = WebKnowledge._evaluate_source_quality(
+            [self._quality_source()], reference_time=as_of
+        )[0]
+        self.assertEqual(unknown["freshness"]["status"], "unknown")
+        self.assertIsNone(unknown["freshness"]["score_points"])
+
+    def test_source_quality_flags_duplicate_excerpt_as_potential_repost(self):
+        excerpt = (
+            "The regional report identifies 125 schools across 14 districts and describes "
+            "annual enrollment trends, inspection findings, and the published methodology."
+        )
+        sources = [
+            self._quality_source(excerpt, url="https://first.example.org/report"),
+            self._quality_source(excerpt, url="https://second.example.net/copy"),
+        ]
+        first, second = WebKnowledge._evaluate_source_quality(
+            sources, reference_time=datetime(2026, 10, 22, tzinfo=timezone.utc)
+        )
+        self.assertEqual(first["duplicate_repost"]["status"], "not_detected_in_current_results")
+        self.assertEqual(second["duplicate_repost"]["status"], "potential_repost")
+        self.assertEqual(second["duplicate_repost"]["duplicate_of_source_index"], 1)
+        self.assertEqual(second["duplicate_repost"]["score_points"], 0)
+
+    def test_source_quality_score_is_not_increased_by_an_unrelated_extra_source(self):
+        source = self._quality_source(published_date="2026-10-01")
+        unrelated = self._quality_source(
+            excerpt="Separate material describes different ecological observations in another region.",
+            url="https://environment.example.net/observations",
+            published_date="2026-10-01",
+        )
+        as_of = datetime(2026, 10, 22, tzinfo=timezone.utc)
+        alone = WebKnowledge._evaluate_source_quality([source], reference_time=as_of)[0]
+        with_unrelated = WebKnowledge._evaluate_source_quality(
+            [source, unrelated], reference_time=as_of
+        )[0]
+        self.assertEqual(alone["score"], with_unrelated["score"])
+
+    def test_short_or_boilerplate_primary_excerpt_returns_unknown_with_citation(self):
+        client = WebKnowledge(
+            providers=[
+                RetrievalProvider(
+                    "short-excerpt",
+                    lambda *_args: self._provider_result(
+                        excerpt="OK", url="https://brief.example.org/item"
+                    ),
+                )
+            ]
+        )
+        result = client.answer("what is this?")
+        self.assertEqual(result["answer_status"], "unknown")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["evidence"]["source_quality"]["per_source"][0]["evidence_status"], "low_evidence")
+        self.assertEqual(len(result["sources"]), 1)
+        self.assertEqual(result["source"]["url"], "https://brief.example.org/item")
+
+    def test_provider_publication_date_is_preserved_for_quality_assessment(self):
+        candidate = self._provider_result()
+        candidate["source"]["published_date"] = "2026-10-01"
+        normalized = WebKnowledge._normalize_provider_result(
+            candidate, "test-provider", "test query", "en"
+        )
+        self.assertIsNotNone(normalized)
+        self.assertEqual(normalized["source"]["published_date"], "2026-10-01")
+
 
 if __name__ == "__main__":
     unittest.main()

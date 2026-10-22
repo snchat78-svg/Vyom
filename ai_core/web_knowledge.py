@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
@@ -686,6 +687,29 @@ class WebKnowledge:
         query = value.get("query")
         if not isinstance(query, str) or not query.strip():
             query = fallback_query
+        source_info = {"title": title or host, "url": source_url, "site": site or host}
+        # Keep only explicit publisher metadata. A retrieval timestamp is not a
+        # publication date, and inferred dates must not be presented as source metadata.
+        date_keys = (
+            "published_date", "publication_date", "published_at", "published",
+            "date_published", "date", "last_modified", "modified", "last_updated",
+            "updated_at",
+        )
+        for key in date_keys:
+            raw_date = raw_source.get(key) or value.get(key)
+            if isinstance(raw_date, (str, int, float)) and not isinstance(raw_date, bool):
+                date_text = WebKnowledge._trim_summary(str(raw_date), 80)
+                if date_text:
+                    source_info["published_date"] = date_text
+                    break
+        for key in ("author", "publisher"):
+            raw_value = raw_source.get(key) or value.get(key)
+            if isinstance(raw_value, str):
+                clean_value = WebKnowledge._trim_summary(
+                    WebKnowledge._clean_markup(raw_value), 120
+                )
+                if clean_value:
+                    source_info[key] = clean_value
         return {
             "success": True,
             "answer": answer,
@@ -694,7 +718,7 @@ class WebKnowledge:
             "evidence_type": evidence_type,
             "evidence_text": excerpt,
             "provider": provider_name,
-            "source": {"title": title or host, "url": source_url, "site": site or host},
+            "source": source_info,
         }
 
     @classmethod
@@ -1052,6 +1076,215 @@ class WebKnowledge:
             "source": {"title": title, "url": source_url, "site": "वेब खोज"},
         }
 
+
+    @staticmethod
+    def _parse_source_date(value: Any) -> Optional[datetime]:
+        """Parse only explicit source date metadata; never infer from the retrieval time."""
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, (int, float)):
+            if not (value > 0):
+                return None
+            try:
+                # Four-digit numeric values are treated as years; larger Unix-like
+                # values are supported only within a bounded plausible timestamp range.
+                if 1900 <= float(value) <= 2100:
+                    return datetime(int(value), 1, 1, tzinfo=timezone.utc)
+                if 1_000_000_000 <= float(value) <= 4_102_444_800:
+                    return datetime.fromtimestamp(float(value), tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+            return None
+        text = str(value).strip()[:100]
+        if not text:
+            return None
+        normalized = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
+        parsed = None
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%B %d, %Y", "%b %d, %Y", "%Y"):
+                try:
+                    parsed = datetime.strptime(text, fmt)
+                    break
+                except ValueError:
+                    continue
+        if parsed is None:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    @classmethod
+    def _evaluate_source_quality(
+        cls,
+        sources: List[Dict[str, Any]],
+        reference_time: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """Score bounded source metadata, not truth, publisher independence, or agreement.
+
+        The score excludes unavailable freshness from its denominator rather than
+        silently treating an unknown date as stale. Duplicate/repost detection is
+        limited to comparisons against excerpts in this lookup's retrieved set.
+        """
+        now = reference_time or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        else:
+            now = now.astimezone(timezone.utc)
+
+        boilerplate = re.compile(
+            r"enable javascript|javascript is disabled|accept cookies|access denied|"
+            r"page not found|turn on cookies|captcha|subscribe to continue|"
+            r"जावास्क्रिप्ट चालू करें|पृष्ठ नहीं मिला|कुकी स्वीकार",
+            re.IGNORECASE,
+        )
+        prepared = []
+        for source in sources:
+            excerpt = str(source.get("excerpt") or "")
+            raw_tokens = re.findall(r"[^\W_]+", excerpt.casefold(), flags=re.UNICODE)
+            tokens = [token for token in raw_tokens if not token.isdigit()]
+            unique_terms = {token for token in tokens if len(token) > 2}
+            normalized_excerpt = " ".join(
+                re.findall(r"[^\W_]+", excerpt.casefold(), flags=re.UNICODE)
+            )
+            prepared.append({
+                "excerpt": excerpt,
+                "tokens": tokens,
+                "unique_terms": unique_terms,
+                "normalized_excerpt": normalized_excerpt,
+                "has_boilerplate": bool(boilerplate.search(excerpt)),
+            })
+
+        results: List[Dict[str, Any]] = []
+        for index, source in enumerate(sources):
+            item = prepared[index]
+            excerpt = item["excerpt"]
+            token_count = len(item["tokens"])
+            char_count = len(excerpt.strip())
+
+            publication_date = cls._parse_source_date(source.get("published_date"))
+            freshness_points = None
+            age_days = None
+            if publication_date is None:
+                freshness_status = "unknown"
+            else:
+                age_days = int((now - publication_date).total_seconds() // 86400)
+                if age_days < -7:
+                    freshness_status, freshness_points = "future_dated", 0
+                elif age_days <= 365:
+                    freshness_status, freshness_points = "fresh", 25
+                elif age_days <= 1095:
+                    freshness_status, freshness_points = "aging", 18
+                elif age_days <= 1825:
+                    freshness_status, freshness_points = "stale", 10
+                else:
+                    freshness_status, freshness_points = "very_stale", 4
+
+            if item["has_boilerplate"] or char_count < 24 or token_count < 4:
+                content_points, content_status = 0, "low_evidence"
+            elif char_count < 80 or token_count < 8:
+                content_points, content_status = 10, "limited"
+            elif char_count < 240:
+                content_points, content_status = 18, "adequate"
+            else:
+                content_points, content_status = 25, "substantial"
+
+            url = str(source.get("url") or "")
+            host = str(source.get("host") or cls._source_host({"url": url}))
+            title = re.sub(r"\s+", " ", str(source.get("title") or "")).strip()
+            site = re.sub(r"\s+", " ", str(source.get("site") or "")).strip()
+            attribution_points = 8 if host and cls._is_public_web_url(url) else 0
+            if title and title.casefold() not in {host.casefold(), "source", "web result", "untitled"}:
+                attribution_points += 4
+            if site and host and site.casefold() != host.casefold():
+                attribution_points += 4
+            if source.get("author"):
+                attribution_points += 2
+            if source.get("publisher"):
+                attribution_points += 2
+            attribution_points = min(20, attribution_points)
+
+            unique_count = len(item["unique_terms"])
+            specificity_points = 7 if unique_count >= 16 else 5 if unique_count >= 10 else 3 if unique_count >= 5 else 0
+            if re.search(r"\d", excerpt):
+                specificity_points += 3
+            if len(re.findall(r"[.!?।]", excerpt)) >= 2:
+                specificity_points += 2
+            if re.search(r"\b[A-Z][a-z]{2,}\b", excerpt):
+                specificity_points += 3
+            specificity_points = min(15, specificity_points)
+
+            duplicate_index = None
+            for previous_index in range(index):
+                previous = prepared[previous_index]
+                if not item["normalized_excerpt"] or not previous["normalized_excerpt"]:
+                    continue
+                left_terms = set(item["tokens"])
+                right_terms = set(previous["tokens"])
+                exact_match = item["normalized_excerpt"] == previous["normalized_excerpt"]
+                union = left_terms | right_terms
+                similarity = len(left_terms & right_terms) / len(union) if union else 0.0
+                near_match = min(len(left_terms), len(right_terms)) >= 8 and similarity >= 0.90
+                if exact_match or near_match:
+                    duplicate_index = previous_index + 1
+                    break
+            duplicate_points = 0 if duplicate_index is not None else 15
+            duplicate_status = (
+                "potential_repost" if duplicate_index is not None
+                else "not_detected_in_current_results"
+            )
+
+            points = content_points + attribution_points + specificity_points + duplicate_points
+            max_points = 25 + 20 + 15 + 15
+            if freshness_points is not None:
+                points += freshness_points
+                max_points += 25
+            score = max(0, min(100, round(100 * points / max_points)))
+            if content_status == "low_evidence" or score < 50:
+                label = "weak_metadata"
+            elif score < 75:
+                label = "mixed_metadata"
+            else:
+                label = "strong_metadata"
+
+            results.append({
+                "score": score,
+                "label": label,
+                "freshness": {
+                    "status": freshness_status,
+                    "age_days": age_days,
+                    "score_points": freshness_points,
+                    "max_points": 25,
+                },
+                "content_quality": {
+                    "status": content_status,
+                    "character_count": char_count,
+                    "token_count": token_count,
+                    "score_points": content_points,
+                    "max_points": 25,
+                },
+                "attribution": {
+                    "status": "clear" if attribution_points >= 15 else "partial" if attribution_points >= 8 else "weak",
+                    "score_points": attribution_points,
+                    "max_points": 20,
+                },
+                "specificity": {
+                    "status": "specific" if specificity_points >= 9 else "limited",
+                    "score_points": specificity_points,
+                    "max_points": 15,
+                },
+                "duplicate_repost": {
+                    "status": duplicate_status,
+                    "duplicate_of_source_index": duplicate_index,
+                    "score_points": duplicate_points,
+                    "max_points": 15,
+                    "basis": "comparison with retrieved excerpts only; originality is not established",
+                },
+                "score_semantics": "heuristic metadata quality only; not a probability of truth",
+            })
+        return results
+
     @staticmethod
     def _source_host(source: Dict[str, Any]) -> str:
         """Return a normalized hostname, not an assertion of publisher independence."""
@@ -1367,12 +1600,19 @@ class WebKnowledge:
                     "host": host,
                     "excerpt": excerpt,
                 }
+                for metadata_key, max_length in (("published_date", 80), ("author", 120), ("publisher", 120)):
+                    metadata_value = str(source.get(metadata_key) or "").strip()
+                    if metadata_value:
+                        source_entry[metadata_key] = self._trim_summary(metadata_value, max_length)
                 sources.append(source_entry)
 
             if not sources:
                 return self._unknown_result(question, "no_safe_source_after_validation")
 
             relation = self._compare_source_evidence(sources)
+            quality_assessments = self._evaluate_source_quality(sources)
+            for source_entry, assessment in zip(sources, quality_assessments):
+                source_entry["quality"] = assessment
             primary["sources"] = sources
             primary["source"] = dict(sources[0])  # Preserve the legacy singular-source contract.
             primary.pop("evidence_text", None)
@@ -1386,6 +1626,26 @@ class WebKnowledge:
                 ),
                 "source_content_trust": "untrusted",
                 "cross_source_relation": relation,
+                "source_quality": {
+                    "method": "bounded_metadata_heuristic",
+                    "score_semantics": "metadata quality only; not a probability of truth",
+                    "per_source": [
+                        {
+                            "host": source_entry["host"],
+                            "score": source_entry["quality"]["score"],
+                            "label": source_entry["quality"]["label"],
+                            "freshness": source_entry["quality"]["freshness"]["status"],
+                            "evidence_status": source_entry["quality"]["content_quality"]["status"],
+                            "duplicate_status": source_entry["quality"]["duplicate_repost"]["status"],
+                        }
+                        for source_entry in sources
+                    ],
+                    "limitations": [
+                        "Unknown publication dates are not scored as stale.",
+                        "Duplicate detection checks only the excerpts retrieved in this lookup.",
+                        "Metadata quality does not establish publisher independence or factual correctness.",
+                    ],
+                },
             }
             primary["limitations"] = []
             if relation == "single_source":
@@ -1436,6 +1696,32 @@ class WebKnowledge:
                 primary["answer_status"] = "sourced_excerpt"
                 primary["limitations"].append(
                     "Multiple hostnames returned excerpts, but their claims did not align closely enough to confirm agreement or a specific conflict."
+                )
+            primary_quality = sources[0].get("quality", {})
+            insufficient_primary_evidence = (
+                primary_quality.get("content_quality", {}).get("status") == "low_evidence"
+                or primary_quality.get("label") == "weak_metadata"
+            )
+            if insufficient_primary_evidence and relation not in (
+                "potential_semantic_conflict", "potential_numeric_conflict"
+            ):
+                # Keep citations/metadata visible, but do not promote a weak excerpt
+                # into a usable answer. Contradictory sources retain conflict precedence.
+                primary["success"] = False
+                primary["answer_status"] = "unknown"
+                primary["answer"] = (
+                    "The available source metadata or excerpt is too weak to support a reliable answer. "
+                    "The claim remains unknown; inspect the cited source directly."
+                    if preferred == "en"
+                    else "उपलब्ध स्रोत का विवरण या अंश भरोसेमंद उत्तर के लिए अपर्याप्त है। "
+                    "दावा अभी अज्ञात है; उद्धृत स्रोत को सीधे जाँचें।"
+                )
+                primary["limitations"].append(
+                    "The primary source-quality heuristic flagged insufficient evidence/metadata; no factual conclusion was inferred."
+                )
+            elif primary_quality.get("content_quality", {}).get("status") == "low_evidence":
+                primary["limitations"].append(
+                    "At least one excerpt is too short or boilerplate-like to support a reliable conclusion."
                 )
             primary["query"] = question
             return primary
