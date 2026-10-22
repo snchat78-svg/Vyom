@@ -446,11 +446,27 @@ class WebKnowledge:
             frozenset({"असुरक्षित", "खतरनाक", "घटा", "घटी", "गिरा", "हारा", "हारी", "अनुपस्थित"}),
         ),
     )
-    _SEMANTIC_CUE_TERMS = frozenset(
-        token
-        for positive_group, negative_group in _SEMANTIC_OPPOSITION_GROUPS
-        for token in positive_group | negative_group
-    )
+    _SEMANTIC_CUE_TERMS = frozenset({
+        "open", "opens", "opened", "opening", "available", "accessible", "admit", "admits", "admitted",
+        "closed", "closes", "shut", "unavailable", "inaccessible", "barred", "blocked",
+        "allow", "allows", "allowed", "permit", "permits", "permitted", "authorize", "authorized",
+        "approve", "approved", "accept", "accepted", "enable", "enabled",
+        "forbid", "forbids", "forbidden", "prohibit", "prohibits", "prohibited", "ban", "bans",
+        "banned", "deny", "denies", "denied", "reject", "rejected", "refuse", "refused", "block",
+        "safe", "secure", "harmless", "protected", "unsafe", "dangerous", "risky", "hazardous",
+        "unprotected", "true", "correct", "accurate", "valid", "right", "false", "incorrect",
+        "inaccurate", "invalid", "wrong", "legal", "lawful", "legitimate", "illegal", "unlawful",
+        "illegitimate", "alive", "living", "lives", "dead", "deceased", "died", "present", "exists",
+        "exist", "included", "absent", "missing", "excluded", "increase", "increases", "increased",
+        "rise", "rises", "rose", "grow", "grows", "grew", "growth", "decrease", "decreases",
+        "decreased", "fall", "falls", "fell", "shrink", "shrinks", "shrank", "decline", "declined",
+        "win", "wins", "won", "victory", "winner", "lose", "loses", "lost", "defeat", "defeated",
+        "loser", "जीवित", "जिंदा", "जीवितहै", "मृत", "मृतक", "दिवंगत", "सही", "सटीक", "सत्य",
+        "वैध", "कानूनी", "गलत", "झूठा", "झूठी", "अवैध", "गैरकानूनी", "असत्य", "खुला", "खुली",
+        "खुले", "उपलब्ध", "स्वीकृत", "अनुमति", "बंद", "अनुपलब्ध", "अस्वीकृत", "प्रतिबंधित",
+        "निषिद्ध", "सुरक्षित", "बढ़ा", "बढ़ी", "बढ़े", "जीता", "जीती", "मौजूद", "असुरक्षित",
+        "खतरनाक", "घटा", "घटी", "गिरा", "हारा", "हारी", "अनुपस्थित",
+    })
     _SEMANTIC_STOP_WORDS = frozenset({
         "a", "an", "the", "is", "are", "am", "was", "were", "be", "been", "being",
         "do", "does", "did", "has", "have", "had", "can", "could", "will", "would",
