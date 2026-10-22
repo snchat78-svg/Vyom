@@ -389,6 +389,85 @@ class WebKnowledge:
         "samjhao": "समझाओ", "kaaran": "कारण", "bird": "पक्षी",
     }
 
+    # Conservative, auditable opposite-predicate families. This is a
+    # bounded rule-based signal rather than a claim of general natural-language
+    # understanding; uncertain or low-context pairs remain unresolved.
+    _SEMANTIC_OPPOSITION_GROUPS = (
+        (
+            frozenset({"open", "opens", "opened", "opening", "available", "accessible", "admit", "admits", "admitted"}),
+            frozenset({"closed", "closes", "shut", "unavailable", "inaccessible", "barred", "blocked"}),
+        ),
+        (
+            frozenset({"allow", "allows", "allowed", "permit", "permits", "permitted", "authorize", "authorized", "approve", "approved", "accept", "accepted", "enable", "enabled"}),
+            frozenset({"forbid", "forbids", "forbidden", "prohibit", "prohibits", "prohibited", "ban", "bans", "banned", "deny", "denies", "denied", "reject", "rejected", "refuse", "refused", "block", "blocked"}),
+        ),
+        (
+            frozenset({"safe", "secure", "harmless", "protected"}),
+            frozenset({"unsafe", "dangerous", "risky", "hazardous", "unprotected"}),
+        ),
+        (
+            frozenset({"true", "correct", "accurate", "valid", "right"}),
+            frozenset({"false", "incorrect", "inaccurate", "invalid", "wrong"}),
+        ),
+        (
+            frozenset({"legal", "lawful", "legitimate"}),
+            frozenset({"illegal", "unlawful", "illegitimate"}),
+        ),
+        (
+            frozenset({"alive", "living", "lives"}),
+            frozenset({"dead", "deceased", "died"}),
+        ),
+        (
+            frozenset({"present", "exists", "exist", "available", "included"}),
+            frozenset({"absent", "missing", "unavailable", "excluded"}),
+        ),
+        (
+            frozenset({"increase", "increases", "increased", "rise", "rises", "rose", "grow", "grows", "grew", "growth"}),
+            frozenset({"decrease", "decreases", "decreased", "fall", "falls", "fell", "shrink", "shrinks", "shrank", "decline", "declined"}),
+        ),
+        (
+            frozenset({"win", "wins", "won", "victory", "winner"}),
+            frozenset({"lose", "loses", "lost", "defeat", "defeated", "loser"}),
+        ),
+        (
+            frozenset({"जीवित", "जिंदा", "जीवितहै"}),
+            frozenset({"मृत", "मृतक", "दिवंगत"}),
+        ),
+        (
+            frozenset({"सही", "सटीक", "सत्य", "वैध", "कानूनी"}),
+            frozenset({"गलत", "झूठा", "झूठी", "अवैध", "गैरकानूनी", "असत्य"}),
+        ),
+        (
+            frozenset({"खुला", "खुली", "खुले", "उपलब्ध", "स्वीकृत", "अनुमति"}),
+            frozenset({"बंद", "अनुपलब्ध", "अस्वीकृत", "प्रतिबंधित", "निषिद्ध"}),
+        ),
+        (
+            frozenset({"सुरक्षित", "बढ़ा", "बढ़ी", "बढ़े", "जीता", "जीती", "मौजूद"}),
+            frozenset({"असुरक्षित", "खतरनाक", "घटा", "घटी", "गिरा", "हारा", "हारी", "अनुपस्थित"}),
+        ),
+    )
+    _SEMANTIC_CUE_TERMS = frozenset(
+        token
+        for positive_group, negative_group in _SEMANTIC_OPPOSITION_GROUPS
+        for token in positive_group | negative_group
+    )
+    _SEMANTIC_STOP_WORDS = frozenset({
+        "a", "an", "the", "is", "are", "am", "was", "were", "be", "been", "being",
+        "do", "does", "did", "has", "have", "had", "can", "could", "will", "would",
+        "should", "may", "might", "must", "to", "of", "in", "on", "at", "by", "for",
+        "from", "with", "without", "and", "or", "but", "that", "this", "these", "those",
+        "it", "its", "they", "them", "their", "he", "she", "we", "you", "i", "not",
+        "no", "never", "neither", "cannot", "can", "ki", "ka", "ke", "hai", "hain",
+        "था", "थी", "थे", "है", "हैं", "का", "की", "के", "में", "पर", "और", "या",
+        "नहीं", "नही", "यह", "वह", "एक", "से", "को", "तक",
+    })
+    _NEGATION_PATTERN = re.compile(
+        r"\b(?:not|never|no|neither|cannot|can't|cannot|isn't|aren't|wasn't|weren't|"
+        r"doesn't|don't|didn't|won't|wouldn't|shouldn't|couldn't|mustn't)\b|"
+        r"\b\w+n['’]t\b|(?:नहीं|नही|असत्य)",
+        flags=re.IGNORECASE,
+    )
+
     def __init__(
         self,
         timeout: float = 1.8,
@@ -968,8 +1047,87 @@ class WebKnowledge:
             return ""
 
     @staticmethod
+    def _has_sentence_negation(sentence: str) -> bool:
+        # "not only" and "not just" usually add information instead of negating
+        # the proposition; exclude those common constructions conservatively.
+        value = re.sub(r"\bnot\s+(?:only|just)\b", " ", str(sentence or ""), flags=re.IGNORECASE)
+        return bool(WebKnowledge._NEGATION_PATTERN.search(value))
+
+    @staticmethod
+    def _semantic_tokens(value: str) -> set:
+        tokens = {
+            token.casefold()
+            for token in re.findall(r"[^\W_]+", str(value or ""), flags=re.UNICODE)
+            if not token.isdigit()
+        }
+        normalized = set()
+        for token in tokens:
+            word = token
+            # Small English inflection normalization. This is used only for
+            # anchor overlap; the original token set remains unchanged.
+            if re.fullmatch(r"[a-z]+", word):
+                if len(word) > 5 and word.endswith("ies"):
+                    word = word[:-3] + "y"
+                elif len(word) > 5 and word.endswith("ing"):
+                    word = word[:-3]
+                    if len(word) > 2 and word[-1] == word[-2]:
+                        word = word[:-1]
+                elif len(word) > 4 and word.endswith("ed"):
+                    word = word[:-2]
+                    if word.endswith("i"):
+                        word = word[:-1] + "y"
+                elif len(word) > 4 and word.endswith("s") and not word.endswith("ss"):
+                    word = word[:-1]
+            normalized.add(word)
+        return normalized
+
+    @classmethod
+    def _semantic_sentence_conflict(cls, left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+        """Detect narrow, high-context polarity/opposition signals across sentences."""
+        left_semantic = left.get("semantic_terms", set())
+        right_semantic = right.get("semantic_terms", set())
+        left_negated = bool(left.get("negated"))
+        right_negated = bool(right.get("negated"))
+
+        # Negation is a conflict signal only when the same content-bearing
+        # predicate/context is otherwise shared. A missing negation token alone
+        # never makes unrelated statements contradictory.
+        if left_negated != right_negated:
+            left_negation_context = left_semantic - cls._SEMANTIC_STOP_WORDS
+            right_negation_context = right_semantic - cls._SEMANTIC_STOP_WORDS
+            shared = left_negation_context & right_negation_context
+            smaller = min(len(left_negation_context), len(right_negation_context))
+            if shared and smaller and len(shared) / smaller >= 0.80:
+                return True
+
+        # Opposing predicate families count only when each sentence has one
+        # unambiguous side of a pair and their remaining anchor terms overlap.
+        if not left_negated and not right_negated:
+            left_anchors = left_semantic - cls._SEMANTIC_STOP_WORDS - cls._SEMANTIC_CUE_TERMS
+            right_anchors = right_semantic - cls._SEMANTIC_STOP_WORDS - cls._SEMANTIC_CUE_TERMS
+            shared_anchors = left_anchors & right_anchors
+            smaller_anchors = min(len(left_anchors), len(right_anchors))
+            anchor_coverage = (
+                len(shared_anchors) / smaller_anchors if smaller_anchors else 0.0
+            )
+            if shared_anchors and anchor_coverage >= 0.60:
+                left_terms = left.get("terms", set())
+                right_terms = right.get("terms", set())
+                for left_side, right_side in cls._SEMANTIC_OPPOSITION_GROUPS:
+                    left_first = bool(left_terms & left_side)
+                    left_second = bool(left_terms & right_side)
+                    right_first = bool(right_terms & left_side)
+                    right_second = bool(right_terms & right_side)
+                    if (
+                        (left_first and not left_second and right_second and not right_first)
+                        or (left_second and not left_first and right_first and not right_second)
+                    ):
+                        return True
+        return False
+
+    @staticmethod
     def _sentence_facts(text: str) -> List[Dict[str, Any]]:
-        """Extract language-agnostic token context and numeric/date-like values."""
+        """Extract sentence tokens, numeric/date-like values and cautious polarity context."""
         sentences = re.split(r"(?<=[.!?।])\s+|[\r\n]+", str(text or ""))
         facts: List[Dict[str, Any]] = []
         for sentence in sentences:
@@ -985,7 +1143,12 @@ class WebKnowledge:
                 re.findall(r"(?<!\w)\d+(?:[.,:/-]\d+)*(?:%|[A-Za-z]+)?", value)
             )
             if terms:
-                facts.append({"terms": terms, "numbers": numbers})
+                facts.append({
+                    "terms": terms,
+                    "semantic_terms": WebKnowledge._semantic_tokens(value),
+                    "numbers": numbers,
+                    "negated": WebKnowledge._has_sentence_negation(value),
+                })
         return facts
 
     @classmethod
@@ -999,6 +1162,7 @@ class WebKnowledge:
             for source in sources
         ]
         potential_numeric_conflict = False
+        potential_semantic_conflict = False
         textually_aligned = False
 
         for left_index in range(len(excerpts)):
@@ -1027,6 +1191,9 @@ class WebKnowledge:
                             potential_numeric_conflict = True
                             break
 
+                        if cls._semantic_sentence_conflict(left, right):
+                            potential_semantic_conflict = True
+
                         union_size = len(left_terms | right_terms)
                         similarity = shared / union_size if union_size else 0.0
                         if (
@@ -1043,6 +1210,8 @@ class WebKnowledge:
 
         if potential_numeric_conflict:
             return "potential_numeric_conflict"
+        if potential_semantic_conflict:
+            return "potential_semantic_conflict"
         if textually_aligned:
             return "textually_aligned"
         return "divergent_unresolved"
@@ -1183,6 +1352,23 @@ class WebKnowledge:
                 primary["answer_status"] = "sourced_excerpt"
                 primary["limitations"].append(
                     "Retrieved excerpts have strong textual overlap, but publisher independence and factual correctness were not established."
+                )
+            elif relation == "potential_semantic_conflict":
+                primary["answer_status"] = "conflicting_sources"
+                if preferred == "en":
+                    primary["answer"] = (
+                        "The retrieved sources contain opposing non-numeric claims in similar context. "
+                        "This is a cautious rule-based conflict signal, not proof that either source is correct; "
+                        "treat the claim as unresolved and compare the cited sources."
+                    )
+                else:
+                    primary["answer"] = (
+                        "मिले हुए स्रोतों में समान संदर्भ पर गैर-संख्यात्मक दावे एक-दूसरे के विपरीत दिखते हैं। "
+                        "यह नियम-आधारित संकेत है, किसी स्रोत के सही होने का प्रमाण नहीं; दावे को अनसुलझा मानें "
+                        "और उद्धृत स्रोतों की तुलना करें।"
+                    )
+                primary["limitations"].append(
+                    "Potential semantic conflict was inferred from a bounded polarity/opposition vocabulary and shared context; nuanced paraphrases, implicit contradictions, and language variants may remain unresolved."
                 )
             elif relation == "potential_numeric_conflict":
                 primary["answer_status"] = "conflicting_sources"
