@@ -8,6 +8,7 @@ from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
 from ai_core.web_knowledge import (
+    RetrievalProvider,
     WebKnowledge,
     _PinnedPublicHTTPConnection,
     _PinnedPublicHTTPSConnection,
@@ -32,6 +33,23 @@ class FakeResponse:
 
 
 class WebKnowledgeTests(unittest.TestCase):
+    @staticmethod
+    def _provider_result(
+        url="https://facts.example.org/item",
+        excerpt="A bounded custom provider excerpt with source-grounded information.",
+        title="Custom source",
+        site="Example facts",
+    ):
+        return {
+            "success": True,
+            "answer": excerpt,
+            "query": "test query",
+            "language": "en",
+            "evidence_type": "custom_provider_excerpt",
+            "evidence_text": excerpt,
+            "source": {"title": title, "url": url, "site": site},
+        }
+
     def test_roman_hindi_query_is_normalized_for_hindi_wikipedia(self):
         variants = WebKnowledge._query_variants("bharat ki rajadhani kya hai")
         self.assertEqual(variants[0], "भारत की राजधानी क्या है")
@@ -431,6 +449,207 @@ class WebKnowledgeTests(unittest.TestCase):
 
         self.assertEqual(result["evidence"]["source_count"], 1)
         self.assertEqual(result["evidence"]["cross_source_relation"], "single_source")
+
+    def test_configured_provider_contract_accepts_safe_sourced_result(self):
+        calls = []
+
+        def provider(client, query_variants, preferred_language):
+            calls.append((tuple(query_variants), preferred_language))
+            self.assertTrue(callable(client.fetch_text))
+            return self._provider_result()
+
+        client = WebKnowledge(
+            opener=lambda _request, timeout=0: FakeResponse("unused"),
+            providers=[RetrievalProvider("custom", provider)],
+        )
+        result = client.answer("a custom fact", preferred_language="en")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["answer_status"], "sourced_excerpt")
+        self.assertEqual(result["source"]["url"], "https://facts.example.org/item")
+        self.assertEqual(result["sources"][0]["host"], "facts.example.org")
+        self.assertEqual(result["provider"], "custom")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1], "en")
+
+    def test_provider_failure_and_unsafe_result_fall_through_in_configured_order(self):
+        calls = []
+
+        def failing(_client, _variants, _language):
+            calls.append("broken")
+            raise OSError("provider unavailable")
+
+        def unsafe(_client, _variants, _language):
+            calls.append("unsafe")
+            return self._provider_result(url="http://127.0.0.1/private")
+
+        def valid(_client, _variants, _language):
+            calls.append("valid")
+            return self._provider_result(url="https://valid.example.org/item")
+
+        client = WebKnowledge(
+            providers=[
+                RetrievalProvider("broken", failing),
+                RetrievalProvider("unsafe", unsafe),
+                RetrievalProvider("valid", valid),
+            ]
+        )
+        result = client.answer("fallback behavior")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"]["url"], "https://valid.example.org/item")
+        self.assertEqual(calls, ["broken", "unsafe", "valid"])
+
+    def test_explicit_empty_provider_list_returns_unknown_without_default_fallback(self):
+        client = WebKnowledge(providers=[])
+        result = client.answer("no providers configured")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["answer_status"], "unknown")
+        self.assertEqual(result["sources"], [])
+        self.assertEqual(result["evidence"]["source_count"], 0)
+
+    def test_configured_providers_deduplicate_normalized_hosts(self):
+        def first(_client, _variants, _language):
+            return self._provider_result(
+                url="https://www.duplicate.example.org/first",
+                excerpt="One cited excerpt from the first path.",
+            )
+
+        def second(_client, _variants, _language):
+            return self._provider_result(
+                url="https://duplicate.example.org/second",
+                excerpt="A different excerpt served from the same normalized host.",
+            )
+
+        def third(_client, _variants, _language):
+            return self._provider_result(
+                url="https://independent.example.net/third",
+                excerpt="Another excerpt from a different host.",
+            )
+
+        client = WebKnowledge(
+            providers=[
+                RetrievalProvider("first", first),
+                RetrievalProvider("second", second),
+                RetrievalProvider("third", third),
+            ]
+        )
+        result = client.answer("duplicate host")
+
+        self.assertEqual(result["evidence"]["source_count"], 2)
+        self.assertEqual(
+            {source["host"] for source in result["sources"]},
+            {"duplicate.example.org", "independent.example.net"},
+        )
+        self.assertEqual(result["source"]["url"], result["sources"][0]["url"])
+
+    def test_provider_and_result_caps_bound_output_excerpt_and_metadata(self):
+        calls = []
+        long_excerpt = "word " * 500
+        long_title = "Long title " * 40
+        long_site = "Long site " * 40
+
+        def provider_factory(provider_index):
+            def provider(_client, _variants, _language):
+                calls.append(provider_index)
+                return [
+                    self._provider_result(
+                        url=f"https://p{provider_index}-r{result_index}.example.org/item",
+                        excerpt=long_excerpt,
+                        title=long_title,
+                        site=long_site,
+                    )
+                    for result_index in range(8)
+                ]
+            return provider
+
+        providers = [
+            RetrievalProvider(f"provider-{index}", provider_factory(index), max_results=999)
+            for index in range(4)
+        ]
+        # The fifth provider is outside the configured provider-count bound.
+        providers.append(RetrievalProvider(
+            "provider-over-limit",
+            lambda *_args: (_ for _ in ()).throw(AssertionError("provider cap ignored")),
+        ))
+
+        client = WebKnowledge(providers=providers)
+        result = client.answer("bounded provider output")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(calls, [0, 1])
+        self.assertEqual(len(result["sources"]), 6)
+        for source in result["sources"]:
+            self.assertLessEqual(len(source["excerpt"]), 1200)
+            self.assertLessEqual(len(source["title"]), 240)
+            self.assertLessEqual(len(source["site"]), 160)
+
+    def test_provider_outbound_fetch_budget_is_bounded(self):
+        fetches = []
+
+        def opener(request, timeout=0):
+            fetches.append(request.full_url)
+            return FakeResponse("a small response")
+
+        def provider(client, _variants, _language):
+            for _ in range(20):
+                try:
+                    client.fetch_text("https://fetch-budget.example.org/item")
+                except TimeoutError:
+                    break
+            return None
+
+        client = WebKnowledge(
+            opener=opener,
+            providers=[RetrievalProvider("bounded-fetcher", provider)],
+        )
+        result = client.answer("bounded outbound work")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["answer_status"], "unknown")
+        self.assertEqual(len(fetches), client.MAX_FETCHES_PER_PROVIDER)
+        self.assertLessEqual(len(fetches), client.MAX_TOTAL_PROVIDER_FETCHES)
+
+    def test_malformed_provider_output_is_ignored_without_iteration(self):
+        calls = []
+
+        def malformed(_client, _variants, _language):
+            calls.append("malformed")
+            return (item for item in [self._provider_result()])
+
+        def valid(_client, _variants, _language):
+            calls.append("valid")
+            return self._provider_result(url="https://fallback.example.net/item")
+
+        client = WebKnowledge(
+            providers=[
+                RetrievalProvider("malformed", malformed),
+                RetrievalProvider("valid", valid),
+            ]
+        )
+        result = client.answer("finite output contract")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["source"]["url"], "https://fallback.example.net/item")
+        self.assertEqual(calls, ["malformed", "valid"])
+
+    def test_unsafe_provider_citation_leaves_unknown_not_a_fabricated_answer(self):
+        client = WebKnowledge(
+            providers=[
+                RetrievalProvider(
+                    "unsafe-citation",
+                    lambda *_args: self._provider_result(
+                        url="file:///etc/passwd",
+                        excerpt="This content must not be accepted.",
+                    ),
+                )
+            ]
+        )
+        result = client.answer("unsafe citation")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["answer_status"], "unknown")
+        self.assertEqual(result["sources"], [])
+        self.assertEqual(result["evidence"]["type"], "none")
 
 if __name__ == "__main__":
     unittest.main()
