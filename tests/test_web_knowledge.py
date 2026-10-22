@@ -859,5 +859,100 @@ class WebKnowledgeTests(unittest.TestCase):
         self.assertEqual(normalized["source"]["published_date"], "2026-10-01")
 
 
+    def test_source_quality_never_overrides_numeric_or_semantic_conflict_precedence(self):
+        conflict_cases = [
+            (
+                "potential_numeric_conflict",
+                "Region X had a population of 1,200 people in 2020.",
+                "Region X had a population of 1,400 people in 2020.",
+            ),
+            (
+                "potential_semantic_conflict",
+                "The museum is closed to visitors every day.",
+                "The museum is open to visitors every day.",
+            ),
+        ]
+        for expected_relation, left_excerpt, right_excerpt in conflict_cases:
+            with self.subTest(expected_relation=expected_relation):
+                results = {
+                    "hi": self._mock_source(
+                        left_excerpt,
+                        "https://first.example.org/report",
+                        "Fact report",
+                    ),
+                    "en": self._mock_source(
+                        right_excerpt,
+                        "https://second.example.net/report",
+                        "Fact report",
+                    ),
+                }
+                # Deliberately weak source-quality metadata must not replace a
+                # genuine cross-source conflict with an unknown/selected answer.
+                for candidate in results.values():
+                    candidate["source"]["published_date"] = "2035-01-01"
+                client = WebKnowledge(total_timeout=2.0)
+                client._query_variants = lambda _question: ["variant one", "variant two"]
+                client._wikipedia = lambda _query, language, output_language="hi": results[language]
+                client._duckduckgo = lambda _query, _preferred_language: None
+
+                result = client.answer("the disputed claim", preferred_language="en")
+
+                self.assertTrue(result["success"])
+                self.assertEqual(result["answer_status"], "conflicting_sources")
+                self.assertEqual(
+                    result["evidence"]["cross_source_relation"],
+                    expected_relation,
+                )
+                self.assertTrue(all(
+                    item["freshness"] == "future_dated"
+                    for item in result["evidence"]["source_quality"]["per_source"]
+                ))
+                self.assertTrue(all(
+                    item["label"] == "weak_metadata"
+                    for item in result["evidence"]["source_quality"]["per_source"]
+                ))
+
+    def test_duplicate_cross_host_excerpts_do_not_count_as_independent_corroboration(self):
+        excerpt = (
+            "The regional report identifies 125 schools across 14 districts and describes "
+            "annual enrollment trends, inspection findings, and the published methodology."
+        )
+        client = WebKnowledge(
+            providers=[
+                RetrievalProvider(
+                    "duplicate-pages",
+                    lambda *_args: [
+                        self._provider_result(
+                            url="https://publisher-one.example.org/report",
+                            excerpt=excerpt,
+                            title="Regional report",
+                            site="Publisher one",
+                        ),
+                        self._provider_result(
+                            url="https://publisher-two.example.net/repost",
+                            excerpt=excerpt,
+                            title="Copied regional report",
+                            site="Publisher two",
+                        ),
+                    ],
+                    max_results=2,
+                )
+            ]
+        )
+        result = client.answer("regional school report", preferred_language="en")
+
+        self.assertEqual(result["evidence"]["source_count"], 2)
+        self.assertEqual(result["evidence"]["cross_source_relation"], "textually_aligned")
+        self.assertEqual(result["evidence"]["independent_corroboration"], "not_established")
+        self.assertEqual(
+            result["evidence"]["source_quality"]["per_source"][1]["duplicate_status"],
+            "potential_repost",
+        )
+        self.assertIn(
+            "not a probability of truth",
+            result["evidence"]["source_quality"]["score_semantics"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

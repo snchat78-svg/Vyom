@@ -25,11 +25,12 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Exact-SHA CI: [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244) — **success**, 380 tests and 28 subtests.
 - Bounded, context-gated polarity/opposition rules identify selected non-numeric contradictions; claims remain unresolved. Implicit, low-overlap, unlisted-antonym and nuanced multilingual contradictions may remain unresolved.
 
-## Next phase — READY, NOT STARTED
+## Active phase — M7 Audit IN PROGRESS (exact-SHA CI pending)
 - **M7 Audit — Combined acceptance review of M7.1–M7.7**
-- Re-read `ai_core/web_knowledge.py` and `tests/test_web_knowledge.py`, then verify public-URL/redirect/DNS-pinning safety, request/response/deadline caps, provider limits and fallback behavior, cited-excerpt provenance, hostname deduplication, numeric/semantic conflict precedence, freshness/duplicate quality metadata and unknown-on-weak-evidence behavior.
-- Add or repair only the first unmet integration/regression item. Run the complete exact-SHA CI and record limitations before starting M8.
-- M7 remains **partial** until the overall audit gate passes.
+- Baseline: M7.7 source-quality code/tests passed exact-SHA CI on `98d7855c83b35cc37dadc01c4245c3803219394f`, [run 39785293786](https://github.com/snchat78-svg/Vyom/actions/runs/39785293786): 385 tests + 28 subtests, Windows EXE verification/upload passed.
+- Combined regression additions: weak/future-dated source metadata must not override numeric or semantic conflict outcomes; identical excerpts on separate hostnames must not be labelled independent corroboration.
+- Audit checklist: public URL/redirect/DNS-pinning safety; timeout, response and provider caps; safe citation provenance; normalized-host deduplication; numeric conflict precedence; semantic conflict handling; freshness/attribution/content metadata; unknown-on-weak-evidence behavior; exact-SHA full CI.
+- M8 remains blocked until the combined audit and its exact-SHA CI pass.
 
 ## Remaining M7 gate
 1. **Overall M7 audit:** combined M7.1–M7.7 acceptance review and exact-SHA CI.
@@ -49,4 +50,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-22: M7.4 DNS-pinned transport passed on `f417bebeecd902bbfe1111bbad623eaaaeceb4a0` in [run 39746025751](https://github.com/snchat78-svg/Vyom/actions/runs/39746025751).
 - 2026-10-22: M7.5 configurable retrieval providers passed on `90ae4ead63c586b8da98191d5266254736c5269d` in [run 39753595589](https://github.com/snchat78-svg/Vyom/actions/runs/39753595589): 373 tests and 28 subtests.
 - 2026-10-22: M7.6 semantic contradiction signals passed on `6d5101f10a2c35d2f2bf2699d2960db861f6dfd9` in [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244): 380 tests and 28 subtests, Windows EXE verification/upload.
-- 2026-10-22: M7.7 implementation and regression tests committed; exact-SHA CI pending. The quality score remains metadata-only and is not a probability of truth. M7 remains partial until M7.7's test gate and the overall M7 audit both pass.
+- 2026-10-22: M7.7 passed exact-SHA CI on `98d7855c83b35cc37dadc01c4245c3803219394f` in [run 39785293786](https://github.com/snchat78-svg/Vyom/actions/runs/39785293786): 385 tests + 28 subtests, Windows EXE verified/uploaded. Source-quality scoring remains metadata-only, not a probability of truth.
+- 2026-10-22: M7 combined audit started; two end-to-end regression checks added, pending exact-SHA CI. M7 remains partial and M8 remains gated.
