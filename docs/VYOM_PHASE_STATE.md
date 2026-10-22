@@ -10,26 +10,31 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Reusable cross-project policy: [PHASE_CONTINUITY_STANDARD.md](PHASE_CONTINUITY_STANDARD.md)
 - Cross-project navigation index: [CROSS_PROJECT_PHASE_INDEX.md](CROSS_PROJECT_PHASE_INDEX.md)
 
-## Last verified completed phase — M7.6
+## Last verified completed phase — M7.7
+- **M7.7 — Source-quality evaluation**
+- Exact tested code/test commit: `98d7855c83b35cc37dadc01c4245c3803219394f`
+- Exact-SHA CI: [run 39785293786](https://github.com/snchat78-svg/Vyom/actions/runs/39785293786) — **success**.
+- CI result: **385 tests passed, 28 subtests passed**; syntax/import checks, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload all passed.
+- Behavior: each retrieved source now exposes a bounded metadata assessment for explicit publication freshness, excerpt sufficiency/boilerplate, attribution, specificity and duplicate/repost signals within the currently retrieved set. Missing or unparsable dates remain `unknown`; the score is not a probability of truth. Quality metadata is returned both per source and under `evidence.source_quality`.
+- Safety: a very short/boilerplate or weak-metadata primary excerpt becomes `answer_status=unknown` while retaining the citation. Numeric and semantic conflict outcomes keep precedence; quality scores never select a winner or upgrade source claims into proven facts.
+- Limitations: this is a bounded heuristic, not independent publisher verification or broad originality search. Repost detection compares only retrieved excerpts; a fresh date can be incorrect or reflect a page update rather than the claim's original publication. Live external network/TLS, the user's actual Windows desktop and microphone remain outside GitHub CI.
+
+## Previous verified phase — M7.6
 - **M7.6 — Broader semantic contradiction detection**
 - Exact tested tree: `6d5101f10a2c35d2f2bf2699d2960db861f6dfd9`
-- Exact-SHA CI: [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244) — **success**.
-- CI result: **380 tests passed, 28 subtests passed**; syntax/import checks, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload passed.
-- Behavior: keeps numeric/date conflict precedence and adds `potential_semantic_conflict` for selected non-numeric opposing predicate/negation signals when sentence context overlaps. Conflicts return `answer_status=conflicting_sources` and state that the claims remain unresolved; no source is automatically declared correct.
-- Regression coverage: open/closed, negation, permitted/prohibited paraphrase, unrelated statements, compatible differently worded claims, Hindi open/closed and an end-to-end unresolved answer.
-- Limitation: this is a bounded, auditable rule-based signal—not general semantic understanding or a language model. Implicit, low-overlap, unlisted-antonym and nuanced multilingual contradictions may remain unresolved. Do not claim M7 is complete.
+- Exact-SHA CI: [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244) — **success**, 380 tests and 28 subtests.
+- Bounded, context-gated polarity/opposition rules identify selected non-numeric contradictions; claims remain unresolved. Implicit, low-overlap, unlisted-antonym and nuanced multilingual contradictions may remain unresolved.
 
-## Active phase — M7.7 IN PROGRESS (exact-SHA CI pending)
-- **M7.7 — Source-quality evaluation**
-- Code/tests add bounded metadata scoring for explicit publication freshness, excerpt sufficiency/boilerplate, source attribution, content specificity and exact/near-duplicate excerpts across the retrieved set.
-- Per-source quality is attached to `sources[]` and summarized under `evidence.source_quality`. Missing/unparseable dates are labelled `unknown` rather than treated as stale. Duplicate detection is limited to the current retrieved excerpts.
-- Very short/boilerplate or weak-metadata primary evidence is kept `answer_status=unknown` with its citation retained. Numeric/semantic source conflicts retain conflict precedence.
-- These are heuristic metadata assessments only—not truth probabilities, proof of source independence, or an authority ranking. Exact-SHA full CI must pass before M7.7 is marked complete.
+## Next phase — READY, NOT STARTED
+- **M7 Audit — Combined acceptance review of M7.1–M7.7**
+- Re-read `ai_core/web_knowledge.py` and `tests/test_web_knowledge.py`, then verify public-URL/redirect/DNS-pinning safety, request/response/deadline caps, provider limits and fallback behavior, cited-excerpt provenance, hostname deduplication, numeric/semantic conflict precedence, freshness/duplicate quality metadata and unknown-on-weak-evidence behavior.
+- Add or repair only the first unmet integration/regression item. Run the complete exact-SHA CI and record limitations before starting M8.
+- M7 remains **partial** until the overall audit gate passes.
 
 ## Remaining M7 gate
-1. **M7.7:** source-quality evaluation and its regression matrix.
-2. Re-audit M7.1–M7.7 together. Start M8 only after the whole M7 acceptance gate passes.
-
+1. **Overall M7 audit:** combined M7.1–M7.7 acceptance review and exact-SHA CI.
+2. Start M8 only after the overall M7 gate passes; do not skip ahead.
+ 
 ## Cross-chat and cross-project continuity rules
 - This file, the checkpoint and roadmap are durable handoff records. Update them whenever a phase changes status.
 - Before work in any repository, read that repository's canonical phase-state file, verify branch/head/latest CI, then choose only the next incomplete phase.
