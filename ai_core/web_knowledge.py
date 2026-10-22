@@ -18,9 +18,28 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import time
+from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+
+
+
+@dataclass(frozen=True)
+class RetrievalProvider:
+    """A bounded source provider for WebKnowledge.
+
+    retrieve(client, query_variants, preferred_language) returns one result mapping
+    or a finite list/tuple of result mappings. For HTTP retrieval, providers must
+    use client.fetch_text(url); it applies the shared public-URL/DNS-pinned
+    transport, response cap, per-request timeout, and total lookup deadline.
+    Result mappings require success=True, answer, evidence_text and a source
+    mapping with a public HTTP(S) url. WebKnowledge validates and bounds output.
+    """
+
+    name: str
+    retrieve: Callable[["WebKnowledge", Sequence[str], str], Any]
+    max_results: int = 3
 
 class _DuckDuckGoResults(HTMLParser):
     """Small dependency-free parser for DuckDuckGo HTML result markup."""
@@ -374,6 +393,7 @@ class WebKnowledge:
         opener: Optional[Callable[..., Any]] = None,
         max_response_bytes: int = 1_000_000,
         resolver: Optional[Callable[..., Any]] = None,
+        providers: Optional[Iterable[RetrievalProvider]] = None,
     ) -> None:
         # Each socket request is short, and the complete lookup has its own
         # deadline. A series of failed sources must not freeze a voice turn for
@@ -406,6 +426,184 @@ class WebKnowledge:
                 _PinnedPublicHTTPHandler(resolver=transport_resolver),
                 _PinnedPublicHTTPSHandler(resolver=transport_resolver),
             ).open
+        # None means the safe built-in provider set; an explicitly supplied
+        # empty/invalid collection intentionally disables retrieval and returns unknown.
+        self._providers = (
+            self._default_providers() if providers is None
+            else self._normalize_providers(providers)
+        )
+
+    MAX_PROVIDER_COUNT = 4
+    MAX_PROVIDER_RESULTS = 3
+    MAX_TOTAL_PROVIDER_RESULTS = 6
+    MAX_PROVIDER_EXCERPT_CHARS = 1200
+    MAX_PROVIDER_URL_CHARS = 2048
+
+    @staticmethod
+    def _default_providers() -> tuple:
+        return (
+            RetrievalProvider(
+                "wikipedia", WebKnowledge._retrieve_wikipedia_provider, max_results=3
+            ),
+            RetrievalProvider(
+                "duckduckgo", WebKnowledge._retrieve_duckduckgo_provider, max_results=2
+            ),
+        )
+
+    @classmethod
+    def _normalize_providers(
+        cls, providers: Iterable[RetrievalProvider]
+    ) -> tuple:
+        normalized = []
+        seen_names = set()
+        try:
+            iterator = iter(providers)
+        except (TypeError, ValueError):
+            return ()
+        # Stop after a small fixed number without exhausting an arbitrary iterator.
+        for provider in iterator:
+            if len(normalized) >= cls.MAX_PROVIDER_COUNT:
+                break
+            if not isinstance(provider, RetrievalProvider):
+                continue
+            name = re.sub(r"\\s+", " ", str(provider.name or "")).strip()[:80]
+            if not name or name.casefold() in seen_names or not callable(provider.retrieve):
+                continue
+            if isinstance(provider.max_results, bool):
+                continue
+            try:
+                max_results = int(provider.max_results)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if max_results < 1:
+                continue
+            max_results = min(cls.MAX_PROVIDER_RESULTS, max_results)
+            normalized.append(RetrievalProvider(name, provider.retrieve, max_results))
+            seen_names.add(name.casefold())
+        return tuple(normalized)
+
+    @staticmethod
+    def _retrieve_wikipedia_provider(
+        client: "WebKnowledge", query_variants: Sequence[str], preferred_language: str
+    ) -> List[Dict[str, Any]]:
+        variants = list(query_variants[:2])
+        if not variants:
+            return []
+        other = "en" if preferred_language == "hi" else "hi"
+        attempts = [(variants[0], preferred_language, preferred_language)]
+        if len(variants) > 1:
+            attempts.append((variants[1], preferred_language, preferred_language))
+            attempts.append((variants[1], other, preferred_language))
+        results: List[Dict[str, Any]] = []
+        for query, source_language, output_language in attempts[:3]:
+            if client._deadline is not None and time.monotonic() >= client._deadline:
+                break
+            try:
+                result = client._wikipedia(
+                    query, source_language, output_language=output_language
+                )
+            except Exception:
+                result = None
+            if result:
+                results.append(result)
+        return results[:3]
+
+    @staticmethod
+    def _retrieve_duckduckgo_provider(
+        client: "WebKnowledge", query_variants: Sequence[str], preferred_language: str
+    ) -> List[Dict[str, Any]]:
+        results: List[Dict[str, Any]] = []
+        for query in list(query_variants[:2]):
+            if client._deadline is not None and time.monotonic() >= client._deadline:
+                break
+            try:
+                result = client._duckduckgo(query, preferred_language)
+            except Exception:
+                result = None
+            if result:
+                results.append(result)
+        return results[:2]
+
+    @classmethod
+    def _normalize_provider_result(
+        cls,
+        value: Any,
+        provider_name: str,
+        fallback_query: str,
+        preferred_language: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Reject malformed/unattributed provider values and enforce output caps."""
+        if not isinstance(value, dict) or value.get("success") is not True:
+            return None
+        raw_source = value.get("source")
+        if not isinstance(raw_source, dict):
+            return None
+        url_value = raw_source.get("url")
+        if not isinstance(url_value, str):
+            return None
+        source_url = url_value.strip()
+        if (
+            not source_url
+            or len(source_url) > cls.MAX_PROVIDER_URL_CHARS
+            or not WebKnowledge._is_public_web_url(source_url)
+        ):
+            return None
+        evidence = value.get("evidence_text")
+        if not isinstance(evidence, str):
+            return None
+        excerpt = WebKnowledge._trim_summary(
+            WebKnowledge._clean_markup(evidence), cls.MAX_PROVIDER_EXCERPT_CHARS
+        )
+        if not excerpt:
+            return None
+        raw_answer = value.get("answer")
+        if not isinstance(raw_answer, str) or not raw_answer.strip():
+            return None
+        answer = WebKnowledge._trim_summary(
+            WebKnowledge._clean_markup(raw_answer), cls.MAX_PROVIDER_EXCERPT_CHARS * 2
+        )
+        if not answer:
+            return None
+        parsed = urllib.parse.urlparse(source_url)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if not host:
+            return None
+        title = WebKnowledge._trim_summary(
+            WebKnowledge._clean_markup(raw_source.get("title") or provider_name), 240
+        )
+        site = WebKnowledge._trim_summary(
+            WebKnowledge._clean_markup(raw_source.get("site") or host), 160
+        )
+        language_value = str(value.get("language") or preferred_language).lower()
+        language = "en" if language_value.startswith("en") else "hi"
+        evidence_type = WebKnowledge._trim_summary(
+            str(value.get("evidence_type") or "provider_excerpt"), 80
+        ) or "provider_excerpt"
+        query = value.get("query")
+        if not isinstance(query, str) or not query.strip():
+            query = fallback_query
+        return {
+            "success": True,
+            "answer": answer,
+            "query": query[:400],
+            "language": language,
+            "evidence_type": evidence_type,
+            "evidence_text": excerpt,
+            "provider": provider_name,
+            "source": {"title": title or host, "url": source_url, "site": site or host},
+        }
+
+    @classmethod
+    def _provider_values(cls, value: Any, limit: int) -> List[Dict[str, Any]]:
+        # Do not iterate arbitrary generators: a malformed/infinite provider
+        # output must not hang a voice turn. Only finite mappings/lists/tuples are accepted.
+        if isinstance(value, dict):
+            candidates = [value]
+        elif isinstance(value, (list, tuple)):
+            candidates = value[:limit]
+        else:
+            return []
+        return [item for item in candidates if isinstance(item, dict)]
 
     @classmethod
     def _query_variants(cls, question: str) -> List[str]:
@@ -558,6 +756,14 @@ class WebKnowledge:
             "evidence_text": summary,
             "source": {"title": title, "url": url, "site": parsed.hostname or "वेबसाइट"},
         }
+
+    def fetch_text(self, url: str) -> str:
+        """Fetch through the shared public-URL/DNS-pinned bounded transport.
+
+        Custom RetrievalProvider implementations should use this helper rather
+        than opening sockets or using urllib directly.
+        """
+        return self._read_url(url)
 
     def _read_url(self, url: str) -> str:
         if not self._is_public_web_url(url):
@@ -849,35 +1055,42 @@ class WebKnowledge:
         new_deadline = time.monotonic() + self.total_timeout
         self._deadline = min(previous_deadline, new_deadline) if previous_deadline else new_deadline
 
-        # Keep the order useful for Hindi/Hinglish: normalized preferred-
-        # language Wikipedia, the original query on the preferred wiki, then
-        # a clearly labelled cross-language/search fallback. _read_url enforces
-        # the same overall deadline at every network boundary.
+        # Providers run in explicit configured order. Each is invoked once,
+        # has a small result cap, and shares this lookup's deadline and the
+        # public fetch_text() transport boundary. Bad providers cannot stop fallback.
         try:
-            attempts = [(variants[0], preferred, preferred)]
-            if len(variants) > 1:
-                attempts.append((variants[1], preferred, preferred))
-                attempts.append((variants[1], other, preferred))
-            attempts.extend((query, "ddg", preferred) for query in variants)
-
             collected: List[Dict[str, Any]] = []
-            for query, source_language, output_language in attempts:
+            for provider in self._providers[:self.MAX_PROVIDER_COUNT]:
+                if len(collected) >= self.MAX_TOTAL_PROVIDER_RESULTS:
+                    break
                 if self._deadline is not None and time.monotonic() >= self._deadline:
                     break
-                if source_language == "ddg":
-                    result = self._duckduckgo(query, preferred)
-                else:
-                    result = self._wikipedia(query, source_language, output_language=output_language)
-                if not result:
+                try:
+                    provider_output = provider.retrieve(self, tuple(variants[:2]), preferred)
+                except Exception:
+                    # Provider failures are isolated; continue with the next configured provider.
                     continue
-                source = result.get("source")
-                if (
-                    not isinstance(source, dict)
-                    or not self._is_public_web_url(source.get("url", ""))
-                ):
-                    # Never present a factual excerpt without a safe citation.
-                    continue
-                collected.append(result)
+                if self._deadline is not None and time.monotonic() >= self._deadline:
+                    break
+                candidates = self._provider_values(
+                    provider_output,
+                    min(provider.max_results, self.MAX_PROVIDER_RESULTS),
+                )
+                accepted_for_provider = 0
+                for candidate in candidates:
+                    if len(collected) >= self.MAX_TOTAL_PROVIDER_RESULTS:
+                        break
+                    if accepted_for_provider >= provider.max_results:
+                        break
+                    if self._deadline is not None and time.monotonic() >= self._deadline:
+                        break
+                    normalized = self._normalize_provider_result(
+                        candidate, provider.name, variants[0], preferred
+                    )
+                    if normalized is None:
+                        continue
+                    collected.append(normalized)
+                    accepted_for_provider += 1
 
             if not collected:
                 reason = (
@@ -971,4 +1184,4 @@ class WebKnowledge:
 
 
 
-__all__ = ["WebKnowledge"]
+__all__ = ["WebKnowledge", "RetrievalProvider"]
