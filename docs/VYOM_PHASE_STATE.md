@@ -8,27 +8,25 @@ This is the **authoritative phase register** for continuing work across chats. R
 - Detailed implementation history: [VYOM_PHASE_CHECKPOINTS.md](VYOM_PHASE_CHECKPOINTS.md)
 - Roadmap: [VYOM_MIND_DEVELOPMENT_ROADMAP.md](VYOM_MIND_DEVELOPMENT_ROADMAP.md)
 
-## Last verified completed phase — M7.4
-- **M7.4 — Pin validated DNS results to the actual outbound socket**
-- Exact tested tree: `f417bebeecd902bbfe1111bbad623eaaaeceb4a0`
-- Exact-SHA CI: [run 39746025751](https://github.com/snchat78-svg/Vyom/actions/runs/39746025751) — **success**.
-- CI result: 364 tests passed, 28 subtests passed; syntax/import checks, clean build, Windows EXE verification and artifact upload passed.
-- Limitation: mocked socket/resolver tests do not establish every live network/TLS environment. M7 as a whole remains incomplete.
-
-## Current phase — IN PROGRESS
+## Last verified completed phase — M7.5
 - **M7.5 — Configurable and bounded retrieval providers**
-- Code: `ai_core/web_knowledge.py`; tests: `tests/test_web_knowledge.py`.
-- Initial implementation/test commit `d3bc1217228b841cd161787a9b08f1e6db0b4216` passed [exact-SHA CI run 39753077159](https://github.com/snchat78-svg/Vyom/actions/runs/39753077159): 372 tests and 28 subtests passed, Windows EXE verification and artifact upload passed. A direct provider-count regression, implementation docstrings, and the synchronized phase records were then added; verify the newest exact-SHA run before marking M7.5 complete.
-- Contract: `RetrievalProvider(name, retrieve, max_results=3)`; callback signature is `retrieve(client, query_variants, preferred_language)`. A callback returns one result mapping or a finite list/tuple of mappings. Valid output needs `success=True`, answer, evidence text, and a public HTTP(S) source URL.
-- Safe fetch helper: `client.fetch_text(url)`. Provider implementations should use this rather than opening sockets directly; it uses the shared public URL check, DNS-aware pinned transport, byte cap, timeouts, and total lookup deadline.
-- Bounds: at most 4 configured providers considered, at most 3 results accepted per provider, at most 6 results collected in one lookup, at most 6 fetches per provider / 12 aggregate fetches, excerpt at most 1,200 characters, source URL at most 2,048 characters, title at most 240, site at most 160, answer at most 2,400. Providers are invoked once per lookup; provider exceptions and malformed outputs are isolated, and duplicate normalized hosts are deduplicated.
-- Compatibility/safety: when `providers=None`, the default Wikipedia and DuckDuckGo paths remain enabled. An explicitly empty provider collection disables retrieval and yields `answer_status=unknown`; citations with unsafe URLs are rejected. The legacy singular `source` field remains available alongside `sources`.
-- Acceptance gate: focused provider tests and the complete exact-commit Actions workflow must pass, including Windows EXE build, verification and artifact upload. Do not mark complete until the final code/test/docs commit has green CI.
+- Exact tested tree: `90ae4ead63c586b8da98191d5266254736c5269d`
+- Exact-SHA CI: [run 39753595589](https://github.com/snchat78-svg/Vyom/actions/runs/39753595589) — **success**.
+- CI result: **373 tests passed, 28 subtests passed**; tracked-file/syntax/import checks, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload passed.
+- Provider API: `RetrievalProvider(name, retrieve, max_results=3)`, callback signature `retrieve(client, query_variants, preferred_language)`.
+- Bounds: at most 4 configured providers, 3 accepted results/provider, 6 results/lookup, 6 fetches/provider and 12 total, 1,200-character excerpt, 2,048-character source URL, 240-character title, 160-character site and 2,400-character answer.
+- Safety: provider outputs require a successful mapping, evidence, answer and a public HTTP(S) citation. Exceptions and malformed output do not stop later providers. Custom HTTP retrieval should use `client.fetch_text()` for the shared URL/DNS-pinned transport, timeout, body-size and lookup-deadline checks. Empty configured provider list, invalid outputs or no usable sources return `answer_status=unknown`; legacy `source` remains alongside `sources`.
+- Limitation: provider callbacks are trusted local Python integrations, not a sandbox for arbitrary code. Network bounds apply when they use `client.fetch_text()`; real external-network behavior still needs environment-level validation. M7 overall is not complete.
 
-## Next phases after M7.5
-1. **M7.6:** strengthen contradiction detection beyond numeric/date tokens without pretending lexical overlap proves truth.
-2. **M7.7:** evaluate source quality and test stale, low-quality, duplicate, or weakly attributed sources.
-3. Re-audit M7 before starting M8. M7 must not be marked complete until all remaining gates are tested.
+## Next phase — READY, NOT STARTED
+- **M7.6 — Broader semantic contradiction detection**
+- Improve conflict detection beyond numeric/date-like values while avoiding claims that lexical overlap proves truth.
+- Keep uncertain contradictions unresolved rather than guessing. Add deterministic tests for non-numeric opposing claims, paraphrased claims, unrelated sentences and compatible claims that use different wording.
+- Preserve source attribution and the existing `single_source`, `textually_aligned`, `potential_numeric_conflict`, and `divergent_unresolved` behaviors unless tests justify a documented schema change.
+
+## Remaining M7 work after M7.6
+1. **M7.7:** source-quality evaluation and tests for stale, low-quality, duplicate, weakly attributed or low-evidence sources.
+2. Re-audit the full M7 gate. Only start M8 after M7.6, M7.7 and the overall acceptance audit pass.
 
 ## Cross-chat continuation rules
 - This file and `docs/VYOM_PHASE_CHECKPOINTS.md` are the durable handoff. Update both whenever phase status changes; keep the roadmap consistent too.
@@ -39,5 +37,6 @@ This is the **authoritative phase register** for continuing work across chats. R
 - On a chat change, start here, verify GitHub's actual branch/run state, then resume only the recorded next phase.
 
 ## Change log
-- 2026-10-22: M7.3 DNS preflight passed exact-SHA CI on `72815257ca2f7deb89a82b86bee17c904536414a`; M7.4's connection-level DNS pinning passed on `f417bebeecd902bbfe1111bbad623eaaaeceb4a0` in [run 39746025751](https://github.com/snchat78-svg/Vyom/actions/runs/39746025751).
-- 2026-10-22: M7.5 provider implementation and its first test matrix passed on `d3bc1217228b841cd161787a9b08f1e6db0b4216` in [run 39753077159](https://github.com/snchat78-svg/Vyom/actions/runs/39753077159). M7.5 remains in progress pending latest full acceptance run.
+- 2026-10-22: M7.3 DNS preflight passed exact-SHA CI on `72815257ca2f7deb89a82b86bee17c904536414a`.
+- 2026-10-22: M7.4 DNS-pinned transport passed exact-SHA CI on `f417bebeecd902bbfe1111bbad623eaaaeceb4a0` in [run 39746025751](https://github.com/snchat78-svg/Vyom/actions/runs/39746025751).
+- 2026-10-22: M7.5 configurable/bounded retrieval providers passed exact-SHA CI on `90ae4ead63c586b8da98191d5266254736c5269d` in [run 39753595589](https://github.com/snchat78-svg/Vyom/actions/runs/39753595589): 373 tests and 28 subtests, Windows EXE verification/upload. Next phase: M7.6; M7 overall remains partial.
