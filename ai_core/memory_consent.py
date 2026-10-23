@@ -291,7 +291,8 @@ def handle_memory_command(
     """Handle explicit typed CLI commands; return None for normal Vyom commands."""
     normalized = " ".join(str(command or "").strip().lower().split())
     if not normalized.startswith((
-        "memory consent", "memory pending", "memory approve", "memory propose", "memory save"
+        "memory consent", "memory pending", "memory approve", "memory propose", "memory save",
+        "memory list", "memory inspect", "memory export", "memory delete"
     )):
         return None
 
@@ -353,6 +354,72 @@ def handle_memory_command(
             )
         return "Memory proposal rejected: " + str(proposed.get("reason") or "invalid_request") + "."
 
+
+    if normalized == "memory list":
+        if store is None:
+            return "Memory review unavailable: local storage has not been configured."
+        try:
+            records = store.review_records()
+        except Exception as exc:
+            return "Memory list unavailable: " + str(exc) + "."
+        if not records:
+            return "No saved memory records."
+        lines = ["Saved memory records (review only; not execution permissions):"]
+        for record in records[:256]:
+            value = record.get("value", {})
+            summary = "; ".join(f"{key}={value[key]}" for key in sorted(value))
+            lines.append(
+                f"- {record['memory_id']} | {record['memory_type']} | scope={record['scope']} | "
+                f"confidence={record['confidence']} | lifecycle={record['lifecycle']} | {summary}"
+            )
+        lines.append("Inspect one with 'memory inspect <memory-id>'.")
+        return "\n".join(lines)
+
+    inspect_match = re.match(r"(?is)^memory\s+inspect\s+([0-9a-f-]{36})$", raw_command)
+    if inspect_match:
+        if store is None:
+            return "Memory review unavailable: local storage has not been configured."
+        try:
+            records = store.review_records()
+        except Exception as exc:
+            return "Memory inspection unavailable: " + str(exc) + "."
+        record = next((item for item in records if item["memory_id"] == inspect_match.group(1)), None)
+        if record is None:
+            return "Memory record not found."
+        return (
+            f"Memory {record['memory_id']} | type={record['memory_type']} | scope={record['scope']}\n"
+            f"value={record['value']}\nprovenance={record['provenance']}\n"
+            f"confidence={record['confidence']} | lifecycle={record['lifecycle']}\n"
+            f"created={record['created_at']} | updated={record['updated_at']} | expires={record['expires_at']}"
+        )
+
+    export_match = re.match(r"(?is)^memory\s+export\s+(.+)$", raw_command)
+    if export_match:
+        if store is None:
+            return "Memory export unavailable: local storage has not been configured."
+        raw_path = export_match.group(1).strip()
+        if len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in {"'", '"'}:
+            raw_path = raw_path[1:-1]
+        result = store.export_to(raw_path)
+        if result.get("success"):
+            return f"Exported {result['exported_count']} approved records to {result['path']}."
+        return "Memory export failed: " + str(result.get("reason") or "export_failed") + "."
+
+    delete_match = re.match(r"(?is)^memory\s+delete\s+(.+)$", raw_command)
+    if delete_match:
+        if store is None:
+            return "Memory deletion unavailable: local storage has not been configured."
+        target = delete_match.group(1).strip().lower()
+        if target == "all":
+            result = store.delete_all()
+        elif re.fullmatch(r"[0-9a-f-]{36}", target):
+            result = store.delete_one(target)
+        else:
+            return "Use 'memory delete <memory-id>' or 'memory delete all'."
+        if result.get("success"):
+            return f"Memory deletion verified; deleted {result['deleted_count']} record(s)."
+        return "Memory deletion failed: " + str(result.get("reason") or "delete_failed") + "."
+
     if normalized == "memory pending":
         pending = manager.list_pending()
         if not pending:
@@ -389,7 +456,9 @@ def handle_memory_command(
 
     return (
         "Memory commands: 'memory consent status', 'memory consent on', 'memory consent off', "
-        "'memory pending', 'memory approve <candidate-id>', and 'memory save <candidate-id>'. "
+        "'memory pending', 'memory approve <candidate-id>', 'memory save <candidate-id>', "
+        "'memory list', 'memory inspect <memory-id>', 'memory export <absolute-path.json>', "
+        "'memory delete <memory-id>', and 'memory delete all'. "
         "Propose with 'memory propose correction <old> => <new>' or 'memory propose preference <key> => <value>'. "
         "Consent and approvals reset when Vyom exits."
     )
