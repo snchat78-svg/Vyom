@@ -52,12 +52,19 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Findings: `SessionMemory` and conversation history are bounded in-process context; `SkillRegistry` separately persists skill goal/plan JSON, while the recovery journal is already a minimal fail-closed marker that excludes action payloads.
 - Limits: this was an inventory/schema gate only. The proposed schema is not wired to runtime storage; no persistent personal memory or automatic learning was enabled. Runtime validation, user consent, deletion verification and OS-level privacy protections remain later acceptance work.
 
-## Current phase — IN PROGRESS
+## Last verified completed phase — M9.2
 - **M9.2 — Explicit opt-in and record-level approval**
-- Work in this commit adds `ai_core/memory_consent.py` plus typed CLI commands: `memory consent status/on/off`, `memory pending`, and `memory approve <candidate-id>`.
-- Consent defaults OFF; opting in is for the current process only. A candidate must be reviewed and separately approved, and `can_write` authorizes only an unchanged, active, unexpired approved record with matching scope.
-- Withdrawal clears pending candidates and approved session records. Restart returns to default OFF. No personal-memory records or consent choices are written to disk in M9.2; storage is a later phase.
-- M9.2 acceptance is pending full exact-SHA CI. If any test fails, fix M9.2 rather than starting M9.3.
+- Exact tested code/test commit: `2401889a7efa0248736e196961063db160f09a6c`
+- Exact-SHA full CI: [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967) — **success**.
+- CI result: **408 tests passed, 30 subtests passed**; Python syntax/core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` upload passed.
+- Behavior: typed CLI exposes session-only opt-in/withdrawal, pending review, separate per-record approval and fail-closed write authorization. Consent defaults OFF; withdrawal clears session approvals; restart resets consent.
+- Limits: M9.2 implemented consent and approval gates only. No long-term memory file was added in that phase; subsequent storage needs schema validation and lifecycle controls. SkillRegistry capability-goal persistence remains a separate retention boundary.
+
+## Next phase — READY, NOT STARTED
+- **M9.3 — Versioned local memory storage and provenance**
+- Add an atomic, bounded versioned store for approved records using the M9.1 schema; preserve provenance, confidence, scope, creation/update/expiry and per-record approval.
+- Reads and writes must require current global consent; writes additionally require a matching explicit per-record approval. Unknown schema versions, corruption, oversized files, tampered records and expired/wrong-scope entries fail closed.
+- Add exact-SHA tests for round-trip/reload, atomic write failure, schema validation, limits, consent-off blocking and expiry/scope handling. Do not start M9.4 until M9.3's exact-SHA CI passes.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -98,3 +105,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-23: M9.1 passed exact-SHA full CI on `9fa8f8bde39611079e4bce170e77a955d8794432` in [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509): 399 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.2 explicit opt-in and record-level approval is next.
 
 - 2026-10-23: M9.2 started after M9.1 passed exact-SHA run 39900778509. Consent is session-only and default-off; no persistent personal-memory write path is enabled.
+
+- 2026-10-23: M9.2 passed exact-SHA CI on `2401889a7efa0248736e196961063db160f09a6c` in [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967): 408 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.3 versioned local memory storage and provenance is next.
