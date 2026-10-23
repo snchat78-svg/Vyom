@@ -62,9 +62,10 @@ The JSON Schema file is a **design contract only** at M9.1; runtime code does no
 ## M9 phase order and acceptance
 
 - **M9.1 (completed):** inventory, source map, lifecycle/privacy matrix, proposed JSON schema, baseline tests and local-registry ignore guard; exact-SHA CI passed on `9fa8f8bde39611079e4bce170e77a955d8794432` in [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509).
-- **M9.2:** explicit user opt-in, record-level approval, withdrawal and default-off writes.
+- **M9.2 (completed):** explicit user opt-in, record-level approval, withdrawal and default-off writes passed exact-SHA [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967): 408 tests + 30 subtests.
+- **M9.3 (next):** validated versioned local storage, provenance, confidence, scope, expiry, atomic writes and fail-closed load.
 - **M9.3:** validated versioned storage, provenance, confidence, scope and expiry.
 - **M9.4:** inspect/review, export, deletion and expiry cleanup.
 - **M9.5:** safely integrate approved memories as hints only; prove no auto-enable/generated-code execution and pass combined exact-SHA audit.
 
-M9.1 completion criterion passed on code/test commit `9fa8f8bde39611079e4bce170e77a955d8794432` in exact-SHA [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509). This inventory does not claim that user-approved long-term memory has been implemented. **Next: M9.2 explicit opt-in and record-level approval.**
+M9.1 passed on `9fa8f8bde39611079e4bce170e77a955d8794432` in [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509), and M9.2 passed on `2401889a7efa0248736e196961063db160f09a6c` in [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967). The next phase is M9.3 versioned local memory storage; review/export/deletion is reserved for M9.4.
