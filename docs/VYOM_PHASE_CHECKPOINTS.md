@@ -26,13 +26,14 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M9.4 passed; M9.5 next
+## Current verified handoff — M9.5 passed; M10.1 in progress
 - Exact tested code/test commit: `eb9707498708f1e92bf5ebdf92f491642db95cdf`
 - Exact-SHA full CI: [run 39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080) — **success**, 427 tests + 30 subtests.
 - CI passed tracked Python syntax, critical/core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload.
 - M9.4 adds consent-gated saved-memory listing/inspection and JSON export, plus explicit delete-one/delete-all operations with durable verification.
 - Corrupt or unsupported stores fail closed. Export is limited to new absolute JSON paths, does not overwrite existing files, and excludes inactive/expired records.
-- **Next phase:** M9.5 — safe learning integration and M9 exit audit. No memory may grant capability permission or bypass confirmation.
+- **M9.5 status:** exact-SHA CI [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937) passed on `6f9a99e05555c8c25ac6bcb546934aa6f61d1afc`: 436 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload.
+- **Current phase:** M10.1 — representative benchmark corpus. The corpus is synthetic and contract-only; no benchmark score is claimed.
 
 | Phase/checkpoint | Existing implementation and evidence | Status before M0.3 | Remaining acceptance |
 |---|---|---|---|
@@ -49,8 +50,8 @@ This file is the hand-off record across conversations. The repository code and C
 | M6 execution/recovery | M6.1–M6.6 documented in roadmap; mission runtime, recovery tests and durable journal | Implemented automated guards; platform validation pending | Real delayed effects, restart, and side-effect validation |
 | M7 web/source answers | M7.1 public source boundary; M7.2 multi-source comparison; M7.3 DNS guard; M7.4 DNS-pinned transport; M7.5 bounded providers; M7.6 semantic conflict signals; M7.7 source-quality metadata and unknown-on-weak-evidence guard | M7.1 run 39720196175; M7.2 run 39730872062; M7.3 run 39741822185; M7.4 run 39746025751; M7.5 run 39753595589 (373 tests + 28 subtests); M7.6 run 39757311244 (380 tests + 28 subtests); M7.7 exact-SHA run 39785293786 (385 tests + 28 subtests); combined M7 audit passed exact-SHA run 39786556563 (387 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload) | M7 automated acceptance complete; M8 general reasoning/sourced-answer evaluation is next (not started) |
 | M8 general reasoning | `0253010a1df4837a926631a63ad27042ce1f0d87`; [exact-SHA CI run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) passed with 395 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload also passed | **Completed — automated gate passed** | Live external network/TLS and real Windows/microphone acceptance remain external; M9.1 is next |
-| M9 opt-in learning | M9.4 exact-SHA CI [39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080) passed on `eb9707498708f1e92bf5ebdf92f491642db95cdf`: 427 tests + 30 subtests; Windows EXE verified/uploaded | M9.1–M9.4 **completed** | M9.5 safe learning integration and M9 exit audit is next; then M10 release exit gate |
-| M10 release evaluation | CI suite exists; representative full benchmark and real-device evidence are incomplete | Ongoing/incomplete | Metrics thresholds and Windows integration evidence |
+| M9 opt-in learning | M9.5 exact-SHA CI [39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937) passed on `6f9a99e05555c8c25ac6bcb546934aa6f61d1afc`: 436 tests + 30 subtests; Windows EXE verified/uploaded | **M9.1–M9.5 completed** | M10.1 synthetic representative benchmark corpus is in progress; M10 release exit remains blocked until metrics and Windows acceptance gates pass |
+| M10 release evaluation | M10.1 in progress: synthetic versioned contract corpus, category coverage and deterministic oracle tests | **In progress — M10.1** | Pass corpus completeness/privacy tests on exact-SHA full CI; then M10.2 reproducible runner and baseline metrics |
 
 ## Current phase hand-off
 
@@ -112,3 +113,15 @@ This file is the hand-off record across conversations. The repository code and C
 - Add inspection and export for the current user's approved records, plus delete-one/delete-all and durable verification. Never report deletion success if filesystem validation fails.
 - Global opt-out must immediately block use; distinguish opt-out from deletion. All read/export paths must fail closed on a corrupt or unsupported store.
 - Record M9.4 results in this ledger and canonical phase state only after exact-SHA full CI passes.
+
+
+## M9.5 acceptance record — passed exact-SHA CI (2026-10-23)
+- `ai_core/memory_learning_policy.py` projects only allow-listed presentation preferences with enumerated values; arbitrary stored text, corrections and workflow summaries do not enter the reasoning hints.
+- `ai_core/autonomous_agent.py` adds the hints to compile/initial reasoning/replanning context without changing the user's goal. `ai_core/model_gateway.py` specifies advisory-only semantics; risk/confirmation and verification remain independent gates.
+- `tests/test_m9_5_memory_learning_safety.py` covers scope, expiry, revoked/unapproved records, conflicting values, spoofed contracts, store-read failure, goal preservation and risk confirmation.
+- Exact-SHA [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937) passed on `6f9a99e05555c8c25ac6bcb546934aa6f61d1afc`: 436 tests + 30 subtests; syntax/import, clean build and Windows EXE verification/upload succeeded.
+
+## M10.1 work-in-progress checkpoint (2026-10-23)
+- Corpus: `tests/fixtures/m10_1_vyom_benchmark_corpus.json` — synthetic, versioned, contract-only cases.
+- Protocol: `docs/VYOM_M10_BENCHMARK_PROTOCOL.md`; tests: `tests/test_m10_1_benchmark_corpus.py`.
+- Acceptance checks required category coverage and language variants; every fixture has an expected outcome, must-hold and must-not constraints. No actual performance result is inferred from corpus coverage.

@@ -239,7 +239,9 @@ jobs:
               "tests/test_phase3_verification.py",
               "tests/test_windows_ui_capability.py",
               "tests/test_local_qwen_provider.py",
-              "tests/test_m9_5_memory_learning_safety.py"
+              "tests/test_m9_5_memory_learning_safety.py",
+              "tests/test_m10_1_benchmark_corpus.py",
+              "tests/fixtures/m10_1_vyom_benchmark_corpus.json"
           )
 
           foreach ($file in $requiredFiles) {

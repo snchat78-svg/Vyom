@@ -69,11 +69,20 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Safety: review/export require current session consent; deletion remains available after opt-out. Export excludes expired/inactive records, validates the stored schema, rejects unsafe paths and never overwrites an existing destination. Corrupt/unsupported stores fail closed.
 - Limits: export uses a caller-selected filesystem path; the user remains responsible for protecting that destination. Consent still resets at process restart. Real Windows desktop interaction remains a separate manual check.
 
-## Next phase — READY, NOT STARTED
-- **M9.5 — Safe learning integration and exit audit**
-- Ensure accepted memory can only be a scoped hint to reasoning; it cannot authorize a capability, bypass clarification/confirmation, fabricate success or run generated code.
-- Audit consent, provenance, confidence, expiry, scope, export/deletion and opt-out behavior end-to-end. Add adversarial tests for stale/tampered records, command injection, consent withdrawal and memory-to-capability escalation.
-- M9.5 is the final M9 gate. Do not mark M9 or M10 release exit complete until exact-SHA full CI passes and all documented boundaries remain intact.
+## Last verified completed phase — M9.5
+- **M9.5 — Safe learning integration and M9 exit audit**
+- Exact tested code/test commit: `6f9a99e05555c8c25ac6bcb546934aa6f61d1afc`
+- Exact-SHA full CI: [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937) — **success**.
+- CI result: **436 tests passed, 30 subtests passed**; tracked Python syntax, core/voice imports, clean build, Windows EXE build/verification and artifact upload succeeded.
+- Behavior: only allow-listed presentation preferences (`response_language`, `response_style`, `verbosity`, `explanation_level`, `answer_format`) with enumerated values are projected into reasoning context. Arbitrary memory text, correction records, workflow summaries, expired/revoked/unapproved records and conflicting preferences are ignored.
+- Safety: global/application scope filters are conservative; the memory store must allow the current consent state. A store read failure supplies no hints. The current goal is passed unchanged; memory does not create capabilities, alter safety gates, bypass confirmation or assert execution success. Action-risk confirmation remains independently enforced.
+- Limitations: the hints are advisory metadata; deterministic local reasoning may ignore presentation preferences. The suite does not replace live Windows microphone/UI/network acceptance.
+
+## Current phase — IN PROGRESS
+- **M10.1 — Representative benchmark corpus**
+- Current deliverables: synthetic corpus `tests/fixtures/m10_1_vyom_benchmark_corpus.json`, coverage/contract tests `tests/test_m10_1_benchmark_corpus.py`, and protocol `docs/VYOM_M10_BENCHMARK_PROTOCOL.md`.
+- The corpus defines deterministic expected contracts for language variants, noisy STT, ambiguity, compound tasks, web-grounding, unknown/conflicting answers, provider outage, recovery, verification and memory safety. It is explicitly `contract_only_not_benchmarked`; no accuracy/latency metric is claimed yet.
+- M10.1 acceptance is pending exact-SHA full CI. Do not start M10.2 until fixture-coverage tests and the full Windows build workflow pass.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -122,3 +131,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-23: M9.3 passed exact-SHA full CI on `de32220023fca744089edcd0311a0d2234a4daae` in [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229): 419 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload. M9.4 review/export/deletion is next.
 
 - 2026-10-23: M9.4 passed exact-SHA CI on `eb9707498708f1e92bf5ebdf92f491642db95cdf` in [run 39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080): 427 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.5 safety integration and exit audit is next.
+
+- 2026-10-23: M9.5 passed exact-SHA CI on `6f9a99e05555c8c25ac6bcb546934aa6f61d1afc` in [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937): 436 tests + 30 subtests; Windows EXE verified/uploaded. M10.1 representative benchmark corpus is in progress.

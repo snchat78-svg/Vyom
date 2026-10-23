@@ -180,7 +180,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 **M8 gate:** passed. Do not restart M8 unless a new requirement or regression is recorded. **Next: M9.1 — Opt-in learning baseline and memory-schema inventory.**
 
 ## M9 — Personalization and safe learning
-**Status: M9.1–M9.4 completed on exact-SHA CI; M9.5 safe learning integration and exit audit is next. Consent remains default-off and session-only.**
+**Status: M9.1–M9.5 completed on exact-SHA CI. Consent remains default-off and session-only.**
 
 ### M9.1 — Baseline inventory and memory schema (COMPLETED)
 - Delivered the memory/persistence inventory, design-only schema and deterministic baseline tests.
@@ -202,14 +202,19 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 - Review/export require current consent; deletion remains available after opt-out. Export writes only to a new absolute JSON path, excludes expired/inactive records, refuses overwrites and verifies the output. Deletion verifies durable file state; corrupt stores fail closed.
 - **Gate passed:** exact-SHA [run 39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080) on `eb9707498708f1e92bf5ebdf92f491642db95cdf`: 427 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload all passed.
 
-### M9.5 — Safe learning integration and exit audit (NEXT; not started)
-- Approved memory remains a scoped hint; it cannot authorize capabilities, bypass clarification/confirmation, fabricate execution success or run generated code.
-- **M9 gate:** consent, provenance, confidence, expiry, export/deletion and safety acceptance pass exact-SHA CI before M10 final release exit-gate.
+### M9.5 — Safe learning integration and exit audit (COMPLETED)
+- Only allow-listed presentation preferences and enumerated values are exposed as advisory reasoning-context hints. Correction records, workflow summaries and arbitrary or conflicting values are not injected.
+- Read failures supply no hints; current consent, active lifecycle, approval, scope, confidence, provenance and expiry checks are retained. Memory cannot authorize a capability, change the current goal, bypass confirmation or fabricate success.
+- **M9 gate passed:** exact-SHA [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937) on `6f9a99e05555c8c25ac6bcb546934aa6f61d1afc`: 436 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload.
+- **Limit:** real Windows desktop/audio and live network acceptance remains under M10.4; memory hints are advisory and may not affect the deterministic local path.
 
 ## M10 — Release evaluation (cross-cutting; final gate remains after M9)
-### M10.1 — Representative benchmark corpus
-- Maintain Hindi, Roman Hindi, Hinglish, English, noisy STT, ambiguity, compound-task, web-grounding, sourced/unknown, provider-outage and recovery scenarios with deterministic expected outcomes.
-- Keep generated/private user content out of committed fixtures unless deliberately synthetic and approved.
+### M10.1 — Representative benchmark corpus (IN PROGRESS)
+- **Current deliverables:** `tests/fixtures/m10_1_vyom_benchmark_corpus.json`, `tests/test_m10_1_benchmark_corpus.py`, and `docs/VYOM_M10_BENCHMARK_PROTOCOL.md`.
+- 15 synthetic contract-only scenarios cover English, Hindi, Roman Hindi, Hinglish, noisy STT, ambiguity, compound-task dependencies, web-grounded/sourced-or-unknown outcomes, conflicting sources, provider outage, uncertain recovery, post-action verification and memory-safety boundaries.
+- Each case declares preconditions, expected outcome, required invariants and prohibited outcomes. The first gate validates corpus quality and privacy; it does not claim measured accuracy.
+- Keep private transcripts, credentials, actual clipboard payloads and user files out of committed fixtures.
+- **Gate pending:** all required categories, languages, unique IDs and contract structure pass exact-SHA full CI and the Windows EXE workflow. Only then start M10.2.
 
 ### M10.2 — Metrics and baseline
 - Measure intent accuracy, unsafe-guess rate, action-verification rate, task completion, recovery rate, latency and epistemic-status correctness.
@@ -234,8 +239,8 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 7. M6 execute/verify/recover.
 8. M7.1–M7.7 source retrieval/evidence quality and combined audit — completed.
 9. M8 general reasoning/sourced-answer evaluation — automated gate completed on exact-SHA run 39899815866.
-10. M9.1 inventory/schema/privacy gate **completed** on exact-SHA run 39900778509. **M9.2 explicit opt-in and record-level approval is in progress**; then M9.3 storage/provenance, M9.4 lifecycle, M9.5 safety exit audit. Do not skip ahead.
-11. M10.1–M10.4 run as the benchmark/release track; final release gate waits for M9 and real Windows acceptance.
+10. M9.1–M9.5 safe-learning gates **completed**; M9.5 passed exact-SHA [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937).
+11. **M10.1 is in progress**: synthetic representative benchmark corpus. Then M10.2 reproducible runner/baseline, M10.3 CI regression thresholds and M10.4 real Windows integration/release exit. Do not skip or report measured accuracy before M10.2.
 
 At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head and latest applicable CI, then work only on the first incomplete item above. Do not skip, restart or mark a phase complete based only on a commit.
 
