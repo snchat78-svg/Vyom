@@ -60,13 +60,21 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Behavior: typed CLI exposes session-only opt-in/withdrawal, pending review, separate per-record approval and fail-closed write authorization. Consent defaults OFF; withdrawal clears session approvals; restart resets consent.
 - Limits: M9.2 implemented consent and approval gates only. No long-term memory file was added in that phase; subsequent storage needs schema validation and lifecycle controls. SkillRegistry capability-goal persistence remains a separate retention boundary.
 
-## Current phase — IN PROGRESS
+## Last verified completed phase — M9.3
 - **M9.3 — Versioned local memory storage and provenance**
-- Implementation: `ai_core/user_memory_store.py`; updates to `ai_core/memory_consent.py` and `ai_core/main.py`; tests in `tests/test_m9_3_user_memory_store.py`.
-- Store contract: per-user local path, strict schema-v1 record/envelope validation, at most 256 records and 1 MB, atomic temp-write + flush/fsync + replace, and no repository-relative storage default.
-- Typed flow: `memory consent on` → `memory propose correction <old> => <new>` / `memory propose preference <key> => <value>` → `memory pending` → `memory approve <candidate-id>` → `memory save <candidate-id>`. No automatic learning from speech transcripts is wired.
-- Reads are blocked while consent is OFF. Saves require the unchanged, session-approved record and valid schema, provenance, scope, confidence and expiry. Corrupt, oversized and unsupported-version files fail closed and are not overwritten.
-- M9.3 is not complete until exact-SHA full CI and Windows EXE verification/upload pass. Fix failures in this phase; do not start M9.4 early.
+- Exact tested code/test commit: `e9dde6a8629cdb6e7641c95ad44448e34bcffabb`
+- Exact-SHA full workflow on the complete M9.3 tree: [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229) — **success** on `de32220023fca744089edcd0311a0d2234a4daae`.
+- CI result: **419 tests passed, 30 subtests passed**; tracked Python syntax, core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload all passed.
+- Behavior: bounded schema-v1 user-local store, strict schema and provenance validation, 256-record/1 MB limits, atomic temporary write/flush/fsync/replace, fail-closed corrupted/oversized/unsupported store behavior, explicit typed proposal/review/approve/save flow, and consent-gated reads/writes.
+- Safety boundary: consent remains process-local/default-off. Existing saved records stay on disk after opt-out but cannot be read/used unless user opts in again; deleting persistent data is a separate explicit M9.4 operation. No automatic voice-transcript learning is connected.
+- Limits: these tests validate deterministic local storage semantics, not filesystem confidentiality against other local users or malware. Windows ACLs remain the OS access boundary; export/deletion/review UI is not part of M9.3.
+
+## Next phase — READY, NOT STARTED
+- **M9.4 — Memory review, export and deletion**
+- Add explicit typed commands or UI to inspect saved records, export user-owned records to a user-selected path, delete one/all records and verify the durable file was updated or removed.
+- Opt-out must block reads immediately but must not falsely claim existing files were deleted. Export/deletion failures must be reported honestly; invalid/corrupt stores must never be silently overwritten.
+- Tests must cover consent gates, no secret/raw-transcript export, path safety, export integrity, single/all deletion, corrupted store handling, expiry and post-deletion reload.
+- M9.4 is the only next phase; do not start M9.5 or the M10 final release gate until exact-SHA CI passes.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -111,3 +119,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-23: M9.2 passed exact-SHA CI on `2401889a7efa0248736e196961063db160f09a6c` in [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967): 408 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.3 versioned local memory storage and provenance is next.
 
 - 2026-10-23: M9.3 implementation is committed at `e9dde6a8629cdb6e7641c95ad44448e34bcffabb`; [run 39905813305](https://github.com/snchat78-svg/Vyom/actions/runs/39905813305) is the initial exact-SHA run for this tree. Phase completion is pending its final full CI result.
+
+- 2026-10-23: M9.3 passed exact-SHA full CI on `de32220023fca744089edcd0311a0d2234a4daae` in [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229): 419 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload. M9.4 review/export/deletion is next.

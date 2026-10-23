@@ -63,7 +63,7 @@ The JSON Schema file is a **design contract only** at M9.1; runtime code does no
 
 - **M9.1 (completed):** inventory, source map, lifecycle/privacy matrix, proposed JSON schema, baseline tests and local-registry ignore guard; exact-SHA CI passed on `9fa8f8bde39611079e4bce170e77a955d8794432` in [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509).
 - **M9.2 (completed):** explicit user opt-in, record-level approval, withdrawal and default-off writes passed exact-SHA [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967): 408 tests + 30 subtests.
-- **M9.3 (in progress):** validated versioned local storage, provenance, confidence, scope, expiry, atomic writes and fail-closed load.
+- **M9.3 (completed):** validated versioned local storage, provenance, confidence, scope, expiry, atomic writes and fail-closed load.
 - **M9.3:** validated versioned storage, provenance, confidence, scope and expiry.
 - **M9.4:** inspect/review, export, deletion and expiry cleanup.
 - **M9.5:** safely integrate approved memories as hints only; prove no auto-enable/generated-code execution and pass combined exact-SHA audit.
@@ -74,3 +74,8 @@ M9.1 passed on `9fa8f8bde39611079e4bce170e77a955d8794432` in [run 39900778509](h
 ## M9.3 implementation checkpoint
 - New store: `ai_core/user_memory_store.py`; user-facing explicit proposal/review/approve/save commands are wired through the typed CLI. No automatic transcript learning is connected.
 - New tests: `tests/test_m9_3_user_memory_store.py`. Exact-SHA CI for code/test tree `e9dde6a8629cdb6e7641c95ad44448e34bcffabb` is pending; this phase must remain in progress until the full workflow passes.
+
+
+## M9.3 acceptance
+- Exact-SHA full CI passed on `de32220023fca744089edcd0311a0d2234a4daae` in [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229): 419 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload.
+- **Next: M9.4 — memory review, export and deletion.** Consent off is not deletion; later work must add explicit deletion controls and verify durable changes.

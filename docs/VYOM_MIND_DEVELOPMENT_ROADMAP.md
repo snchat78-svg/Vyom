@@ -180,29 +180,30 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 **M8 gate:** passed. Do not restart M8 unless a new requirement or regression is recorded. **Next: M9.1 — Opt-in learning baseline and memory-schema inventory.**
 
 ## M9 — Personalization and safe learning
-**Status: M9.1 and M9.2 passed exact-SHA CI; M9.3 local versioned memory storage and provenance is in progress. Consent remains default-off and session-only.**
+**Status: M9.1–M9.3 completed on exact-SHA CI; M9.4 review/export/deletion is next. Consent remains default-off and session-only.**
 
 ### M9.1 — Baseline inventory and memory schema (COMPLETED)
-- Delivered `docs/VYOM_M9_MEMORY_INVENTORY.md`, design-only schema `docs/schemas/vyom_user_memory.v1.schema.json` and baseline tests.
-- **Gate passed:** [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509), 399 tests + 30 subtests; syntax/import, clean build and EXE verification/upload passed.
+- Delivered the memory/persistence inventory, design-only schema and deterministic baseline tests.
+- **Gate passed:** [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509): 399 tests + 30 subtests; syntax/import, clean build and EXE verification/upload passed.
 
 ### M9.2 — Explicit opt-in and approval (COMPLETED)
-- Typed CLI supports session-only `memory consent status/on/off`, pending review and explicit per-record approval. Consent defaults OFF; withdrawal clears in-process candidates/approvals.
-- **Gate passed:** [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967), 408 tests + 30 subtests; syntax/import, clean build and EXE verification/upload passed.
+- Typed-text CLI supports session-only `memory consent status/on/off`, pending review and separate per-record approval. Consent defaults OFF.
+- **Gate passed:** [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967): 408 tests + 30 subtests, syntax/import, clean build and EXE verification/upload passed.
 
-### M9.3 — Versioned storage and provenance (IN PROGRESS)
-- `ai_core/user_memory_store.py` provides a local per-user schema-v1 JSON envelope, strict record validation, a 256-record/1 MB bound, atomic temp-write/fsync/replace and fail-closed handling of corrupt, oversized or unsupported stores.
-- Explicit typed flow: opt in → propose correction/preference → inspect pending candidate → approve that candidate → explicitly save. Raw voice transcripts are never learned automatically.
-- Read/use requires current consent and active, unexpired, approved records. Saving requires consent plus the unchanged in-process approved record. Storage failure is reported and rolls back the in-memory addition.
-- **Gate pending:** exact-SHA CI for round trip/reload, provenance/confidence/scope/expiry, corrupted/unsupported/oversized-store rejection, consent-off blocking, structural tamper rejection and atomic-write rollback. Do not start M9.4 until green.
+### M9.3 — Versioned storage and provenance (COMPLETED)
+- `ai_core/user_memory_store.py` provides a per-user schema-v1 JSON envelope, strict record validation, 256-record/1 MB caps, atomic temp-write/fsync/replace and fail-closed behavior for corrupt, oversized or unsupported stores.
+- Explicit typed flow: opt in → propose correction/preference → inspect pending candidate → approve that candidate → explicitly save. No automatic voice-transcript learning is connected.
+- Reads require current consent and active, unexpired, approved records; saves require current consent and the unchanged in-process approved record.
+- **Gate passed:** exact-SHA [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229) on `de32220023fca744089edcd0311a0d2234a4daae`: **419 tests + 30 subtests**, Python syntax/core/voice imports, clean build, Windows EXE verification and artifact upload.
+- **Boundary:** opt-out blocks use but does not erase saved records. The current CLI does not yet provide record inspection/export/deletion.
 
-### M9.4 — Review, export and deletion (NEXT AFTER M9.3)
-- Implement inspection, export of user-owned records, deletion of one/all records, and verification that durable files really changed or disappeared.
-- Opt-out immediately blocks use; deletion remains a separate explicit action. Expired/revoked records cannot be used.
-- **Gate:** review/export/delete/expiry/withdrawal tests validate durable state and retrieval behavior.
+### M9.4 — Review, export and deletion (NEXT; not started)
+- Implement list/inspect for user-approved records, export to a user-selected safe path, delete one/all records and verify the durable state changed or disappeared.
+- Opt-out blocks use immediately but remains distinct from deletion. Export must exclude credentials, raw transcripts, arbitrary webpage text and runnable execution plans. Report failures honestly and never claim data was deleted when it was not.
+- **Gate:** tests cover read/export consent, path safety, export integrity, no sensitive-field leakage, delete-one/delete-all, corruption handling, expiry and reload-after-deletion.
 
 ### M9.5 — Safe learning integration and exit audit
-- Approved memory is only a scoped hint; it cannot authorize capabilities, bypass clarification/confirmation, fabricate execution success, or run generated code.
+- Approved memory remains a scoped hint; it cannot authorize capabilities, bypass clarification/confirmation, fabricate execution success or run generated code.
 - **M9 gate:** consent, provenance, confidence, expiry, export/deletion and safety acceptance pass exact-SHA CI before M10 final release exit-gate.
 
 ## M10 — Release evaluation (cross-cutting; final gate remains after M9)
