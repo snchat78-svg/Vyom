@@ -167,29 +167,80 @@ This roadmap is incremental. Each phase ships tests and an explicit acceptance g
 **M7.7 progress — source-quality evaluation; automated gate passed:** The source-normalization contract preserves explicit publication dates, authors and publishers. Per-source scoring covers freshness (unknown dates stay unknown), excerpt sufficiency/boilerplate, attribution, specificity and duplicate/repost signals within the current retrieved set. Scores do not use raw source count or textual alignment as truth points; they are metadata quality signals, not probabilities of truth or proof of publisher independence. Weak/very-short primary evidence returns `answer_status=unknown` while retaining citations; numeric/semantic conflict outcomes retain precedence. Deterministic tests cover fresh/stale/unknown dates, duplicate/repost detection, unrelated-source count neutrality, weak-excerpt unknown handling and date preservation. Exact-SHA CI passed on `98d7855c83b35cc37dadc01c4245c3803219394f` in [run 39785293786](https://github.com/snchat78-svg/Vyom/actions/runs/39785293786): 385 tests and 28 subtests passed; syntax/import checks, clean build, Windows EXE verification and artifact upload passed. **Next:** combined M7 audit; do not start M8 until that gate passes.
 
 ## M8 — General conversation and reasoning
+**Status: COMPLETED — automated acceptance gate passed on 2026-10-23.**
 
-- Support a configurable local/remote model provider for open-domain paraphrases and multi-step reasoning when available.
-- Keep deterministic local handling for common safe operations, with a model-independent structured-goal interface.
-- If all reasoning providers are unavailable, say so clearly and use only verified local or retrieved knowledge.
-- **Gate:** provider outages do not break basic desktop commands or the voice loop; responses distinguish known, sourced, inferred and unknown information.
+Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitHub Actions run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) passed **395 tests and 30 subtests**, Python syntax checks, core/voice imports, clean build, Windows EXE build/verification, and `Vyom_EXE` artifact upload.
+
+- Existing configurable reasoning providers and local/remote gateway stay behind the model-independent execution/result contracts; model output remains data and does not directly execute generated code.
+- M8 hardens response epistemics: `conflicting_sources` remains unresolved even if an adapter incorrectly sets `success=True`; `unknown`/weak evidence cannot be promoted by answer text; source URLs remain visible; inferred results are explicitly labelled as inference; a provider's `known` label is explicitly not described as independent verification.
+- Existing provider-fallback tests cover Gemini rate-limit fallback to Local Qwen, provider cooldown, invalid gateway output and offline behavior. New `tests/test_m8_reasoning_evaluation.py` covers Hindi/English conflict handling, status precedence, citations, sourced/inferred/known/unknown outcomes, provider exceptions and deterministic fallback.
+- Common safe desktop command paths remain deterministic; the response model stays opt-in. A failed conversational reasoning provider does not imply a desktop action failed or succeeded.
+- Limitations: a provider-supplied status is metadata, not proof; heuristic source quality/conflict detection remains bounded; external network/TLS and the user's actual Windows desktop/microphone were not exercised by GitHub CI.
+
+**M8 gate:** passed. Do not restart M8 unless a new requirement or regression is recorded. **Next: M9.1 — Opt-in learning baseline and memory-schema inventory.**
 
 ## M9 — Personalization and safe learning
+**Status: planned; M9.1 is the next incomplete phase. Persistent learning remains opt-in and disabled by default.**
 
-- Store opt-in, user-approved corrections, preferences and previously verified workflows in versioned local memory.
-- Provide provenance, confidence, expiry, export and deletion.
-- Generate capability specifications only; validate and test them in isolation, and require explicit approval before enabling new capabilities.
-- **Gate:** no automatic global grammar changes from one noisy transcript; no arbitrary generated code is executed.
+### M9.1 — Baseline inventory and memory schema (NEXT; not started)
+- Inspect `memory/session_memory.py`, existing skill/memory modules, current session context, existing disk persistence and tests before changing code.
+- Map transient execution/session state separately from long-lived user-approved memory. Reuse existing storage where safe; do not create parallel memory stores without evidence they are needed.
+- Specify a minimal versioned record schema for correction/preference/verified workflow data: explicit user consent, provenance, scope, confidence, created/updated times, expiry, and schema version.
+- Define sensitive-data exclusions and lifecycle behavior; raw transcripts, credentials and unrelated desktop content must not become persistent memory by default.
+- **M9.1 gate:** inventory + source-to-requirement map + data lifecycle/privacy matrix committed; tests/checks document schema and safety boundaries. Only then start M9.2.
 
-## M10 — Release evaluation
+### M9.2 — Explicit opt-in and approval
+- Add a user-visible opt-in/on-off setting and consent checks at every write path.
+- Distinguish a one-time command correction from permission to retain that correction. No persistent update from a single noisy transcript without approval.
+- **Gate:** default-off writes, consent withdrawal, invalid/no consent rejection and scoped correction tests pass.
 
-- Maintain a representative Hindi, Roman Hindi, Hinglish, English, accents, STT-noise, ambiguity, compound-task, web-grounding and failure-recovery benchmark.
-- Track intent accuracy, unsafe-guess rate, action verification rate, task completion rate, recovery rate and latency.
-- Release only when acceptance thresholds pass on CI and representative Windows hardware.
-- **Gate:** CI is green and Windows integration scenarios have evidence; passing unit tests alone is not proof that every app works.
+### M9.3 — Versioned storage and provenance
+- Implement approved records using existing storage components where feasible; enforce bounds, schema validation and migration safety.
+- Preserve provenance, user scope, confidence and expiry. Memory may propose a correction; it must not silently rewrite global grammar or override runtime discovery.
+- **Gate:** reload/version migration/expiry/invalid-record tests pass and data stays within configured caps.
 
-## Development order
+### M9.4 — Review, export and deletion
+- Provide a way to inspect learned items, export user-owned data, delete individual/all items, and confirm deletion.
+- Expiry and opt-out must prevent stale/withdrawn items being used in later turns.
+- **Gate:** export/delete/expiry/withdrawal tests verify stored data and retrieval behavior.
 
-M1 -> M2 -> M3 -> M4 -> M5 -> M6. M7 and M8 are integrated with the shared goal/result contracts. M9 remains opt-in and gated. M10 runs throughout the roadmap.
+### M9.5 — Safe learning integration and exit audit
+- Use accepted memory only as a scoped hint to reasoning; never as permission to execute a capability or irreversible action.
+- Generate capability specifications only. Validate and test them in isolation; explicit approval is required before enabling new capabilities. No generated code executes.
+- **M9 gate:** consent, provenance, confidence, expiry, export/deletion and safety acceptance all pass on exact-SHA CI. Only then may M10 final release exit-gate progress be considered complete.
+
+## M10 — Release evaluation (cross-cutting; final gate remains after M9)
+### M10.1 — Representative benchmark corpus
+- Maintain Hindi, Roman Hindi, Hinglish, English, noisy STT, ambiguity, compound-task, web-grounding, sourced/unknown, provider-outage and recovery scenarios with deterministic expected outcomes.
+- Keep generated/private user content out of committed fixtures unless deliberately synthetic and approved.
+
+### M10.2 — Metrics and baseline
+- Measure intent accuracy, unsafe-guess rate, action-verification rate, task completion, recovery rate, latency and epistemic-status correctness.
+- Record baseline results and define denominators; do not claim accuracy without a reproducible corpus.
+
+### M10.3 — CI regression thresholds
+- Run deterministic benchmark slices in CI, report regressions and block release if safety-critical thresholds fail.
+- Keep flaky live-network tests separate from deterministic CI; network failure must not cause invented answers.
+
+### M10.4 — Real Windows integration and release exit gate
+- Test supported Windows environment, screen/UI grounding, microphone/STT/TTS, provider outages, multi-step commands and verified postconditions.
+- Record device/OS/test evidence and limitations. GitHub EXE compilation alone is not device acceptance.
+- **M10 gate:** benchmark thresholds pass on CI and representative Windows integration evidence exists. Release only after M9 safety gate and M10.1–M10.4 acceptance.
+
+## Ordered development sequence and anti-skip rule
+1. M0 baseline/trace and shared text/voice path.
+2. M1 noisy speech recovery.
+3. M2 meaning/intent and safe clarification.
+4. M3 complex planning.
+5. M4 live world state.
+6. M5 action grounding.
+7. M6 execute/verify/recover.
+8. M7.1–M7.7 source retrieval/evidence quality and combined audit — completed.
+9. M8 general reasoning/sourced-answer evaluation — automated gate completed on exact-SHA run 39899815866.
+10. **M9.1** inventory/schema is next; then M9.2 consent, M9.3 storage/provenance, M9.4 lifecycle, M9.5 safety exit audit.
+11. M10.1–M10.4 run as the benchmark/release track; final release gate waits for M9 and real Windows acceptance.
+
+At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head and latest applicable CI, then work only on the first incomplete item above. Do not skip, restart or mark a phase complete based only on a commit.
 
 ## Explicit limitation
 

@@ -10,7 +10,16 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Reusable cross-project policy: [PHASE_CONTINUITY_STANDARD.md](PHASE_CONTINUITY_STANDARD.md)
 - Cross-project navigation index: [CROSS_PROJECT_PHASE_INDEX.md](CROSS_PROJECT_PHASE_INDEX.md)
 
-## Last verified completed phase — M7.7
+## Last verified completed phase — M8
+- **M8 — General reasoning / sourced-answer evaluation**
+- Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`
+- Exact-SHA GitHub Actions: [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) — **success**.
+- CI result: **395 tests passed, 30 subtests passed**; Python syntax, core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload all passed.
+- Behavior: response handling now treats `answer_status` as authoritative over an inconsistent provider `success` flag. `conflicting_sources` remains unresolved; `unknown` and weak evidence do not promote answer text into a fact; source URLs are retained for sourced, inferred, weak, and conflicting results; inferred output is explicitly labelled as inference; provider-reported `known` status is not described as independent verification.
+- Regression matrix: Hindi/English conflict responses; deliberately inconsistent success+conflict and success+unknown payloads; weak evidence; citation retention; sourced excerpt; inferred answer; provider outage; deterministic conversational fallback. Existing gateway/Local Qwen tests continue to cover Gemini 429 fallback and offline/configuration cases.
+- Limitations: provider status/evidence metadata is not independent proof. Source quality and conflict detection remain bounded heuristics. GitHub CI does not prove live network/TLS quality or actual user-machine microphone/desktop acceptance.
+
+## Previous verified phase — M7.7
 - **M7.7 — Source-quality evaluation**
 - Exact tested code/test commit: `98d7855c83b35cc37dadc01c4245c3803219394f`
 - Exact-SHA CI: [run 39785293786](https://github.com/snchat78-svg/Vyom/actions/runs/39785293786) — **success**.
@@ -25,7 +34,7 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Exact-SHA CI: [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244) — **success**, 380 tests and 28 subtests.
 - Bounded, context-gated polarity/opposition rules identify selected non-numeric contradictions; claims remain unresolved. Implicit, low-overlap, unlisted-antonym and nuanced multilingual contradictions may remain unresolved.
 
-## Last verified completed phase — M7 Audit
+## Previous verified phase — M7 Audit
 - **M7.1–M7.7 combined source-grounded answers acceptance audit**
 - Exact tested code/test commit: `59b8880d0c63d359c681615a77e53ee5c917d255`
 - Exact-SHA CI: [run 39786556563](https://github.com/snchat78-svg/Vyom/actions/runs/39786556563) — **success**.
@@ -35,11 +44,11 @@ This is the authoritative phase register for continuing work across chats. Read 
 - M7 automated acceptance is complete. Limitations: source quality is a bounded heuristic, duplicate checks cover only excerpts retrieved in the current lookup, publisher independence is not verified, and GitHub CI does not prove live external-network/TLS reliability or real interaction with the user's Windows desktop/microphone.
 
 ## Next phase — READY, NOT STARTED
-- **M8 — General reasoning / sourced-answer evaluation**
-- Start from `docs/VYOM_MIND_DEVELOPMENT_ROADMAP.md`; inspect the current reasoning/provider path before changing it.
-- Build a deterministic evaluation matrix for provider outages/fallbacks, sourced versus unknown answers, uncertain intent/evidence, and how claims from M7 are kept qualified. Reuse the existing M7 source/evidence contract rather than duplicating retrieval, DNS guards, source scoring or contradiction logic.
-- Preserve explicit citations and unresolved status when evidence is weak or conflicting. Never turn heuristic quality metadata into a probability that a claim is true.
-- Mark M8 complete only after its own tests and exact-SHA full CI pass.
+- **M9.1 — Opt-in learning baseline and memory-schema inventory**
+- First inspect current `memory/session_memory.py`, skill/memory modules, existing persistence and current opt-in behavior. Reuse working components; do not duplicate M4/M5/M6 execution context or M8 reasoning/provider work.
+- Document what is transient session context versus persistent user-approved memory. Define the data schema and threat/privacy model only; do not silently turn on persistent learning or capture raw transcripts by default.
+- Acceptance for M9.1: repository inventory, source-to-requirement map, data-lifecycle matrix, and deterministic tests/planned gates documented. Then M9.2 may implement explicit opt-in/consent.
+- Complete M9.1 only after its own tests and exact-SHA full CI pass. Do not skip to M9.2 or M10 release exit-gate.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -51,10 +60,11 @@ This is the authoritative phase register for continuing work across chats. Read 
 7. M7.7 source-quality metadata and unknown-on-weak-evidence guard.
 8. Combined M7 audit: conflict precedence survives weak metadata, and same excerpts on separate hostnames do not establish independence. Full exact-SHA CI passed.
 
-## Remaining M7 gate
-1. **Overall M7 audit:** combined M7.1–M7.7 acceptance review and exact-SHA CI.
-2. Start M8 only after the overall M7 gate passes; do not skip ahead.
- 
+## M7 gate — completed
+- M7.1–M7.7 combined source-grounded acceptance and the M7 audit passed on exact-SHA [run 39786556563](https://github.com/snchat78-svg/Vyom/actions/runs/39786556563), with 387 tests and 30 subtests, syntax/import checks, clean build, Windows EXE verification and artifact upload.
+- M8 then passed its own full exact-SHA CI on [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866), with 395 tests and 30 subtests, syntax/import checks, clean build, Windows EXE verification and artifact upload.
+- Current status: M8 complete; M9.1 is the only next phase. M10 is a cross-cutting evaluation track and its final release gate remains blocked until the roadmap's benchmark and real Windows acceptance requirements have evidence.
+
 ## Cross-chat and cross-project continuity rules
 - This file, the checkpoint and roadmap are durable handoff records. Update them whenever a phase changes status.
 - Before work in any repository, read that repository's canonical phase-state file, verify branch/head/latest CI, then choose only the next incomplete phase.
@@ -71,3 +81,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-22: M7.6 semantic contradiction signals passed on `6d5101f10a2c35d2f2bf2699d2960db861f6dfd9` in [run 39757311244](https://github.com/snchat78-svg/Vyom/actions/runs/39757311244): 380 tests and 28 subtests, Windows EXE verification/upload.
 - 2026-10-22: M7.7 passed exact-SHA CI on `98d7855c83b35cc37dadc01c4245c3803219394f` in [run 39785293786](https://github.com/snchat78-svg/Vyom/actions/runs/39785293786): 385 tests + 28 subtests, Windows EXE verified/uploaded. Source-quality scoring remains metadata-only, not a probability of truth.
 - 2026-10-22: M7 combined acceptance audit passed on `59b8880d0c63d359c681615a77e53ee5c917d255` in [run 39786556563](https://github.com/snchat78-svg/Vyom/actions/runs/39786556563): 387 tests + 30 subtests; syntax/import, clean build, Windows EXE verification and artifact upload passed. Conflicting claims remain unresolved when metadata is weak; duplicate cross-host excerpts do not establish independence. M7 automated acceptance complete; M8 is next and not started.
+
+- 2026-10-23: M8 passed exact-SHA CI on `0253010a1df4837a926631a63ad27042ce1f0d87` in [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866): 395 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification and `Vyom_EXE` upload. M9.1 opt-in learning baseline and memory-schema inventory is next.
