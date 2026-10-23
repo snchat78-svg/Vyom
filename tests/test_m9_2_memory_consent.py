@@ -92,7 +92,7 @@ def test_m9_2_withdrawal_clears_approvals_and_future_writes():
     assert manager.can_write(record) is True
 
     withdrawal = handle_memory_command("memory consent off", manager)
-    assert "Consent is OFF" in withdrawal
+    assert "Personal-memory consent is OFF" in withdrawal
     assert manager.status()["enabled"] is False
     assert manager.status()["pending_count"] == 0
     assert manager.status()["approved_count"] == 0
