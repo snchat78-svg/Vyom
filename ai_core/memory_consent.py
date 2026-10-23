@@ -92,7 +92,7 @@ class MemoryConsentManager:
             "enabled": self._enabled,
             "mode": "session_only",
             "consent_version": CONSENT_VERSION,
-            "persistent_memory_storage": "not_implemented",
+            "persistent_memory_storage": "local_versioned_storage_available_after_approval",
             "pending_count": len(self._pending),
             "approved_count": len(self._approved),
         }
@@ -275,11 +275,24 @@ class MemoryConsentManager:
 
     authorize_write = can_write
 
+    def get_approved_record(self, candidate_id: str) -> Optional[Dict[str, Any]]:
+        """Return a defensive copy only while current process consent is enabled."""
+        if not self._enabled or not isinstance(candidate_id, str):
+            return None
+        record = self._approved.get(candidate_id)
+        return deepcopy(record) if isinstance(record, dict) else None
 
-def handle_memory_command(command: str, manager: MemoryConsentManager) -> Optional[str]:
+
+def handle_memory_command(
+    command: str,
+    manager: MemoryConsentManager,
+    store: Optional[Any] = None,
+) -> Optional[str]:
     """Handle explicit typed CLI commands; return None for normal Vyom commands."""
     normalized = " ".join(str(command or "").strip().lower().split())
-    if not normalized.startswith(("memory consent", "memory pending", "memory approve")):
+    if not normalized.startswith((
+        "memory consent", "memory pending", "memory approve", "memory propose", "memory save"
+    )):
         return None
 
     if normalized in {"memory consent", "memory consent status"}:
@@ -287,7 +300,7 @@ def handle_memory_command(command: str, manager: MemoryConsentManager) -> Option
         enabled = "ON" if current["enabled"] else "OFF"
         return (
             f"Personal-memory consent is {enabled} for this session only. "
-            "Long-term personal-memory storage is not enabled yet. "
+            "Saved records are accessible only while consent is ON. Writes require explicit record approval and 'memory save <candidate-id>'. "
             f"Pending records: {current['pending_count']}; approved this session: {current['approved_count']}."
         )
 
@@ -296,7 +309,7 @@ def handle_memory_command(command: str, manager: MemoryConsentManager) -> Option
         if result["success"]:
             return (
                 "Personal-memory opt-in is ON for this running session only. "
-                "No long-term memory is being saved yet; each proposed record still needs your separate approval. "
+                "Nothing is saved automatically. Review a proposal, type 'memory approve <candidate-id>', then 'memory save <candidate-id>'. "
                 "Type 'memory consent off' to withdraw."
             )
         return "Consent could not be enabled; an explicit user action is required."
@@ -305,8 +318,40 @@ def handle_memory_command(command: str, manager: MemoryConsentManager) -> Option
         manager.opt_out(explicit_user_action=True)
         return (
             "Personal-memory consent is OFF. Pending candidates and session approvals were cleared. "
-            "No persistent personal-memory records were written."
+            "Previously saved local records are retained but cannot be used while consent is OFF; this command does not delete them."
         )
+
+    # Proposals must be user-initiated typed commands. Raw STT transcripts are never learned automatically.
+    raw_command = str(command or "").strip()
+    proposal_match = re.match(
+        r"(?is)^memory\s+propose\s+(correction|preference)\s+(.+?)\s*=>\s*(.+)$",
+        raw_command,
+    )
+    if proposal_match:
+        memory_type = proposal_match.group(1).lower()
+        left = proposal_match.group(2).strip()
+        right = proposal_match.group(3).strip()
+        if memory_type == "correction":
+            value = {"surface_form": left, "preferred_form": right}
+            provenance_kind = "explicit_correction"
+        else:
+            value = {"key": left, "value_text": right}
+            provenance_kind = "explicit_preference"
+        proposed = manager.propose(
+            memory_type=memory_type,
+            value=value,
+            scope="global",
+            provenance_kind=provenance_kind,
+            source_ref="cli:" + uuid.uuid4().hex,
+            confidence=1.0,
+        )
+        if proposed.get("success"):
+            candidate_id = proposed["candidate"]["candidate_id"]
+            return (
+                f"Candidate created for review only: {candidate_id}. It is not saved. "
+                "Use 'memory pending', then approve and save it separately."
+            )
+        return "Memory proposal rejected: " + str(proposed.get("reason") or "invalid_request") + "."
 
     if normalized == "memory pending":
         pending = manager.list_pending()
@@ -322,6 +367,17 @@ def handle_memory_command(command: str, manager: MemoryConsentManager) -> Option
         return "\n".join(lines)
 
     parts = normalized.split()
+    if len(parts) == 3 and parts[:2] == ["memory", "save"]:
+        if store is None:
+            return "Memory save unavailable: local storage has not been configured."
+        record = manager.get_approved_record(parts[2])
+        if record is None:
+            return "Memory save denied: enable consent and separately approve this record first."
+        result = store.save_approved(record)
+        if result.get("success"):
+            return f"Memory record {parts[2]} saved locally. It is accessible only while consent is ON."
+        return "Memory save denied: " + str(result.get("reason") or "invalid_record") + "."
+
     if len(parts) == 3 and parts[:2] == ["memory", "approve"]:
         result = manager.approve_record(parts[2], explicit_user_action=True)
         if result["success"]:
@@ -333,6 +389,7 @@ def handle_memory_command(command: str, manager: MemoryConsentManager) -> Option
 
     return (
         "Memory commands: 'memory consent status', 'memory consent on', 'memory consent off', "
-        "'memory pending', and 'memory approve <candidate-id>'. "
-        "Consent and approvals reset when Vyom exits; this phase does not persist personal memory."
+        "'memory pending', 'memory approve <candidate-id>', and 'memory save <candidate-id>'. "
+        "Propose with 'memory propose correction <old> => <new>' or 'memory propose preference <key> => <value>'. "
+        "Consent and approvals reset when Vyom exits."
     )
