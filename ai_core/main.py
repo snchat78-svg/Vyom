@@ -138,6 +138,9 @@ def main():
     # Consent is session-only until the separately gated persistent-storage phase.
     memory_consent_manager = MemoryConsentManager()
     memory_store = UserMemoryStore(consent_manager=memory_consent_manager)
+    # Reasoning may receive allow-listed presentation hints only; the store
+    # never grants action permissions or bypasses the existing safety gates.
+    command_executor.autonomous_agent.user_memory_store = memory_store
     voice_controller = VoiceController(conversation_manager=conversation_manager)
 
     # ============================================================

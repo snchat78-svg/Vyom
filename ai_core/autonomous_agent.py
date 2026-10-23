@@ -82,6 +82,7 @@ from ai_core.reasoning_engine import ReasoningEngine
 from ai_core.goal_compiler import GoalCompiler
 from ai_core.action_failure_policy import ActionFailurePolicy
 from ai_core.action_risk_policy import ActionRiskPolicy
+from ai_core.memory_learning_policy import attach_approved_memory_hints
 from ai_core.mission_planner import MissionPlanner
 from ai_core.mission_runtime import MissionRuntime
 
@@ -175,6 +176,9 @@ class AutonomousAgent:
         # =========================================================
 
         self.context = SessionMemory()
+
+        # Set by the app entry point; the policy projects safe preferences only.
+        self.user_memory_store = None
 
         # =========================================================
         # SAFETY
@@ -279,6 +283,18 @@ class AutonomousAgent:
 
         return True
 
+    def _context_with_approved_memory_hints(self, context):
+        """Attach only allow-listed preference hints; a store failure grants none."""
+        store = getattr(self, "user_memory_store", None)
+        records = []
+        if store is not None:
+            try:
+                records = store.load_usable()
+            except Exception:
+                # Memory is optional. An unreadable store cannot influence reasoning.
+                records = []
+        return attach_approved_memory_hints(context, records)
+
     # =============================================================
     # GOAL COMPILATION
     # =============================================================
@@ -291,7 +307,7 @@ class AutonomousAgent:
 
         try:
 
-            context_snapshot = (
+            context_snapshot = self._context_with_approved_memory_hints(
                 self.context.snapshot()
             )
 
@@ -1947,7 +1963,7 @@ class AutonomousAgent:
                     self.reasoning_engine.reason(
                         self.current_goal,
                         intent,
-                        context=refreshed_state,
+                        context=self._context_with_approved_memory_hints(refreshed_state),
                         previous_result=(
                             self.context.last_result
                         )
@@ -2732,6 +2748,8 @@ class AutonomousAgent:
                     include_clipboard=False,
                 )
             )
+
+            state_snapshot = self._context_with_approved_memory_hints(state_snapshot)
 
             reasoning = (
                 self.reasoning_engine.reason(
