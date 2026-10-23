@@ -26,18 +26,13 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M9.3 passed; M9.4 next
-- Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`
-- Exact-SHA full CI: [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) — success, 395 tests + 30 subtests.
-- CI also passed tracked Python syntax, core/voice imports, clean build, Windows EXE build/verification, and `Vyom_EXE` artifact upload.
-- M8 source-response matrix tests enforce status-over-success precedence, explicit citations, inference labelling, honest unknown/conflict responses and provider-outage fallback.
-- **M9.1 status:** exact-SHA CI [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) passed on `9fa8f8bde39611079e4bce170e77a955d8794432`: 399 tests + 30 subtests; syntax/import checks, clean build, Windows EXE verification/upload passed. The schema remains design-only and persistent personal memory is not enabled.
-- **M9.2 status:** exact-SHA CI [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967) passed on `2401889a7efa0248736e196961063db160f09a6c`: 408 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload passed.
-- **M9.3 status:** exact-SHA [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229) passed on `de32220023fca744089edcd0311a0d2234a4daae`: 419 tests + 30 subtests; syntax/import checks, clean build, Windows EXE verification/upload passed.
-- **Next phase:** M9.4 — review, export and deletion.
-- Real Windows desktop/microphone and live external-network/TLS checks remain external validation tasks, not claims established by CI.
-
-## Phase matrix
+## Current verified handoff — M9.4 passed; M9.5 next
+- Exact tested code/test commit: `eb9707498708f1e92bf5ebdf92f491642db95cdf`
+- Exact-SHA full CI: [run 39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080) — **success**, 427 tests + 30 subtests.
+- CI passed tracked Python syntax, critical/core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload.
+- M9.4 adds consent-gated saved-memory listing/inspection and JSON export, plus explicit delete-one/delete-all operations with durable verification.
+- Corrupt or unsupported stores fail closed. Export is limited to new absolute JSON paths, does not overwrite existing files, and excludes inactive/expired records.
+- **Next phase:** M9.5 — safe learning integration and M9 exit audit. No memory may grant capability permission or bypass confirmation.
 
 | Phase/checkpoint | Existing implementation and evidence | Status before M0.3 | Remaining acceptance |
 |---|---|---|---|
@@ -54,7 +49,7 @@ This file is the hand-off record across conversations. The repository code and C
 | M6 execution/recovery | M6.1–M6.6 documented in roadmap; mission runtime, recovery tests and durable journal | Implemented automated guards; platform validation pending | Real delayed effects, restart, and side-effect validation |
 | M7 web/source answers | M7.1 public source boundary; M7.2 multi-source comparison; M7.3 DNS guard; M7.4 DNS-pinned transport; M7.5 bounded providers; M7.6 semantic conflict signals; M7.7 source-quality metadata and unknown-on-weak-evidence guard | M7.1 run 39720196175; M7.2 run 39730872062; M7.3 run 39741822185; M7.4 run 39746025751; M7.5 run 39753595589 (373 tests + 28 subtests); M7.6 run 39757311244 (380 tests + 28 subtests); M7.7 exact-SHA run 39785293786 (385 tests + 28 subtests); combined M7 audit passed exact-SHA run 39786556563 (387 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload) | M7 automated acceptance complete; M8 general reasoning/sourced-answer evaluation is next (not started) |
 | M8 general reasoning | `0253010a1df4837a926631a63ad27042ce1f0d87`; [exact-SHA CI run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) passed with 395 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload also passed | **Completed — automated gate passed** | Live external network/TLS and real Windows/microphone acceptance remain external; M9.1 is next |
-| M9 opt-in learning | M9.3 exact-SHA CI [39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229) passed on `de32220023fca744089edcd0311a0d2234a4daae`: 419 tests + 30 subtests, Windows EXE verified/uploaded | M9.1–M9.3 **completed** | M9.4 inspect/export/delete one/all records, verify durable changes, consent/expiry and path safety; then M9.5 safety exit audit |
+| M9 opt-in learning | M9.4 exact-SHA CI [39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080) passed on `eb9707498708f1e92bf5ebdf92f491642db95cdf`: 427 tests + 30 subtests; Windows EXE verified/uploaded | M9.1–M9.4 **completed** | M9.5 safe learning integration and M9 exit audit is next; then M10 release exit gate |
 | M10 release evaluation | CI suite exists; representative full benchmark and real-device evidence are incomplete | Ongoing/incomplete | Metrics thresholds and Windows integration evidence |
 
 ## Current phase hand-off

@@ -74,3 +74,9 @@ M9.1–M9.3 are complete. This inventory does not claim arbitrary local-file con
 - Exact-SHA full CI passed on `de32220023fca744089edcd0311a0d2234a4daae` in [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229): 419 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification and artifact upload.
 - The versioned local store is wired behind consent, explicit proposal review, per-record approval and separate save. No automatic transcript learning is connected.
 - **Next: M9.4 — memory review, export and deletion.** Consent off blocks use but does not delete stored records.
+
+
+## M9.4 acceptance record — passed exact-SHA CI (2026-10-23)
+- Exact code/test SHA: `eb9707498708f1e92bf5ebdf92f491642db95cdf`; full CI [run 39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080) passed: 427 tests + 30 subtests, Windows EXE verified/uploaded.
+- Saved-record review and inspection require current session consent. Export is schema-validated, to a new absolute JSON path, and excludes inactive/expired records. Single/all deletion verifies the durable state and remains available after opt-out.
+- **Next: M9.5** safe learning integration and M9 exit audit; memory must never grant execution authority.

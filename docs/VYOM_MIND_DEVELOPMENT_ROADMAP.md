@@ -180,7 +180,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 **M8 gate:** passed. Do not restart M8 unless a new requirement or regression is recorded. **Next: M9.1 — Opt-in learning baseline and memory-schema inventory.**
 
 ## M9 — Personalization and safe learning
-**Status: M9.1–M9.3 completed on exact-SHA CI; M9.4 review/export/deletion is next. Consent remains default-off and session-only.**
+**Status: M9.1–M9.4 completed on exact-SHA CI; M9.5 safe learning integration and exit audit is next. Consent remains default-off and session-only.**
 
 ### M9.1 — Baseline inventory and memory schema (COMPLETED)
 - Delivered the memory/persistence inventory, design-only schema and deterministic baseline tests.
@@ -197,12 +197,12 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 - **Gate passed:** exact-SHA [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229) on `de32220023fca744089edcd0311a0d2234a4daae`: **419 tests + 30 subtests**, Python syntax/core/voice imports, clean build, Windows EXE verification and artifact upload.
 - **Boundary:** opt-out blocks use but does not erase saved records. The current CLI does not yet provide record inspection/export/deletion.
 
-### M9.4 — Review, export and deletion (NEXT; not started)
-- Implement list/inspect for user-approved records, export to a user-selected safe path, delete one/all records and verify the durable state changed or disappeared.
-- Opt-out blocks use immediately but remains distinct from deletion. Export must exclude credentials, raw transcripts, arbitrary webpage text and runnable execution plans. Report failures honestly and never claim data was deleted when it was not.
-- **Gate:** tests cover read/export consent, path safety, export integrity, no sensitive-field leakage, delete-one/delete-all, corruption handling, expiry and reload-after-deletion.
+### M9.4 — Review, export and deletion (COMPLETED)
+- Implemented `memory list`, `memory inspect <memory-id>`, `memory export <absolute-path.json>`, `memory delete <memory-id>` and `memory delete all`.
+- Review/export require current consent; deletion remains available after opt-out. Export writes only to a new absolute JSON path, excludes expired/inactive records, refuses overwrites and verifies the output. Deletion verifies durable file state; corrupt stores fail closed.
+- **Gate passed:** exact-SHA [run 39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080) on `eb9707498708f1e92bf5ebdf92f491642db95cdf`: 427 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload all passed.
 
-### M9.5 — Safe learning integration and exit audit
+### M9.5 — Safe learning integration and exit audit (NEXT; not started)
 - Approved memory remains a scoped hint; it cannot authorize capabilities, bypass clarification/confirmation, fabricate execution success or run generated code.
 - **M9 gate:** consent, provenance, confidence, expiry, export/deletion and safety acceptance pass exact-SHA CI before M10 final release exit-gate.
 
