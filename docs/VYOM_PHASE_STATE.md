@@ -43,12 +43,12 @@ This is the authoritative phase register for continuing work across chats. Read 
 - M7.7 continues to report freshness, evidence sufficiency, attribution, specificity and duplicate/repost metadata. Missing publication dates remain unknown; quality scores are metadata heuristics, not truth probabilities. Very short/boilerplate or weak-metadata primary evidence stays unknown with its citation.
 - M7 automated acceptance is complete. Limitations: source quality is a bounded heuristic, duplicate checks cover only excerpts retrieved in the current lookup, publisher independence is not verified, and GitHub CI does not prove live external-network/TLS reliability or real interaction with the user's Windows desktop/microphone.
 
-## Next phase — READY, NOT STARTED
+## Current phase — IN PROGRESS
 - **M9.1 — Opt-in learning baseline and memory-schema inventory**
-- First inspect current `memory/session_memory.py`, skill/memory modules, existing persistence and current opt-in behavior. Reuse working components; do not duplicate M4/M5/M6 execution context or M8 reasoning/provider work.
-- Document what is transient session context versus persistent user-approved memory. Define the data schema and threat/privacy model only; do not silently turn on persistent learning or capture raw transcripts by default.
-- Acceptance for M9.1: repository inventory, source-to-requirement map, data-lifecycle matrix, and deterministic tests/planned gates documented. Then M9.2 may implement explicit opt-in/consent.
-- Complete M9.1 only after its own tests and exact-SHA full CI pass. Do not skip to M9.2 or M10 release exit-gate.
+- Current deliverables: `docs/VYOM_M9_MEMORY_INVENTORY.md`, proposed `docs/schemas/vyom_user_memory.v1.schema.json`, and deterministic tests in `tests/test_m9_1_memory_inventory.py`.
+- The initial source inspection found that `SessionMemory` is transient, while `SkillRegistry` persists goal/plan specification JSON. The runtime skill registry and temp file are now excluded from source control to reduce accidental data disclosure.
+- This phase does not activate long-term personal memory, add persistence of user corrections, or enable learning by default. Those require explicit opt-in/consent in M9.2 and later gates.
+- M9.1 acceptance is pending the full exact-SHA CI run. Do not begin M9.2 until the inventory/schema tests pass and phase-state is updated with the green run.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -83,3 +83,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-22: M7 combined acceptance audit passed on `59b8880d0c63d359c681615a77e53ee5c917d255` in [run 39786556563](https://github.com/snchat78-svg/Vyom/actions/runs/39786556563): 387 tests + 30 subtests; syntax/import, clean build, Windows EXE verification and artifact upload passed. Conflicting claims remain unresolved when metadata is weak; duplicate cross-host excerpts do not establish independence. M7 automated acceptance complete; M8 is next and not started.
 
 - 2026-10-23: M8 passed exact-SHA CI on `0253010a1df4837a926631a63ad27042ce1f0d87` in [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866): 395 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification and `Vyom_EXE` upload. M9.1 opt-in learning baseline and memory-schema inventory is next.
+
+- 2026-10-23: M9.1 started after M8 passed exact-SHA run 39899815866. Current baseline inventory, design-only schema and tests are in progress; long-term personal-memory runtime remains disabled.

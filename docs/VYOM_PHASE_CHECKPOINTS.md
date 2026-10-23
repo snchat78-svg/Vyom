@@ -26,12 +26,12 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M8 passed
+## Current verified handoff — M8 passed; M9.1 in progress
 - Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`
 - Exact-SHA full CI: [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) — success, 395 tests + 30 subtests.
 - CI also passed tracked Python syntax, core/voice imports, clean build, Windows EXE build/verification, and `Vyom_EXE` artifact upload.
 - M8 source-response matrix tests enforce status-over-success precedence, explicit citations, inference labelling, honest unknown/conflict responses and provider-outage fallback.
-- **Next only:** M9.1 — opt-in learning baseline and memory-schema inventory. Begin with repository inspection and data-lifecycle/privacy design; no persistent learning by default.
+- **Current phase:** M9.1 — opt-in learning baseline and memory-schema inventory. Source inspection, schema proposal and regression tests are being committed; no persistent learning is enabled by default.
 - Real Windows desktop/microphone and live external-network/TLS checks remain external validation tasks, not claims established by CI.
 
 ## Phase matrix
@@ -51,7 +51,7 @@ This file is the hand-off record across conversations. The repository code and C
 | M6 execution/recovery | M6.1–M6.6 documented in roadmap; mission runtime, recovery tests and durable journal | Implemented automated guards; platform validation pending | Real delayed effects, restart, and side-effect validation |
 | M7 web/source answers | M7.1 public source boundary; M7.2 multi-source comparison; M7.3 DNS guard; M7.4 DNS-pinned transport; M7.5 bounded providers; M7.6 semantic conflict signals; M7.7 source-quality metadata and unknown-on-weak-evidence guard | M7.1 run 39720196175; M7.2 run 39730872062; M7.3 run 39741822185; M7.4 run 39746025751; M7.5 run 39753595589 (373 tests + 28 subtests); M7.6 run 39757311244 (380 tests + 28 subtests); M7.7 exact-SHA run 39785293786 (385 tests + 28 subtests); combined M7 audit passed exact-SHA run 39786556563 (387 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload) | M7 automated acceptance complete; M8 general reasoning/sourced-answer evaluation is next (not started) |
 | M8 general reasoning | `0253010a1df4837a926631a63ad27042ce1f0d87`; [exact-SHA CI run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) passed with 395 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload also passed | **Completed — automated gate passed** | Live external network/TLS and real Windows/microphone acceptance remain external; M9.1 is next |
-| M9 opt-in learning | Existing session/memory/skill code must be inventoried before adding persistent learning | Planned; M9.1 is next | M9.1 baseline inventory/schema/privacy model; then consent, provenance, expiry, export/deletion acceptance in dependency order |
+| M9 opt-in learning | M9.1 in progress: session memory, skill registry, recovery journal and memory-schema/privacy surfaces inventoried; tests and ignore guard under CI | **In progress — M9.1** | Finish exact-SHA CI; then M9.2 explicit consent, followed by storage/provenance, lifecycle and safety exit audit |
 | M10 release evaluation | CI suite exists; representative full benchmark and real-device evidence are incomplete | Ongoing/incomplete | Metrics thresholds and Windows integration evidence |
 
 ## Current phase hand-off
@@ -88,3 +88,9 @@ This file is the hand-off record across conversations. The repository code and C
 - New coverage in `tests/test_m8_reasoning_evaluation.py`: conflict is unresolved even if a provider incorrectly reports success and includes an asserted answer; unknown/weak evidence is not promoted to a fact even with `success=True`; citations are retained; inferred output is labelled; provider exceptions and model unavailability preserve deterministic fallback behavior.
 - Existing `tests/test_local_qwen_provider.py`, `tests/test_deep_reasoner_gateway.py`, `tests/test_response_engine_model_budget.py`, and voice integration tests cover provider fallback, invalid gateway output, deterministic factual lookup and offline-safe conversation/action paths.
 - Limitation: metadata statuses are provider assertions, not independent proof; generated inference and quality heuristics are not fact verification. Real Windows/audio and live network behavior need separate acceptance evidence.
+
+
+## M9.1 work-in-progress checkpoint (2026-10-23)
+- Existing components inspected: `memory/session_memory.py`, `memory/selection_manager.py`, `ai_core/skill_registry.py`, `ai_core/skill_builder.py`, `ai_core/mission_runtime.py`, `ai_core/conversation_manager.py`, `ai_core/model_gateway.py`, `ai_core/logger.py` and related tests.
+- Deliverables: `docs/VYOM_M9_MEMORY_INVENTORY.md`, proposed `docs/schemas/vyom_user_memory.v1.schema.json`, and `tests/test_m9_1_memory_inventory.py`. A root ignore rule prevents default local skill-registry JSON/temp files from being committed accidentally.
+- Status is in progress until exact-SHA CI validates inventory/schema contract tests and the full build. No runtime long-term personal-memory storage has been added.

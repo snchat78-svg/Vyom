@@ -9,3 +9,7 @@ __pycache__/
 build/
 dist/
 *.spec
+
+# Runtime skill proposals may contain user goals/plans; do not commit local registry state.
+/skills/registry.json
+/skills/registry.json.tmp

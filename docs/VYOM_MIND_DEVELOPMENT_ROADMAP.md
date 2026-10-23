@@ -180,10 +180,10 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 **M8 gate:** passed. Do not restart M8 unless a new requirement or regression is recorded. **Next: M9.1 — Opt-in learning baseline and memory-schema inventory.**
 
 ## M9 — Personalization and safe learning
-**Status: planned; M9.1 is the next incomplete phase. Persistent learning remains opt-in and disabled by default.**
+**Status: in progress; M9.1 inventory/schema acceptance is underway. Persistent learning remains opt-in and disabled by default.**
 
-### M9.1 — Baseline inventory and memory schema (NEXT; not started)
-- Inspect `memory/session_memory.py`, existing skill/memory modules, current session context, existing disk persistence and tests before changing code.
+### M9.1 — Baseline inventory and memory schema (IN PROGRESS)
+- **Current work:** inventory and source-to-requirement map are being committed at `docs/VYOM_M9_MEMORY_INVENTORY.md`; proposed schema is `docs/schemas/vyom_user_memory.v1.schema.json`; deterministic boundary tests live in `tests/test_m9_1_memory_inventory.py`. Inspect `memory/session_memory.py`, existing skill/memory modules, current session context, existing disk persistence and tests before changing runtime behavior.
 - Map transient execution/session state separately from long-lived user-approved memory. Reuse existing storage where safe; do not create parallel memory stores without evidence they are needed.
 - Specify a minimal versioned record schema for correction/preference/verified workflow data: explicit user consent, provenance, scope, confidence, created/updated times, expiry, and schema version.
 - Define sensitive-data exclusions and lifecycle behavior; raw transcripts, credentials and unrelated desktop content must not become persistent memory by default.
@@ -237,7 +237,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 7. M6 execute/verify/recover.
 8. M7.1–M7.7 source retrieval/evidence quality and combined audit — completed.
 9. M8 general reasoning/sourced-answer evaluation — automated gate completed on exact-SHA run 39899815866.
-10. **M9.1** inventory/schema is next; then M9.2 consent, M9.3 storage/provenance, M9.4 lifecycle, M9.5 safety exit audit.
+10. **M9.1 is in progress** (inventory/schema/privacy gate); then M9.2 consent, M9.3 storage/provenance, M9.4 lifecycle, M9.5 safety exit audit. Do not skip ahead.
 11. M10.1–M10.4 run as the benchmark/release track; final release gate waits for M9 and real Windows acceptance.
 
 At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head and latest applicable CI, then work only on the first incomplete item above. Do not skip, restart or mark a phase complete based only on a commit.
