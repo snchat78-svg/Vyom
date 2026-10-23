@@ -517,10 +517,11 @@ class ResponseEngine:
                 or quality.get("sufficient") is False
             )
 
-            def citation_suffix():
+            def citation_suffix(source_items=None):
                 citations = []
                 seen = set()
-                for item in sources[:3]:
+                source_items = sources if source_items is None else source_items
+                for item in source_items[:3]:
                     if not isinstance(item, dict):
                         continue
                     title = str(item.get("title") or item.get("site") or "").strip()
@@ -531,6 +532,16 @@ class ResponseEngine:
                         seen.add(label)
                         citations.append(label)
                 return (" | Sources: " + "; ".join(citations)) if citations else ""
+
+            def attach_missing_citations(answer_text):
+                answer_text = str(answer_text or "").strip()
+                missing = [
+                    item for item in sources[:3]
+                    if isinstance(item, dict)
+                    and str(item.get("url") or "").strip()
+                    and str(item.get("url") or "").strip() not in answer_text
+                ]
+                return answer_text + citation_suffix(missing)
 
             # Status takes precedence over a provider's success flag or answer
             # text. This prevents an inconsistent adapter from promoting a
@@ -575,14 +586,25 @@ class ResponseEngine:
                     "इंटरनेट उपलब्ध होने पर दोबारा खोजें। मैं बिना स्रोत के तथ्य गढ़कर जवाब नहीं दूँगा।"
                 )
 
-            # A normal sourced success retains the retrieval layer's explicit
-            # extractive answer and source label; this layer does not invent facts.
+            # Keep sourced excerpts distinct from generated inference. The
+            # knowledge adapter controls epistemic metadata; the response layer
+            # labels an inference instead of silently upgrading it to a sourced fact.
             source = lookup.get("source") if isinstance(lookup.get("source"), dict) else {}
             log("[KNOWLEDGE] SOURCE: %s | %s" % (
                 str(source.get("title") or source.get("site") or "unknown"),
                 str(source.get("url") or ""),
             ))
-            return str(lookup["answer"]).strip()
+            answer_text = str(lookup["answer"]).strip()
+            is_inferred = (
+                answer_status in {"inferred", "inference"}
+                or evidence.get("inference_used") is True
+            )
+            if is_inferred:
+                if preferred_language == "en":
+                    answer_text = "This is an inference, not a directly sourced or verified fact. " + answer_text
+                else:
+                    answer_text = "यह अनुमान है, सीधे स्रोत से पुष्ट या सत्यापित तथ्य नहीं। " + answer_text
+            return attach_missing_citations(answer_text)
 
         # Remote response generation is opt-in. Deterministic local responses
         # and website-backed factual retrieval work without any AI provider.
