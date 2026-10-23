@@ -320,5 +320,125 @@ class UserMemoryStore:
             usable.append(deepcopy(record))
         return usable
 
+
+    def review_records(self) -> List[Dict[str, Any]]:
+        """List validated saved records for review; consent is required to read."""
+        if self.consent_manager.status().get("enabled") is not True:
+            raise MemoryStoreError("memory_consent_required")
+        self._load()
+        return [deepcopy(record) for record in sorted(
+            self._records.values(), key=lambda item: item.get("updated_at", ""), reverse=True
+        )]
+
+    def export_to(self, destination: Any) -> Dict[str, Any]:
+        """Export active, unexpired approved records to a new absolute JSON path."""
+        if self.consent_manager.status().get("enabled") is not True:
+            return {"success": False, "reason": "memory_consent_required"}
+        try:
+            path = Path(destination).expanduser()
+            if not path.is_absolute():
+                return {"success": False, "reason": "export_path_must_be_absolute"}
+            if path.suffix.lower() != ".json":
+                return {"success": False, "reason": "export_extension_invalid"}
+            if path.resolve(strict=False) == self.storage_path.resolve(strict=False):
+                return {"success": False, "reason": "export_path_is_memory_store"}
+            if path.exists() or path.is_symlink():
+                return {"success": False, "reason": "export_destination_exists"}
+            if not path.parent.exists() or not path.parent.is_dir():
+                return {"success": False, "reason": "export_parent_directory_missing"}
+            self._load()
+            now = datetime.now(timezone.utc)
+            records = []
+            for record in self._records.values():
+                if record.get("lifecycle") != "active":
+                    continue
+                expiry_raw = record.get("expires_at")
+                if expiry_raw is not None:
+                    expiry = _parse_datetime(expiry_raw)
+                    if expiry is None or expiry <= now:
+                        continue
+                if not self._valid_record(record):
+                    return {"success": False, "reason": "memory_store_record_invalid"}
+                records.append(deepcopy(record))
+            payload = {
+                "schema_version": SCHEMA_VERSION,
+                "exported_at": _now_iso(),
+                "records": sorted(records, key=lambda item: item["memory_id"]),
+            }
+            encoded = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+            if len(encoded.encode("utf-8")) > MAX_STORE_BYTES:
+                return {"success": False, "reason": "export_size_limit"}
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=str(path.parent),
+                    prefix=".vyom-export-", suffix=".tmp", delete=False,
+                ) as handle:
+                    temporary = Path(handle.name)
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                try:
+                    os.chmod(temporary, 0o600)
+                except OSError:
+                    pass
+                if path.exists() or path.is_symlink():
+                    return {"success": False, "reason": "export_destination_exists"}
+                os.link(temporary, path)
+                temporary.unlink()
+                temporary = None
+            finally:
+                if temporary is not None:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            if not path.is_file() or path.stat().st_size == 0:
+                return {"success": False, "reason": "export_verification_failed"}
+            return {"success": True, "path": str(path), "exported_count": len(records)}
+        except MemoryStoreError as exc:
+            return {"success": False, "reason": str(exc)}
+        except FileExistsError:
+            return {"success": False, "reason": "export_destination_exists"}
+        except Exception:
+            return {"success": False, "reason": "export_failed"}
+
+    def delete_one(self, memory_id: str) -> Dict[str, Any]:
+        """Delete one exact record; deletion remains available when consent is OFF."""
+        try:
+            self._load()
+        except MemoryStoreError as exc:
+            return {"success": False, "reason": str(exc)}
+        if not isinstance(memory_id, str) or memory_id not in self._records:
+            return {"success": False, "reason": "memory_record_not_found"}
+        previous = self._records.pop(memory_id)
+        try:
+            self._write_atomic()
+            payload = json.loads(self.storage_path.read_text(encoding="utf-8"))
+            if memory_id in payload["records"]:
+                raise MemoryStoreError("memory_delete_verification_failed")
+        except Exception:
+            self._records[memory_id] = previous
+            return {"success": False, "reason": "memory_delete_failed"}
+        return {"success": True, "deleted_count": 1}
+
+    def delete_all(self) -> Dict[str, Any]:
+        """Delete the durable store even with consent OFF; verify file absence."""
+        try:
+            self._load()
+        except MemoryStoreError as exc:
+            return {"success": False, "reason": str(exc)}
+        deleted_count = len(self._records)
+        try:
+            if self.storage_path.exists() or self.storage_path.is_symlink():
+                self.storage_path.unlink()
+            if self.storage_path.exists() or self.storage_path.is_symlink():
+                return {"success": False, "reason": "memory_delete_verification_failed"}
+            self._records = {}
+            self._loaded = True
+            return {"success": True, "deleted_count": deleted_count}
+        except Exception:
+            return {"success": False, "reason": "memory_delete_failed"}
+
     def count_usable(self) -> int:
         return len(self.load_usable())
