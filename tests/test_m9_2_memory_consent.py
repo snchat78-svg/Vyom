@@ -39,7 +39,7 @@ def test_m9_2_opt_in_requires_an_explicit_user_action_and_cli_is_visible():
     assert "ON for this running session only" in response
     assert manager.status()["enabled"] is True
     assert handle_memory_command("memory consent status", manager).find("ON") >= 0
-    assert manager.status()["persistent_memory_storage"] == "not_implemented"
+    assert manager.status()["persistent_memory_storage"] == "local_versioned_storage_available_after_approval"
 
 
 def test_m9_2_each_record_needs_separate_explicit_approval_before_write_authorization():
