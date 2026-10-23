@@ -209,17 +209,20 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 - **Limit:** real Windows desktop/audio and live network acceptance remains under M10.4; memory hints are advisory and may not affect the deterministic local path.
 
 ## M10 — Release evaluation (cross-cutting; final gate remains after M9)
-### M10.1 — Representative benchmark corpus (IN PROGRESS)
+### M10.1 — Representative benchmark corpus (COMPLETED)
 - **Current deliverables:** `tests/fixtures/m10_1_vyom_benchmark_corpus.json`, `tests/test_m10_1_benchmark_corpus.py`, and `docs/VYOM_M10_BENCHMARK_PROTOCOL.md`.
 - 15 synthetic contract-only scenarios cover English, Hindi, Roman Hindi, Hinglish, noisy STT, ambiguity, compound-task dependencies, web-grounded/sourced-or-unknown outcomes, conflicting sources, provider outage, uncertain recovery, post-action verification and memory-safety boundaries.
 - Each case declares preconditions, expected outcome, required invariants and prohibited outcomes. The first gate validates corpus quality and privacy; it does not claim measured accuracy.
 - Keep private transcripts, credentials, actual clipboard payloads and user files out of committed fixtures.
-- **Gate pending:** all required categories, languages, unique IDs and contract structure pass exact-SHA full CI and the Windows EXE workflow. Only then start M10.2.
+- **Gate passed:** exact-SHA [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) on `5841279846599e349dedaadd942ce7736e6c82c2`: **440 tests + 30 subtests**, Python syntax/core/voice imports, clean build, Windows EXE build/verification and artifact upload.
+- **Boundary:** this is a completeness/contract gate, not a benchmark run. No measured performance result is claimed. **Next: M10.2 reproducible runner and baseline metrics.**
 
-### M10.2 — Metrics and baseline
-- Measure intent accuracy, unsafe-guess rate, action-verification rate, task completion, recovery rate, latency and epistemic-status correctness.
-- Record baseline results and define denominators; do not claim accuracy without a reproducible corpus.
-
+### M10.2 — Reproducible metrics runner and baseline (NEXT; not started)
+- Build a deterministic offline runner over M10.1's synthetic contract corpus, using stubbed/adapted component results rather than real web requests, live models, microphone capture or desktop actions.
+- Produce a machine-readable JSON report with corpus version, scenario ID, run status (pass/fail/unrun/error), expected outcome, observed outcome, rationale and metric contributions. Never count an unrun scenario as a pass.
+- Define denominator rules and sample sizes before calculating intent/interpretation correctness, unsafe-guess rate, action-verification correctness, task completion/recovery, epistemic-status correctness and latency. Exclude or explicitly classify unsupported/unmeasurable scenarios rather than silently dropping them.
+- Verify report determinism for fixed inputs; fail closed on unknown scenario IDs/outcomes and malformed runner output.
+- **Gate:** exact-SHA CI runs the deterministic slice and validates its JSON report and metric denominators. Only then establish a baseline and begin M10.3 regression thresholds.
 ### M10.3 — CI regression thresholds
 - Run deterministic benchmark slices in CI, report regressions and block release if safety-critical thresholds fail.
 - Keep flaky live-network tests separate from deterministic CI; network failure must not cause invented answers.
@@ -240,7 +243,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 8. M7.1–M7.7 source retrieval/evidence quality and combined audit — completed.
 9. M8 general reasoning/sourced-answer evaluation — automated gate completed on exact-SHA run 39899815866.
 10. M9.1–M9.5 safe-learning gates **completed**; M9.5 passed exact-SHA [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937).
-11. **M10.1 is in progress**: synthetic representative benchmark corpus. Then M10.2 reproducible runner/baseline, M10.3 CI regression thresholds and M10.4 real Windows integration/release exit. Do not skip or report measured accuracy before M10.2.
+11. M10.1 synthetic representative benchmark corpus **completed** on exact-SHA [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550). **M10.2 reproducible metrics runner and baseline is next**, then M10.3 CI regression thresholds and M10.4 real Windows integration/release exit. Do not report measured accuracy before M10.2.
 
 At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head and latest applicable CI, then work only on the first incomplete item above. Do not skip, restart or mark a phase complete based only on a commit.
 

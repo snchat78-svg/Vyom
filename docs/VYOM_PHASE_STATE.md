@@ -10,7 +10,7 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Reusable cross-project policy: [PHASE_CONTINUITY_STANDARD.md](PHASE_CONTINUITY_STANDARD.md)
 - Cross-project navigation index: [CROSS_PROJECT_PHASE_INDEX.md](CROSS_PROJECT_PHASE_INDEX.md)
 
-## Last verified completed phase — M8
+## Previous verified phase — M8
 - **M8 — General reasoning / sourced-answer evaluation**
 - Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`
 - Exact-SHA GitHub Actions: [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) — **success**.
@@ -43,7 +43,7 @@ This is the authoritative phase register for continuing work across chats. Read 
 - M7.7 continues to report freshness, evidence sufficiency, attribution, specificity and duplicate/repost metadata. Missing publication dates remain unknown; quality scores are metadata heuristics, not truth probabilities. Very short/boilerplate or weak-metadata primary evidence stays unknown with its citation.
 - M7 automated acceptance is complete. Limitations: source quality is a bounded heuristic, duplicate checks cover only excerpts retrieved in the current lookup, publisher independence is not verified, and GitHub CI does not prove live external-network/TLS reliability or real interaction with the user's Windows desktop/microphone.
 
-## Last verified completed phase — M9.1
+## Previous verified phase — M9.1
 - **M9.1 — Opt-in learning baseline and memory-schema inventory**
 - Exact tested code/test commit: `9fa8f8bde39611079e4bce170e77a955d8794432`
 - Exact-SHA full CI: [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) — **success**.
@@ -52,7 +52,7 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Findings: `SessionMemory` and conversation history are bounded in-process context; `SkillRegistry` separately persists skill goal/plan JSON, while the recovery journal is already a minimal fail-closed marker that excludes action payloads.
 - Limits: this was an inventory/schema gate only. The proposed schema is not wired to runtime storage; no persistent personal memory or automatic learning was enabled. Runtime validation, user consent, deletion verification and OS-level privacy protections remain later acceptance work.
 
-## Last verified completed phase — M9.2
+## Previous verified phase — M9.2
 - **M9.2 — Explicit opt-in and record-level approval**
 - Exact tested code/test commit: `2401889a7efa0248736e196961063db160f09a6c`
 - Exact-SHA full CI: [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967) — **success**.
@@ -60,7 +60,7 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Behavior: typed CLI exposes session-only opt-in/withdrawal, pending review, separate per-record approval and fail-closed write authorization. Consent defaults OFF; withdrawal clears session approvals; restart resets consent.
 - Limits: M9.2 implemented consent and approval gates only. No long-term memory file was added in that phase; subsequent storage needs schema validation and lifecycle controls. SkillRegistry capability-goal persistence remains a separate retention boundary.
 
-## Last verified completed phase — M9.4
+## Previous verified phase — M9.4
 - **M9.4 — Memory review, export and deletion**
 - Exact code/test commit: `eb9707498708f1e92bf5ebdf92f491642db95cdf`
 - Exact-SHA full CI: [run 39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080) — **success**.
@@ -69,7 +69,7 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Safety: review/export require current session consent; deletion remains available after opt-out. Export excludes expired/inactive records, validates the stored schema, rejects unsafe paths and never overwrites an existing destination. Corrupt/unsupported stores fail closed.
 - Limits: export uses a caller-selected filesystem path; the user remains responsible for protecting that destination. Consent still resets at process restart. Real Windows desktop interaction remains a separate manual check.
 
-## Last verified completed phase — M9.5
+## Previous verified phase — M9.5
 - **M9.5 — Safe learning integration and M9 exit audit**
 - Exact tested code/test commit: `6f9a99e05555c8c25ac6bcb546934aa6f61d1afc`
 - Exact-SHA full CI: [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937) — **success**.
@@ -78,11 +78,21 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Safety: global/application scope filters are conservative; the memory store must allow the current consent state. A store read failure supplies no hints. The current goal is passed unchanged; memory does not create capabilities, alter safety gates, bypass confirmation or assert execution success. Action-risk confirmation remains independently enforced.
 - Limitations: the hints are advisory metadata; deterministic local reasoning may ignore presentation preferences. The suite does not replace live Windows microphone/UI/network acceptance.
 
-## Current phase — IN PROGRESS
+## Last verified completed phase — M10.1
 - **M10.1 — Representative benchmark corpus**
-- Current deliverables: synthetic corpus `tests/fixtures/m10_1_vyom_benchmark_corpus.json`, coverage/contract tests `tests/test_m10_1_benchmark_corpus.py`, and protocol `docs/VYOM_M10_BENCHMARK_PROTOCOL.md`.
-- The corpus defines deterministic expected contracts for language variants, noisy STT, ambiguity, compound tasks, web-grounding, unknown/conflicting answers, provider outage, recovery, verification and memory safety. It is explicitly `contract_only_not_benchmarked`; no accuracy/latency metric is claimed yet.
-- M10.1 acceptance is pending exact-SHA full CI. Do not start M10.2 until fixture-coverage tests and the full Windows build workflow pass.
+- Exact tested code/test commit: `5841279846599e349dedaadd942ce7736e6c82c2`
+- Exact-SHA full CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) — **success**.
+- CI result: **440 tests passed, 30 subtests passed**; tracked Python syntax, core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload passed.
+- Deliverables: `tests/fixtures/m10_1_vyom_benchmark_corpus.json` (15 synthetic scenarios), `tests/test_m10_1_benchmark_corpus.py` (coverage/contract checks), and `docs/VYOM_M10_BENCHMARK_PROTOCOL.md`.
+- Coverage: English, Hindi, Roman Hindi, Hinglish, noisy STT, ambiguity, compound dependencies, web-grounded or unknown answers, conflicting sources, provider outage, uncertain recovery, post-action verification and memory safety.
+- Limits: this phase verifies corpus structure and deterministic expected contracts only. It is explicitly `contract_only_not_benchmarked`; no intent accuracy, unsafe-guess rate, latency or real-world completion metric has been measured. Live network and user-machine Windows/audio acceptance remain pending.
+
+## Next phase — READY, NOT STARTED
+- **M10.2 — Reproducible metrics runner and baseline**
+- Build a deterministic offline runner over the M10.1 corpus. Each scenario must record whether it was run, the observed contract outcome, expected outcome and pass/fail rationale. Never count unrun scenarios as passes.
+- Define metric numerators and denominators before publishing rates: intent/interpretation correctness, unsafe-guess rate, action-verification correctness, completion/recovery, epistemic-status correctness and latency. Report sample sizes and exclusions.
+- Runner tests must use synthetic fixtures/stubbed providers and must not perform live web requests, microphone capture or desktop actions in CI. Separate live integration evidence for M10.4.
+- M10.2 is complete only after exact-SHA full CI emits and validates a machine-readable run report plus a reproducible metrics summary. Then proceed to M10.3 CI regression thresholds.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -133,3 +143,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-23: M9.4 passed exact-SHA CI on `eb9707498708f1e92bf5ebdf92f491642db95cdf` in [run 39908005080](https://github.com/snchat78-svg/Vyom/actions/runs/39908005080): 427 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.5 safety integration and exit audit is next.
 
 - 2026-10-23: M9.5 passed exact-SHA CI on `6f9a99e05555c8c25ac6bcb546934aa6f61d1afc` in [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937): 436 tests + 30 subtests; Windows EXE verified/uploaded. M10.1 representative benchmark corpus is in progress.
+
+- 2026-10-23: M10.1 passed exact-SHA CI on `5841279846599e349dedaadd942ce7736e6c82c2` in [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550): 440 tests + 30 subtests; syntax/import checks, clean build, Windows EXE verification/upload. M10.2 reproducible metrics runner and baseline is next.
