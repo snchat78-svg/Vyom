@@ -26,12 +26,13 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M8 passed; M9.1 in progress
+## Current verified handoff — M9.1 passed; M9.2 next
 - Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`
 - Exact-SHA full CI: [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) — success, 395 tests + 30 subtests.
 - CI also passed tracked Python syntax, core/voice imports, clean build, Windows EXE build/verification, and `Vyom_EXE` artifact upload.
 - M8 source-response matrix tests enforce status-over-success precedence, explicit citations, inference labelling, honest unknown/conflict responses and provider-outage fallback.
-- **Current phase:** M9.1 — opt-in learning baseline and memory-schema inventory. Source inspection, schema proposal and regression tests are being committed; no persistent learning is enabled by default.
+- **M9.1 status:** exact-SHA CI [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) passed on `9fa8f8bde39611079e4bce170e77a955d8794432`: 399 tests + 30 subtests; syntax/import checks, clean build, Windows EXE verification/upload passed. The schema remains design-only and persistent personal memory is not enabled.
+- **Next phase:** M9.2 — explicit opt-in and record-level approval.
 - Real Windows desktop/microphone and live external-network/TLS checks remain external validation tasks, not claims established by CI.
 
 ## Phase matrix
@@ -51,7 +52,7 @@ This file is the hand-off record across conversations. The repository code and C
 | M6 execution/recovery | M6.1–M6.6 documented in roadmap; mission runtime, recovery tests and durable journal | Implemented automated guards; platform validation pending | Real delayed effects, restart, and side-effect validation |
 | M7 web/source answers | M7.1 public source boundary; M7.2 multi-source comparison; M7.3 DNS guard; M7.4 DNS-pinned transport; M7.5 bounded providers; M7.6 semantic conflict signals; M7.7 source-quality metadata and unknown-on-weak-evidence guard | M7.1 run 39720196175; M7.2 run 39730872062; M7.3 run 39741822185; M7.4 run 39746025751; M7.5 run 39753595589 (373 tests + 28 subtests); M7.6 run 39757311244 (380 tests + 28 subtests); M7.7 exact-SHA run 39785293786 (385 tests + 28 subtests); combined M7 audit passed exact-SHA run 39786556563 (387 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload) | M7 automated acceptance complete; M8 general reasoning/sourced-answer evaluation is next (not started) |
 | M8 general reasoning | `0253010a1df4837a926631a63ad27042ce1f0d87`; [exact-SHA CI run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) passed with 395 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload also passed | **Completed — automated gate passed** | Live external network/TLS and real Windows/microphone acceptance remain external; M9.1 is next |
-| M9 opt-in learning | M9.1 in progress: session memory, skill registry, recovery journal and memory-schema/privacy surfaces inventoried; tests and ignore guard under CI | **In progress — M9.1** | Finish exact-SHA CI; then M9.2 explicit consent, followed by storage/provenance, lifecycle and safety exit audit |
+| M9 opt-in learning | M9.1 exact-SHA CI [39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) passed on `9fa8f8bde39611079e4bce170e77a955d8794432` with 399 tests + 30 subtests and full Windows EXE verification/upload | M9.1 **completed** | M9.2 explicit opt-in and record-level approval is next; runtime personal-memory storage remains disabled |
 | M10 release evaluation | CI suite exists; representative full benchmark and real-device evidence are incomplete | Ongoing/incomplete | Metrics thresholds and Windows integration evidence |
 
 ## Current phase hand-off
@@ -90,7 +91,13 @@ This file is the hand-off record across conversations. The repository code and C
 - Limitation: metadata statuses are provider assertions, not independent proof; generated inference and quality heuristics are not fact verification. Real Windows/audio and live network behavior need separate acceptance evidence.
 
 
-## M9.1 work-in-progress checkpoint (2026-10-23)
+## M9.1 acceptance record — passed exact-SHA CI (2026-10-23)
 - Existing components inspected: `memory/session_memory.py`, `memory/selection_manager.py`, `ai_core/skill_registry.py`, `ai_core/skill_builder.py`, `ai_core/mission_runtime.py`, `ai_core/conversation_manager.py`, `ai_core/model_gateway.py`, `ai_core/logger.py` and related tests.
 - Deliverables: `docs/VYOM_M9_MEMORY_INVENTORY.md`, proposed `docs/schemas/vyom_user_memory.v1.schema.json`, and `tests/test_m9_1_memory_inventory.py`. A root ignore rule prevents default local skill-registry JSON/temp files from being committed accidentally.
-- Status is in progress until exact-SHA CI validates inventory/schema contract tests and the full build. No runtime long-term personal-memory storage has been added.
+- Exact-SHA [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) passed: 399 tests + 30 subtests, Python syntax/core/voice imports, clean build, Windows EXE verification and artifact upload. No runtime long-term personal-memory storage was added. **Next: M9.2 explicit opt-in and record-level approval.**
+
+
+## M9.2 hand-off — ready, not started
+- Implement explicit default-off user consent and per-record approval before durable personal-memory writes. Test missing/expired/revoked consent rejection and withdrawal.
+- Review SkillRegistry persistence of goal/plan specifications separately; enabling a generated capability is not consent to store a personal preference or correction.
+- Keep validated versioned memory storage for M9.3; do not skip directly to export/deletion or the final release gate.

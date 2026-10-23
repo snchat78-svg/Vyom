@@ -180,34 +180,34 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 **M8 gate:** passed. Do not restart M8 unless a new requirement or regression is recorded. **Next: M9.1 — Opt-in learning baseline and memory-schema inventory.**
 
 ## M9 — Personalization and safe learning
-**Status: in progress; M9.1 inventory/schema acceptance is underway. Persistent learning remains opt-in and disabled by default.**
+**Status: M9.1 completed on exact-SHA CI; M9.2 is next. Persistent learning remains opt-in and disabled by default.**
 
-### M9.1 — Baseline inventory and memory schema (IN PROGRESS)
-- **Current work:** inventory and source-to-requirement map are being committed at `docs/VYOM_M9_MEMORY_INVENTORY.md`; proposed schema is `docs/schemas/vyom_user_memory.v1.schema.json`; deterministic boundary tests live in `tests/test_m9_1_memory_inventory.py`. Inspect `memory/session_memory.py`, existing skill/memory modules, current session context, existing disk persistence and tests before changing runtime behavior.
-- Map transient execution/session state separately from long-lived user-approved memory. Reuse existing storage where safe; do not create parallel memory stores without evidence they are needed.
-- Specify a minimal versioned record schema for correction/preference/verified workflow data: explicit user consent, provenance, scope, confidence, created/updated times, expiry, and schema version.
-- Define sensitive-data exclusions and lifecycle behavior; raw transcripts, credentials and unrelated desktop content must not become persistent memory by default.
-- **M9.1 gate:** inventory + source-to-requirement map + data lifecycle/privacy matrix committed; tests/checks document schema and safety boundaries. Only then start M9.2.
+### M9.1 — Baseline inventory and memory schema (COMPLETED)
+- **Delivered:** `docs/VYOM_M9_MEMORY_INVENTORY.md`, design-only schema `docs/schemas/vyom_user_memory.v1.schema.json`, and deterministic tests `tests/test_m9_1_memory_inventory.py`. Runtime registry JSON/temp files are excluded by .gitignore.
+- Mapped transient session/conversation memory separately from the persistent SkillRegistry and recovery journal. The schema describes minimal versioned correction/preference/verified-workflow records, consent envelope, provenance, scope, confidence, creation/update/expiry and lifecycle.
+- **M9.1 gate: passed** — exact-SHA [CI run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) on `9fa8f8bde39611079e4bce170e77a955d8794432`: **399 tests + 30 subtests**, syntax/import checks, clean build, Windows EXE verification/upload.
+- **Boundary:** inventory/schema only; no runtime long-term personal-memory storage or automatic learning was introduced. Schema descriptions do not replace runtime validation, consent, deletion verification or OS-level privacy controls.
 
-### M9.2 — Explicit opt-in and approval
-- Add a user-visible opt-in/on-off setting and consent checks at every write path.
-- Distinguish a one-time command correction from permission to retain that correction. No persistent update from a single noisy transcript without approval.
-- **Gate:** default-off writes, consent withdrawal, invalid/no consent rejection and scoped correction tests pass.
+### M9.2 — Explicit opt-in and approval (NEXT; not started)
+- Add user-visible opt-in/on-off consent, defaulting off, and per-record approval before every durable correction/preference/verified-workflow write.
+- Distinguish a one-time STT correction from permission to retain it. Missing, stale, invalid, revoked or unreadable consent must fail closed; withdrawal must block new writes/retrieval.
+- Review the existing SkillRegistry goal/plan persistence boundary separately. Skill validation/approval before enabling a generated capability is not personal-memory consent.
+- **Gate:** tests prove default-off writes, per-record approval, no persistence from a single noisy transcript without consent, consent withdrawal and invalid/missing consent rejection. Do not implement memory persistence in this phase.
 
 ### M9.3 — Versioned storage and provenance
-- Implement approved records using existing storage components where feasible; enforce bounds, schema validation and migration safety.
-- Preserve provenance, user scope, confidence and expiry. Memory may propose a correction; it must not silently rewrite global grammar or override runtime discovery.
+- Implement approved records using existing storage components where feasible; enforce schema validation, bounded values, migration safety and atomic writes.
+- Preserve provenance, user scope, confidence and expiry; keep credentials, raw transcripts, clipboard payloads and arbitrary action plans excluded.
 - **Gate:** reload/version migration/expiry/invalid-record tests pass and data stays within configured caps.
 
 ### M9.4 — Review, export and deletion
-- Provide a way to inspect learned items, export user-owned data, delete individual/all items, and confirm deletion.
+- Provide a way to inspect learned items, export user-owned data, delete individual/all items, and verify deletion from durable storage.
 - Expiry and opt-out must prevent stale/withdrawn items being used in later turns.
 - **Gate:** export/delete/expiry/withdrawal tests verify stored data and retrieval behavior.
 
 ### M9.5 — Safe learning integration and exit audit
 - Use accepted memory only as a scoped hint to reasoning; never as permission to execute a capability or irreversible action.
 - Generate capability specifications only. Validate and test them in isolation; explicit approval is required before enabling new capabilities. No generated code executes.
-- **M9 gate:** consent, provenance, confidence, expiry, export/deletion and safety acceptance all pass on exact-SHA CI. Only then may M10 final release exit-gate progress be considered complete.
+- **M9 gate:** consent, provenance, confidence, expiry, export/deletion and safety acceptance all pass on exact-SHA CI. Only then may M10 final release-exit work be considered complete.
 
 ## M10 — Release evaluation (cross-cutting; final gate remains after M9)
 ### M10.1 — Representative benchmark corpus
@@ -237,7 +237,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 7. M6 execute/verify/recover.
 8. M7.1–M7.7 source retrieval/evidence quality and combined audit — completed.
 9. M8 general reasoning/sourced-answer evaluation — automated gate completed on exact-SHA run 39899815866.
-10. **M9.1 is in progress** (inventory/schema/privacy gate); then M9.2 consent, M9.3 storage/provenance, M9.4 lifecycle, M9.5 safety exit audit. Do not skip ahead.
+10. M9.1 inventory/schema/privacy gate **completed** on exact-SHA run 39900778509. **M9.2 explicit opt-in and record-level approval is next**, followed by M9.3 storage/provenance, M9.4 lifecycle, M9.5 safety exit audit. Do not skip ahead.
 11. M10.1–M10.4 run as the benchmark/release track; final release gate waits for M9 and real Windows acceptance.
 
 At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head and latest applicable CI, then work only on the first incomplete item above. Do not skip, restart or mark a phase complete based only on a commit.

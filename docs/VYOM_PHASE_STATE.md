@@ -43,12 +43,21 @@ This is the authoritative phase register for continuing work across chats. Read 
 - M7.7 continues to report freshness, evidence sufficiency, attribution, specificity and duplicate/repost metadata. Missing publication dates remain unknown; quality scores are metadata heuristics, not truth probabilities. Very short/boilerplate or weak-metadata primary evidence stays unknown with its citation.
 - M7 automated acceptance is complete. Limitations: source quality is a bounded heuristic, duplicate checks cover only excerpts retrieved in the current lookup, publisher independence is not verified, and GitHub CI does not prove live external-network/TLS reliability or real interaction with the user's Windows desktop/microphone.
 
-## Current phase — IN PROGRESS
+## Last verified completed phase — M9.1
 - **M9.1 — Opt-in learning baseline and memory-schema inventory**
-- Current deliverables: `docs/VYOM_M9_MEMORY_INVENTORY.md`, proposed `docs/schemas/vyom_user_memory.v1.schema.json`, and deterministic tests in `tests/test_m9_1_memory_inventory.py`.
-- The initial source inspection found that `SessionMemory` is transient, while `SkillRegistry` persists goal/plan specification JSON. The runtime skill registry and temp file are now excluded from source control to reduce accidental data disclosure.
-- This phase does not activate long-term personal memory, add persistence of user corrections, or enable learning by default. Those require explicit opt-in/consent in M9.2 and later gates.
-- M9.1 acceptance is pending the full exact-SHA CI run. Do not begin M9.2 until the inventory/schema tests pass and phase-state is updated with the green run.
+- Exact tested code/test commit: `9fa8f8bde39611079e4bce170e77a955d8794432`
+- Exact-SHA full CI: [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) — **success**.
+- CI result: **399 tests passed, 30 subtests passed**; Python syntax/core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload passed.
+- Deliverables: `docs/VYOM_M9_MEMORY_INVENTORY.md`, proposed design-only `docs/schemas/vyom_user_memory.v1.schema.json`, deterministic tests in `tests/test_m9_1_memory_inventory.py`, and .gitignore rules for local skill registry JSON/temp files.
+- Findings: `SessionMemory` and conversation history are bounded in-process context; `SkillRegistry` separately persists skill goal/plan JSON, while the recovery journal is already a minimal fail-closed marker that excludes action payloads.
+- Limits: this was an inventory/schema gate only. The proposed schema is not wired to runtime storage; no persistent personal memory or automatic learning was enabled. Runtime validation, user consent, deletion verification and OS-level privacy protections remain later acceptance work.
+
+## Next phase — READY, NOT STARTED
+- **M9.2 — Explicit opt-in and record-level approval**
+- Keep persistent learning default-off. Add user-visible opt-in and explicit approval of each correction/preference/verified-workflow record before durable personal-memory writes.
+- Test missing, stale, invalid and revoked consent; withdrawal; one-time corrections that must not persist without approval; and safe behavior if consent state cannot be read.
+- Review existing `SkillRegistry` goal/plan persistence separately: skill enablement approval is not consent to retain personal memory.
+- Do not implement durable personal-memory storage until the later versioned-storage phase and its schema-validation/lifecycle tests. M9.2 is the only next phase; reread this register and verify branch/head/CI before changes.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -85,3 +94,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-23: M8 passed exact-SHA CI on `0253010a1df4837a926631a63ad27042ce1f0d87` in [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866): 395 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification and `Vyom_EXE` upload. M9.1 opt-in learning baseline and memory-schema inventory is next.
 
 - 2026-10-23: M9.1 started after M8 passed exact-SHA run 39899815866. Current baseline inventory, design-only schema and tests are in progress; long-term personal-memory runtime remains disabled.
+
+- 2026-10-23: M9.1 passed exact-SHA full CI on `9fa8f8bde39611079e4bce170e77a955d8794432` in [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509): 399 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.2 explicit opt-in and record-level approval is next.
