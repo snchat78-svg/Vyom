@@ -39,10 +39,13 @@ def _format(engine, command, intent=None):
 def test_m8_conflicting_sources_are_explicitly_left_unresolved_in_hindi():
     gateway = OfflineModelGateway()
     knowledge = StubKnowledge({
-        "success": False,
-        "answer": "",
+        "success": True,
+        "answer": "The answer is definitely unsupported value 123.",
         "answer_status": "conflicting_sources",
-        "sources": [{"title": "Source A"}, {"title": "Source B"}],
+        "sources": [
+            {"title": "Source A", "url": "https://source-a.example.org/fact"},
+            {"title": "Source B", "url": "https://source-b.example.org/fact"},
+        ],
         "evidence": {"source_count": 2},
     })
     engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
@@ -57,10 +60,13 @@ def test_m8_conflicting_sources_are_explicitly_left_unresolved_in_hindi():
 def test_m8_conflicting_sources_are_explicitly_left_unresolved_in_english():
     gateway = OfflineModelGateway()
     knowledge = StubKnowledge({
-        "success": False,
-        "answer": "",
+        "success": True,
+        "answer": "Definitely use unsupported value 999.",
         "answer_status": "conflicting_sources",
-        "sources": [{"title": "Source A"}, {"title": "Source B"}],
+        "sources": [
+            {"title": "Source A", "url": "https://source-a.example.org/fact"},
+            {"title": "Source B", "url": "https://source-b.example.org/fact"},
+        ],
     })
     engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
 
@@ -68,14 +74,16 @@ def test_m8_conflicting_sources_are_explicitly_left_unresolved_in_english():
 
     assert "sources disagree" in answer
     assert "unresolved" in answer
+    assert "Definitely use unsupported value 999" not in answer
+    assert "https://source-a.example.org/fact" in answer
     assert gateway.calls == 0
 
 
 def test_m8_weak_retrieved_evidence_is_not_presented_as_a_fact():
     gateway = OfflineModelGateway()
     knowledge = StubKnowledge({
-        "success": False,
-        "answer": "",
+        "success": True,
+        "answer": "Unsupported claim 999 is certainly true.",
         "answer_status": "unknown",
         "reason": "weak_source_quality",
         "sources": [{"title": "Weak source", "url": "https://example.org/item"}],
@@ -87,6 +95,8 @@ def test_m8_weak_retrieved_evidence_is_not_presented_as_a_fact():
 
     assert "isn't strong enough" in answer
     assert "won't guess" in answer
+    assert "Unsupported claim 999" not in answer
+    assert "https://example.org/item" in answer
     assert gateway.calls == 0
 
 
