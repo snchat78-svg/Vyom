@@ -26,13 +26,13 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M9.1 passed; M9.2 next
+## Current verified handoff — M9.1 passed; M9.2 in progress
 - Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`
 - Exact-SHA full CI: [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) — success, 395 tests + 30 subtests.
 - CI also passed tracked Python syntax, core/voice imports, clean build, Windows EXE build/verification, and `Vyom_EXE` artifact upload.
 - M8 source-response matrix tests enforce status-over-success precedence, explicit citations, inference labelling, honest unknown/conflict responses and provider-outage fallback.
 - **M9.1 status:** exact-SHA CI [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) passed on `9fa8f8bde39611079e4bce170e77a955d8794432`: 399 tests + 30 subtests; syntax/import checks, clean build, Windows EXE verification/upload passed. The schema remains design-only and persistent personal memory is not enabled.
-- **Next phase:** M9.2 — explicit opt-in and record-level approval.
+- **Current phase:** M9.2 — explicit opt-in and record-level approval. The CLI is typed-text-only; consent and record approval are process-local and no personal-memory records are persisted.
 - Real Windows desktop/microphone and live external-network/TLS checks remain external validation tasks, not claims established by CI.
 
 ## Phase matrix
@@ -97,7 +97,9 @@ This file is the hand-off record across conversations. The repository code and C
 - Exact-SHA [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) passed: 399 tests + 30 subtests, Python syntax/core/voice imports, clean build, Windows EXE verification and artifact upload. No runtime long-term personal-memory storage was added. **Next: M9.2 explicit opt-in and record-level approval.**
 
 
-## M9.2 hand-off — ready, not started
-- Implement explicit default-off user consent and per-record approval before durable personal-memory writes. Test missing/expired/revoked consent rejection and withdrawal.
+## M9.2 work-in-progress checkpoint (2026-10-23)
+- Added `ai_core/memory_consent.py` with default-off session consent, safe bounded candidate validation, separate per-record approval and fail-closed `can_write` authorization. Typed CLI commands are wired through `ai_core/main.py`.
 - Review SkillRegistry persistence of goal/plan specifications separately; enabling a generated capability is not consent to store a personal preference or correction.
 - Keep validated versioned memory storage for M9.3; do not skip directly to export/deletion or the final release gate.
+
+- Regression coverage is in `tests/test_m9_2_memory_consent.py`: opt-in visibility, default-off, no disk writes, explicit per-record approval, tamper/scope/expiry rejection, consent withdrawal, restart default-off and normal command pass-through. Exact-SHA CI is pending for this phase.

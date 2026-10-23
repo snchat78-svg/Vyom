@@ -114,6 +114,7 @@ def main():
 
     from command_engine.parser import CommandParser
     from ai_core.conversation_manager import ConversationManager
+    from ai_core.memory_consent import MemoryConsentManager, handle_memory_command
     import command_engine.executor as command_executor
 
     # The durable journal stores only a hashed recovery fingerprint and status,
@@ -133,6 +134,8 @@ def main():
     parser = CommandParser()
     # Text and voice share one turn manager, history, trace contract and executor.
     conversation_manager = ConversationManager()
+    # Consent is session-only until the separately gated persistent-storage phase.
+    memory_consent_manager = MemoryConsentManager()
     voice_controller = VoiceController(conversation_manager=conversation_manager)
 
     # ============================================================
@@ -194,6 +197,16 @@ def main():
 
             _safe_print("Vyom : Goodbye")
             break
+
+        # ========================================================
+        # EXPLICIT MEMORY CONSENT (TYPED TEXT ONLY)
+        # ========================================================
+
+        memory_response = handle_memory_command(command, memory_consent_manager)
+        if memory_response is not None:
+            _safe_print("Vyom : " + memory_response)
+            _safe_print("")
+            continue
 
         # ========================================================
         # VOICE MODE

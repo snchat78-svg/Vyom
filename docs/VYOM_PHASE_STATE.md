@@ -52,12 +52,12 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Findings: `SessionMemory` and conversation history are bounded in-process context; `SkillRegistry` separately persists skill goal/plan JSON, while the recovery journal is already a minimal fail-closed marker that excludes action payloads.
 - Limits: this was an inventory/schema gate only. The proposed schema is not wired to runtime storage; no persistent personal memory or automatic learning was enabled. Runtime validation, user consent, deletion verification and OS-level privacy protections remain later acceptance work.
 
-## Next phase — READY, NOT STARTED
+## Current phase — IN PROGRESS
 - **M9.2 — Explicit opt-in and record-level approval**
-- Keep persistent learning default-off. Add user-visible opt-in and explicit approval of each correction/preference/verified-workflow record before durable personal-memory writes.
-- Test missing, stale, invalid and revoked consent; withdrawal; one-time corrections that must not persist without approval; and safe behavior if consent state cannot be read.
-- Review existing `SkillRegistry` goal/plan persistence separately: skill enablement approval is not consent to retain personal memory.
-- Do not implement durable personal-memory storage until the later versioned-storage phase and its schema-validation/lifecycle tests. M9.2 is the only next phase; reread this register and verify branch/head/CI before changes.
+- Work in this commit adds `ai_core/memory_consent.py` plus typed CLI commands: `memory consent status/on/off`, `memory pending`, and `memory approve <candidate-id>`.
+- Consent defaults OFF; opting in is for the current process only. A candidate must be reviewed and separately approved, and `can_write` authorizes only an unchanged, active, unexpired approved record with matching scope.
+- Withdrawal clears pending candidates and approved session records. Restart returns to default OFF. No personal-memory records or consent choices are written to disk in M9.2; storage is a later phase.
+- M9.2 acceptance is pending full exact-SHA CI. If any test fails, fix M9.2 rather than starting M9.3.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -96,3 +96,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-23: M9.1 started after M8 passed exact-SHA run 39899815866. Current baseline inventory, design-only schema and tests are in progress; long-term personal-memory runtime remains disabled.
 
 - 2026-10-23: M9.1 passed exact-SHA full CI on `9fa8f8bde39611079e4bce170e77a955d8794432` in [run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509): 399 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.2 explicit opt-in and record-level approval is next.
+
+- 2026-10-23: M9.2 started after M9.1 passed exact-SHA run 39900778509. Consent is session-only and default-off; no persistent personal-memory write path is enabled.

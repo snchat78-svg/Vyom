@@ -188,11 +188,11 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 - **M9.1 gate: passed** — exact-SHA [CI run 39900778509](https://github.com/snchat78-svg/Vyom/actions/runs/39900778509) on `9fa8f8bde39611079e4bce170e77a955d8794432`: **399 tests + 30 subtests**, syntax/import checks, clean build, Windows EXE verification/upload.
 - **Boundary:** inventory/schema only; no runtime long-term personal-memory storage or automatic learning was introduced. Schema descriptions do not replace runtime validation, consent, deletion verification or OS-level privacy controls.
 
-### M9.2 — Explicit opt-in and approval (NEXT; not started)
-- Add user-visible opt-in/on-off consent, defaulting off, and per-record approval before every durable correction/preference/verified-workflow write.
+### M9.2 — Explicit opt-in and approval (IN PROGRESS)
+- **Current implementation:** `ai_core/memory_consent.py` adds session-only default-off consent, whitelisted/bounded candidates and a separate explicit approval envelope; `ai_core/main.py` exposes typed-text commands `memory consent status/on/off`, `memory pending` and `memory approve <candidate-id>`. No record or consent preference is persisted.
 - Distinguish a one-time STT correction from permission to retain it. Missing, stale, invalid, revoked or unreadable consent must fail closed; withdrawal must block new writes/retrieval.
 - Review the existing SkillRegistry goal/plan persistence boundary separately. Skill validation/approval before enabling a generated capability is not personal-memory consent.
-- **Gate:** tests prove default-off writes, per-record approval, no persistence from a single noisy transcript without consent, consent withdrawal and invalid/missing consent rejection. Do not implement memory persistence in this phase.
+- **Gate (pending CI):** tests must prove default-off, explicit opt-in, per-record approval, unchanged-record write authorization only, scope/expiry/tamper rejection, withdrawal/restart default-off and no disk writes. M9.2 does not add durable memory storage.
 
 ### M9.3 — Versioned storage and provenance
 - Implement approved records using existing storage components where feasible; enforce schema validation, bounded values, migration safety and atomic writes.
@@ -237,7 +237,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 7. M6 execute/verify/recover.
 8. M7.1–M7.7 source retrieval/evidence quality and combined audit — completed.
 9. M8 general reasoning/sourced-answer evaluation — automated gate completed on exact-SHA run 39899815866.
-10. M9.1 inventory/schema/privacy gate **completed** on exact-SHA run 39900778509. **M9.2 explicit opt-in and record-level approval is next**, followed by M9.3 storage/provenance, M9.4 lifecycle, M9.5 safety exit audit. Do not skip ahead.
+10. M9.1 inventory/schema/privacy gate **completed** on exact-SHA run 39900778509. **M9.2 explicit opt-in and record-level approval is in progress**; then M9.3 storage/provenance, M9.4 lifecycle, M9.5 safety exit audit. Do not skip ahead.
 11. M10.1–M10.4 run as the benchmark/release track; final release gate waits for M9 and real Windows acceptance.
 
 At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head and latest applicable CI, then work only on the first incomplete item above. Do not skip, restart or mark a phase complete based only on a commit.
