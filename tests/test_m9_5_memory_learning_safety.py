@@ -222,6 +222,6 @@ def test_m9_5_memory_hints_do_not_disable_action_risk_confirmation():
 def test_m9_5_reasoning_prompt_limits_memory_to_advisory_presentation_hints():
     prompt = ModelGateway()._system_prompt().lower()
     assert "approved_memory_hints" in prompt
-    assert "may bypass confirmation" in prompt
+    assert "bypass ambiguity clarification or risk confirmation" in prompt
     assert "must not change the user's current goal" in prompt
-    assert "never grant capabilities" in prompt
+    assert "capability grants" in prompt
