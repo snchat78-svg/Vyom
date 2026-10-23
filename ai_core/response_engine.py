@@ -505,34 +505,10 @@ class ResponseEngine:
             except Exception as error:
                 log("[KNOWLEDGE] Web lookup failed: %s" % str(error)[:180])
                 lookup = {"success": False, "answer": ""}
-            if isinstance(lookup, dict) and lookup.get("success") and str(lookup.get("answer") or "").strip():
-                source = lookup.get("source") if isinstance(lookup.get("source"), dict) else {}
-                log("[KNOWLEDGE] SOURCE: %s | %s" % (
-                    str(source.get("title") or source.get("site") or "unknown"),
-                    str(source.get("url") or ""),
-                ))
-                return str(lookup["answer"]).strip()
             lookup = lookup if isinstance(lookup, dict) else {}
-            answer_status = str(lookup.get("answer_status") or "unknown").strip().lower()
+            answer_status = str(lookup.get("answer_status") or "").strip().lower()
             sources = lookup.get("sources")
             sources = sources if isinstance(sources, list) else []
-            log("[KNOWLEDGE] NO SOURCE: %s | status=%s" % (
-                str(lookup.get("reason") or "empty_result"), answer_status
-            ))
-
-            # Keep epistemic outcomes distinct: disagreement is not the same as
-            # no retrieval, and weak evidence must not be presented as a fact.
-            if answer_status == "conflicting_sources":
-                if preferred_language == "en":
-                    return (
-                        "The available sources disagree on this answer, so I can't "
-                        "reliably choose one as correct. The claim remains unresolved."
-                    )
-                return (
-                    "उपलब्ध स्रोत इस उत्तर पर एक-दूसरे से असहमत हैं, इसलिए मैं किसी "
-                    "एक को सही घोषित नहीं कर सकता। यह तथ्य अभी अनिर्णीत है।"
-                )
-
             evidence = lookup.get("evidence")
             evidence = evidence if isinstance(evidence, dict) else {}
             quality = evidence.get("source_quality")
@@ -540,23 +516,73 @@ class ResponseEngine:
                 str(quality.get("status") or "").lower() in {"weak", "insufficient", "low"}
                 or quality.get("sufficient") is False
             )
-            if answer_status == "unknown" and (sources or weak_quality):
+
+            def citation_suffix():
+                citations = []
+                seen = set()
+                for item in sources[:3]:
+                    if not isinstance(item, dict):
+                        continue
+                    title = str(item.get("title") or item.get("site") or "").strip()
+                    url = str(item.get("url") or "").strip()
+                    label = (title + " (" + url + ")") if title and url else (url or title)
+                    label = label[:420]
+                    if label and label not in seen:
+                        seen.add(label)
+                        citations.append(label)
+                return (" | Sources: " + "; ".join(citations)) if citations else ""
+
+            # Status takes precedence over a provider's success flag or answer
+            # text. This prevents an inconsistent adapter from promoting a
+            # conflicted/unknown claim simply because it returned success=True.
+            if answer_status == "conflicting_sources":
+                log("[KNOWLEDGE] UNRESOLVED CONFLICT: %s" % str(lookup.get("reason") or "source_disagreement"))
                 if preferred_language == "en":
-                    return (
-                        "I found some material, but it isn't strong enough to support "
-                        "a reliable answer. I won't guess; please check a more authoritative source."
+                    message = (
+                        "The available sources disagree on this answer, so I can't "
+                        "reliably choose one as correct. The claim remains unresolved."
                     )
+                else:
+                    message = (
+                        "उपलब्ध स्रोत इस उत्तर पर एक-दूसरे से असहमत हैं, इसलिए मैं किसी "
+                        "एक को सही घोषित नहीं कर सकता। यह तथ्य अभी अनिर्णीत है।"
+                    )
+                return message + citation_suffix()
+
+            has_answer = bool(str(lookup.get("answer") or "").strip())
+            lookup_succeeded = bool(lookup.get("success")) and has_answer
+            if answer_status == "unknown" or not lookup_succeeded:
+                log("[KNOWLEDGE] NO SOURCE: %s | status=%s" % (
+                    str(lookup.get("reason") or "empty_result"), answer_status or "unspecified"
+                ))
+                if sources or weak_quality:
+                    if preferred_language == "en":
+                        message = (
+                            "I found some material, but it isn't strong enough to support "
+                            "a reliable answer. I won't guess; please check a more authoritative source."
+                        )
+                    else:
+                        message = (
+                            "कुछ सामग्री मिली है, लेकिन भरोसेमंद उत्तर देने के लिए प्रमाण पर्याप्त "
+                            "मज़बूत नहीं हैं। मैं अनुमान नहीं लगाऊँगा; कृपया किसी अधिक आधिकारिक स्रोत से जाँचें।"
+                        )
+                    return message + citation_suffix()
+
+                if preferred_language == "en":
+                    return "I couldn't find a reliable answer on the available websites. Please check your internet connection and try again."
                 return (
-                    "कुछ सामग्री मिली है, लेकिन भरोसेमंद उत्तर देने के लिए प्रमाण पर्याप्त "
-                    "मज़बूत नहीं हैं। मैं अनुमान नहीं लगाऊँगा; कृपया किसी अधिक आधिकारिक स्रोत से जाँचें।"
+                    "मुझे इस प्रश्न का भरोसेमंद उत्तर अभी वेबसाइटों से नहीं मिला। "
+                    "इंटरनेट उपलब्ध होने पर दोबारा खोजें। मैं बिना स्रोत के तथ्य गढ़कर जवाब नहीं दूँगा।"
                 )
 
-            if preferred_language == "en":
-                return "I couldn't find a reliable answer on the available websites. Please check your internet connection and try again."
-            return (
-                "मुझे इस प्रश्न का भरोसेमंद उत्तर अभी वेबसाइटों से नहीं मिला। "
-                "इंटरनेट उपलब्ध होने पर दोबारा खोजें। मैं बिना स्रोत के तथ्य गढ़कर जवाब नहीं दूँगा।"
-            )
+            # A normal sourced success retains the retrieval layer's explicit
+            # extractive answer and source label; this layer does not invent facts.
+            source = lookup.get("source") if isinstance(lookup.get("source"), dict) else {}
+            log("[KNOWLEDGE] SOURCE: %s | %s" % (
+                str(source.get("title") or source.get("site") or "unknown"),
+                str(source.get("url") or ""),
+            ))
+            return str(lookup["answer"]).strip()
 
         # Remote response generation is opt-in. Deterministic local responses
         # and website-backed factual retrieval work without any AI provider.
