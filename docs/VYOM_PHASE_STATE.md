@@ -116,8 +116,8 @@ This is the authoritative phase register for continuing work across chats. Read 
 
 - 2026-10-23: M9.2 started after M9.1 passed exact-SHA run 39900778509. Consent is session-only and default-off; no persistent personal-memory write path is enabled.
 
-- 2026-10-23: M9.2 passed exact-SHA CI on `2401889a7efa0248736e196961063db160f09a6c` in [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967): 408 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.3 versioned local memory storage and provenance is next.
+- 2026-10-23: M9.2 passed exact-SHA CI on `2401889a7efa0248736e196961063db160f09a6c` in [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967): 408 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.3 implementation followed.
 
-- 2026-10-23: M9.3 implementation is committed at `e9dde6a8629cdb6e7641c95ad44448e34bcffabb`; [run 39905813305](https://github.com/snchat78-svg/Vyom/actions/runs/39905813305) is the initial exact-SHA run for this tree. Phase completion is pending its final full CI result.
+- 2026-10-23: M9.3 code/test commit `e9dde6a8629cdb6e7641c95ad44448e34bcffabb` passed exact-SHA [run 39905813305](https://github.com/snchat78-svg/Vyom/actions/runs/39905813305): 419 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload.
 
 - 2026-10-23: M9.3 passed exact-SHA full CI on `de32220023fca744089edcd0311a0d2234a4daae` in [run 39906002229](https://github.com/snchat78-svg/Vyom/actions/runs/39906002229): 419 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload. M9.4 review/export/deletion is next.
