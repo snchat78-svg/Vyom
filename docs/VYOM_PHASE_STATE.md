@@ -60,11 +60,13 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Behavior: typed CLI exposes session-only opt-in/withdrawal, pending review, separate per-record approval and fail-closed write authorization. Consent defaults OFF; withdrawal clears session approvals; restart resets consent.
 - Limits: M9.2 implemented consent and approval gates only. No long-term memory file was added in that phase; subsequent storage needs schema validation and lifecycle controls. SkillRegistry capability-goal persistence remains a separate retention boundary.
 
-## Next phase — READY, NOT STARTED
+## Current phase — IN PROGRESS
 - **M9.3 — Versioned local memory storage and provenance**
-- Add an atomic, bounded versioned store for approved records using the M9.1 schema; preserve provenance, confidence, scope, creation/update/expiry and per-record approval.
-- Reads and writes must require current global consent; writes additionally require a matching explicit per-record approval. Unknown schema versions, corruption, oversized files, tampered records and expired/wrong-scope entries fail closed.
-- Add exact-SHA tests for round-trip/reload, atomic write failure, schema validation, limits, consent-off blocking and expiry/scope handling. Do not start M9.4 until M9.3's exact-SHA CI passes.
+- Implementation: `ai_core/user_memory_store.py`; updates to `ai_core/memory_consent.py` and `ai_core/main.py`; tests in `tests/test_m9_3_user_memory_store.py`.
+- Store contract: per-user local path, strict schema-v1 record/envelope validation, at most 256 records and 1 MB, atomic temp-write + flush/fsync + replace, and no repository-relative storage default.
+- Typed flow: `memory consent on` → `memory propose correction <old> => <new>` / `memory propose preference <key> => <value>` → `memory pending` → `memory approve <candidate-id>` → `memory save <candidate-id>`. No automatic learning from speech transcripts is wired.
+- Reads are blocked while consent is OFF. Saves require the unchanged, session-approved record and valid schema, provenance, scope, confidence and expiry. Corrupt, oversized and unsupported-version files fail closed and are not overwritten.
+- M9.3 is not complete until exact-SHA full CI and Windows EXE verification/upload pass. Fix failures in this phase; do not start M9.4 early.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -107,3 +109,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-23: M9.2 started after M9.1 passed exact-SHA run 39900778509. Consent is session-only and default-off; no persistent personal-memory write path is enabled.
 
 - 2026-10-23: M9.2 passed exact-SHA CI on `2401889a7efa0248736e196961063db160f09a6c` in [run 39901852967](https://github.com/snchat78-svg/Vyom/actions/runs/39901852967): 408 tests + 30 subtests, syntax/import checks, clean build, Windows EXE verification/upload. M9.3 versioned local memory storage and provenance is next.
+
+- 2026-10-23: M9.3 implementation is committed at `e9dde6a8629cdb6e7641c95ad44448e34bcffabb`; [run 39905813305](https://github.com/snchat78-svg/Vyom/actions/runs/39905813305) is the initial exact-SHA run for this tree. Phase completion is pending its final full CI result.
