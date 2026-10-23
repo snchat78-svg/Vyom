@@ -85,7 +85,7 @@ def test_m8_weak_retrieved_evidence_is_not_presented_as_a_fact():
 
     answer = _format(engine, "what is the answer? answer in english")
 
-    assert "not strong enough" in answer
+    assert "isn't strong enough" in answer
     assert "won't guess" in answer
     assert gateway.calls == 0
 
