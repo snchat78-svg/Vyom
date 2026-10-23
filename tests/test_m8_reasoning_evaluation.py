@@ -126,3 +126,60 @@ def test_m8_knowledge_provider_exception_returns_safe_unknown_answer():
     assert "reliable answer" in answer
     assert "invent" not in answer.lower()
     assert gateway.calls == 0
+
+
+
+def test_m8_successful_sourced_answer_keeps_explicit_url_citation():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "New Delhi is the capital of India.",
+        "answer_status": "sourced_excerpt",
+        "source": {"title": "Source A", "url": "https://source-a.example.org/capital"},
+        "sources": [{"title": "Source A", "url": "https://source-a.example.org/capital"}],
+        "evidence": {"source_count": 1, "inference_used": False},
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "what is the capital of India? answer in english")
+
+    assert "New Delhi is the capital of India." in answer
+    assert "https://source-a.example.org/capital" in answer
+    assert gateway.calls == 0
+
+
+def test_m8_inferred_answer_is_explicitly_qualified_and_cited():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "The cause may be a configuration mismatch.",
+        "answer_status": "inferred",
+        "sources": [{"title": "Diagnostic notes", "url": "https://example.org/diagnostic"}],
+        "evidence": {"source_count": 1, "inference_used": True},
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "why did this happen? answer in english")
+
+    assert answer.startswith("This is an inference, not a directly sourced or verified fact.")
+    assert "https://example.org/diagnostic" in answer
+    assert gateway.calls == 0
+
+
+def test_m8_provider_reported_known_information_is_not_mislabeled_as_verified():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "A known reference value is 9.8 m/s².",
+        "answer_status": "known",
+        "sources": [{"title": "Reference source", "url": "https://example.org/reference"}],
+        "evidence": {"source_count": 1, "inference_used": False},
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "what is the reference value? answer in english")
+
+    assert "classifies this as known information" in answer
+    assert "not independent verification" in answer
+    assert "https://example.org/reference" in answer
+    assert gateway.calls == 0
