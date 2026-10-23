@@ -604,6 +604,17 @@ class ResponseEngine:
                     answer_text = "This is an inference, not a directly sourced or verified fact. " + answer_text
                 else:
                     answer_text = "यह अनुमान है, सीधे स्रोत से पुष्ट या सत्यापित तथ्य नहीं। " + answer_text
+            elif answer_status == "known":
+                if preferred_language == "en":
+                    answer_text = (
+                        "The configured knowledge source classifies this as known information; "
+                        "that label is not independent verification. " + answer_text
+                    )
+                else:
+                    answer_text = (
+                        "कॉन्फ़िगर किया गया knowledge source इसे ज्ञात जानकारी मानता है; "
+                        "यह लेबल स्वतंत्र सत्यापन नहीं है। " + answer_text
+                    )
             return attach_missing_citations(answer_text)
 
         # Remote response generation is opt-in. Deterministic local responses
