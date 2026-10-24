@@ -44,7 +44,7 @@ def _load_json(path: Path) -> Any:
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\\n"
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
     path.write_text(encoded, encoding="utf-8")
 
 
