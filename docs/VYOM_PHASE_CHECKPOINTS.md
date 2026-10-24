@@ -26,31 +26,13 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M10.2 passed; M10.3 in progress
-- M10.1 corpus exact-SHA CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) passed on `5841279846599e349dedaadd942ce7736e6c82c2` with 440 tests + 30 subtests.
-- M10.2 runner exact-SHA CI: [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) passed on `5daeb9c5ec83bccb41a96f362c4141282551640f` with 449 tests + 30 subtests.
-- CI passed tracked Python syntax, critical/core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload.
-- M10.1 delivers 15 synthetic benchmark contracts in `tests/fixtures/m10_1_vyom_benchmark_corpus.json`, coverage/oracle tests in `tests/test_m10_1_benchmark_corpus.py`, and the benchmark protocol.
-- **M10.2 status:** full offline runner, benchmark-report validation, Windows EXE and both artifacts passed exact-SHA CI. Artifact ID `12550488787` is `Vyom_M10_2_Benchmark_Baseline`.
-- **Current phase:** M10.3 CI regression thresholds. Threshold policy and checker must continue to label all fixture values as synthetic harness conformance, never actual Vyom product accuracy or safety.
-
-| Phase/checkpoint | Existing implementation and evidence | Status before M0.3 | Remaining acceptance |
-|---|---|---|---|
-| M0 baseline / exit gate | Shared ConversationManager, canonical result schema, bounded history, trace summaries, bounded plan topology, and voice/text executor parity | Implemented + exact-commit CI tested (run 39401980752) | Real Windows/microphone and cross-app acceptance |
-| M0.1 input trace | `voice/voice_controller.py`, `ai_core/conversation_manager.py`, `tests/test_conversation_manager.py`; raw STT text, normalized input, confidence, corrections, result stage and verification status | Implemented + CI tested | Real Windows microphone/voice round-trip |
-| M0.2 pipeline trace | `command_engine/executor.py`, `ai_core/conversation_manager.py`; trace ID, intent/route, compact goal-compilation/mission/context summaries and privacy tests | Implemented + CI tested | Observation events linked to the same trace |
-| M0.3 observation correlation | Same-turn timestamped observations linked to trace ID; payload-free event summaries and no-observation state; validated by run 39399731304 | Implemented + CI tested | Real Windows observation behavior remains part of integration validation |
-| M0.4 shared frontend | `ai_core/main.py`, `voice/voice_controller.py` and `tests/test_m0_4_shared_frontend.py`; same manager handles typed and spoken turns | Implemented + CI tested (run 39400224264) | Real Windows interactive acceptance remains pending |
-| M1 noisy speech | Payload-safe command normalization, runtime candidate margin, exact AppsFolder unique-match gate, target typo/ambiguity/clarification coverage | Automated gate passed exact-SHA CI run 39405455918 | Real microphone/accent and interactive Windows/cross-app validation |
-| M2 meaning/intent | Meaning frame, generic targets, confidence threshold, clarification-before-dispatch, stateless normalization and terminal plan-precedence guard | Automated acceptance passed exact-SHA CI: runs 39405929075, 39415383368, 39416145129, 39416613583 and 39417115798 | Representative paraphrase/noisy-voice benchmark and real desktop/microphone validation; future persistent learning remains opt-in M9 work |
-| M3 complex planning | Dependency graph/re-plan guards, risk metadata, explicit pre-dispatch confirmation, shared text-front-end replies, expanded side-effect labels, and failed-prerequisite integration guard | Automated gates passed exact-SHA CI runs 39420557346, 39427132026, and 39608106621; complete test suite and Windows EXE build/verification/upload passed | Provider-specific irreversible effects and real multi-step Windows acceptance |
-| M4 world state | M4.1–M4.12: canonical world/context contract, clipboard opt-in, foreground coherence guards, live-UI availability and timestamp gates | M4.7–M4.12 automated acceptance passed exact-SHA CI run 39615193598 on 57b43cfd52f5ef6c95c150257165e640be22e101 | Fresh active-window/focus behavior on user's Windows PC |
-| M5 action grounding | M5.1–M5.7: runtime UI discovery, ambiguity rejection, target identity, postcondition verification, coherence and snapshot freshness | M5.6–M5.7 full automated gate passed exact-SHA run 39719715495 on `b7f566773ee23139fdd507e19b19588d8c587c33` | Real controls, layouts and foreground changes on Windows |
-| M6 execution/recovery | M6.1–M6.6 documented in roadmap; mission runtime, recovery tests and durable journal | Implemented automated guards; platform validation pending | Real delayed effects, restart, and side-effect validation |
-| M7 web/source answers | M7.1 public source boundary; M7.2 multi-source comparison; M7.3 DNS guard; M7.4 DNS-pinned transport; M7.5 bounded providers; M7.6 semantic conflict signals; M7.7 source-quality metadata and unknown-on-weak-evidence guard | M7.1 run 39720196175; M7.2 run 39730872062; M7.3 run 39741822185; M7.4 run 39746025751; M7.5 run 39753595589 (373 tests + 28 subtests); M7.6 run 39757311244 (380 tests + 28 subtests); M7.7 exact-SHA run 39785293786 (385 tests + 28 subtests); combined M7 audit passed exact-SHA run 39786556563 (387 tests + 30 subtests, syntax/import, clean build, Windows EXE verification/upload) | M7 automated acceptance complete; M8 general reasoning/sourced-answer evaluation is next (not started) |
-| M8 general reasoning | `0253010a1df4837a926631a63ad27042ce1f0d87`; [exact-SHA CI run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866) passed with 395 tests + 30 subtests; syntax/import, clean build, Windows EXE verification/upload also passed | **Completed — automated gate passed** | Live external network/TLS and real Windows/microphone acceptance remain external; M9.1 is next |
-| M9 opt-in learning | M9.5 exact-SHA CI [39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937) passed: 436 tests + 30 subtests, Windows EXE verified/uploaded | **M9.1–M9.5 completed** | M10.1 benchmark corpus passed exact-SHA CI [39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550); M10.2 reproducible metrics runner/baseline is next |
-| M10 release evaluation | M10.1 corpus passed exact-SHA CI [39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) on `5841279846599e349dedaadd942ce7736e6c82c2`: 440 tests + 30 subtests; Windows EXE verified/uploaded | M10.1 **completed**; M10.2 **next** | Build deterministic offline scenario runner, explicit metric denominators and a machine-readable baseline; no live desktop/network calls in CI |
+## Current verified handoff — M10.3 passed; M10.4 in progress
+- M10.1 corpus exact-SHA CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) passed on 5841279846599e349dedaadd942ce7736e6c82c2 with 440 tests + 30 subtests.
+- M10.2 runner exact-SHA CI: [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) passed on 5daeb9c5ec83bccb41a96f362c4141282551640f with 449 tests + 30 subtests.
+- M10.3 threshold gate passed on exact commit ec5f4753e6e386cdd50d5cf508de78732939862a in [run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538): 459 tests + 30 subtests and 22/22 threshold checks; Windows EXE and all M10.2/M10.3 artifacts were uploaded.
+- **Current phase:** M10.4 — real Windows integration and release exit gate. The repo now adds a PowerShell 3-compatible host preflight and clean-exit smoke test that records non-sensitive device facts and leaves real UI/audio cases as not_run.
+- **Platform risk:** Python 3.11's documented Windows baseline is Windows 8.1 (version 6.3) or newer. The previously reported Windows 8.0/version 6.2 host is outside this baseline; no release acceptance can be claimed until the actual OS version is checked and a supported target is tested.
+- A CI-host smoke report is not target-device evidence. Manual UI grounding, microphone/STT/TTS, compound tasks, postcondition verification, provider outage/unknown response and low-memory stability remain pending.
 
 ## Current phase hand-off
 
@@ -134,9 +116,14 @@ This file is the hand-off record across conversations. The repository code and C
 - The Windows EXE was built and verified. Artifact `Vyom_M10_2_Benchmark_Baseline` (ID `12550488787`) and `Vyom_EXE` (ID `12551071242`) were uploaded.
 - Baseline is fixed synthetic fixture/harness conformance only. Product accuracy/safety and product latency are explicitly not measured.
 
-## M10.3 work-in-progress checkpoint (2026-10-24)
-- Add `tests/fixtures/m10_3_regression_thresholds.json`, `tools/vyom_benchmark_thresholds.py`, and `tests/test_m10_3_regression_thresholds.py`.
-- CI will run the threshold checker against the deterministic M10.2 report and upload a machine-readable M10.3 gate report.
-- Required failure modes: contract/invariant failure, nonzero errors/unrun in a required full run, missing metrics or invalid denominator, rate/numerator mismatch, threshold breach, unsafe fixture-signal regression, and any claim that product latency/accuracy was measured by this stub.
-- Status remains in progress until exact-SHA full CI and artifact upload succeed. M10.4 real Windows acceptance stays separate.
+## M10.3 acceptance record — passed exact-SHA CI (2026-10-24)
+- Exact-SHA run [40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538) passed on ec5f4753e6e386cdd50d5cf508de78732939862a.
+- Full test result: 459 tests + 30 subtests; M10.2 benchmark report passed validation; M10.3 threshold output reported 22 checks passed, 0 failed.
+- Artifact outputs: Vyom_EXE ID 12553818070; Vyom_M10_2_Benchmark_Baseline ID 12553669304; Vyom_M10_3_Regression_Gate ID 12553967403.
+- Product accuracy/safety/latency remain unmeasured by the synthetic runner.
 
+## M10.4 work-in-progress checkpoint (2026-10-24)
+- Add tools/vyom_windows_acceptance.ps1 and docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. The script supports Windows PowerShell 3+, collects OS/version/architecture/RAM and EXE hash/size, then optionally sends only the harmless "exit" command to the EXE and verifies clean shutdown.
+- Workflow runs that script against the CI-built EXE and uploads Vyom_M10_4_CI_Preflight. This verifies the host smoke helper only; it is not evidence that a user's machine passed.
+- Manual acceptance IDs: typed startup/exit, Hindi/Hinglish text, microphone/STT/TTS, UI grounding, multi-step dependency order, postcondition verification, provider outage/unknown response, memory consent/opt-out and low-memory stability. They remain not_run pending target-device evidence.
+- The current Python 3.11 build baseline supports Windows 8.1/version 6.3 or newer. Windows 8.0/version 6.2 must be blocked by preflight. The target-device release gate is not complete until a supported target is tested.

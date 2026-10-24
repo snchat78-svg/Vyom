@@ -40,15 +40,14 @@ The exact-SHA full CI gate passed on `5841279846599e349dedaadd942ce7736e6c82c2` 
 - Unknown scenario IDs/outcomes, duplicates, malformed signals and invalid corpus input fail closed. Fixed inputs produce byte-deterministic JSON.
 - **Acceptance passed:** exact-SHA [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) on `5daeb9c5ec83bccb41a96f362c4141282551640f` — **449 tests + 30 subtests**, syntax/core/voice imports, deterministic runner/report validation, clean build, Windows EXE verification, and upload of both report files passed. `Vyom_M10_2_Benchmark_Baseline` artifact ID: `12550488787`.
 
-## M10.3 — CI regression thresholds (in progress)
-- Thresholds are for deterministic synthetic harness conformance only; do not present them as measured product accuracy or safety.
-- The threshold checker will validate the full 15-scenario fixture, expected denominator contracts, zero stub invariant violations, all required metric numerator/denominator/rate relationships, and the unmeasured product latency/accuracy boundary.
-- CI will fail on a threshold breach and upload the machine-readable gate report.
-- **Next after M10.3:** M10.4 — real Windows integration and release exit gate.
+## M10.3 CI regression thresholds — completed (2026-10-24)
+- Exact-SHA [run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538) passed on ec5f4753e6e386cdd50d5cf508de78732939862a with 459 tests + 30 subtests.
+- The gate report had 22 checks total: 22 passed, 0 failed. It required the complete 15-scenario synthetic fixture run, exact denominators, internally consistent metric rates/counts, zero fixture unsafe-guess signal, and the explicit unmeasured product-accuracy/latency boundary.
+- Artifacts uploaded: Vyom_M10_2_Benchmark_Baseline, Vyom_M10_3_Regression_Gate, and Vyom_EXE.
+- Scope remains deterministic harness conformance only; no live product accuracy or latency was measured.
 
-
-## M10.3 CI regression-threshold policy (in progress)
-- Policy: `tests/fixtures/m10_3_regression_thresholds.json`; checker: `tools/vyom_benchmark_thresholds.py`; tests: `tests/test_m10_3_regression_thresholds.py`.
-- The gate requires the complete 15-scenario synthetic fixture run, exact denominators for each applicable signal, internally consistent numerator/rate/sample-size values, no scenario/invariant/prohibited-outcome regressions, and zero unsafe-guess fixture signals.
-- The machine-readable report is `artifacts/m10_3/threshold_report.json` and will be uploaded as `Vyom_M10_3_Regression_Gate`.
-- This is a harness-only gate. Product accuracy and product latency must remain explicitly unmeasured by this synthetic runner.
+## M10.4 Windows acceptance — in progress
+- Protocol: docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. Preflight helper: tools/vyom_windows_acceptance.ps1.
+- CI performs host OS/version checks and a harmless EXE clean-exit smoke test, then uploads Vyom_M10_4_CI_Preflight. This does not certify the user's device, microphone, audio output or desktop integration.
+- Current Python 3.11 package baseline requires Windows 8.1/version 6.3 or newer; version 6.2/Windows 8.0 must be marked unsupported. See https://docs.python.org/3.11/using/windows.html.
+- The actual device checklist remains not_run until evidence is collected for voice/STT/TTS, UI grounding, compound-task ordering, postcondition verification, provider outage/unknown responses, memory opt-out and low-memory stability.

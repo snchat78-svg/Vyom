@@ -1,0 +1,53 @@
+# M10.4 — Real Windows integration and release exit gate
+
+**Status:** in progress. GitHub CI has not performed acceptance on the user's physical computer. The PowerShell preflight and CI-host smoke test are evidence helpers, not a substitute for target-device validation.
+
+## M10.3 predecessor gate
+
+M10.3 passed on exact commit ec5f4753e6e386cdd50d5cf508de78732939862a in [GitHub Actions run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538): 459 tests + 30 subtests, 22/22 synthetic threshold checks, clean build, Windows EXE verification, and uploads for Vyom_EXE, Vyom_M10_2_Benchmark_Baseline and Vyom_M10_3_Regression_Gate. This is synthetic harness-conformance evidence only; it is not measured product accuracy, safety, or latency.
+
+## Platform compatibility is a hard preflight
+
+The current EXE workflow builds with Python 3.11. The official Python 3.11 Windows documentation says this runtime supports Windows 8.1 and newer; Windows 8.0 is below that baseline: https://docs.python.org/3.11/using/windows.html
+
+The preflight script therefore treats Windows version 6.2 (Windows 8.0) as BLOCKED and version 6.3 (Windows 8.1) or newer as eligible for further testing. Do not interpret a launch failure on Windows 8.0 as a confirmed application defect, and do not mark release acceptance complete on that OS. Supporting Windows 8.0 would require a separately reviewed packaging/support decision; silently falling back to an end-of-life Python runtime is not an acceptable release shortcut.
+
+The script records installed RAM but does not invent a hard memory threshold. On low-memory devices, responsiveness, audio stability, and crashes must be observed directly.
+
+## No-Python preflight and harmless launch check
+
+The script is compatible with Windows PowerShell 3+ and does not require a Python installation. Download it from the repository and run from the folder containing the downloaded EXE/script (or specify the EXE path):
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\vyom_windows_acceptance.ps1 -ExePath .\Vyom.exe -OutputPath .\M10_4_preflight.json -AttemptLaunchSmokeTest
+
+It writes a JSON report before returning. Exit code 2 means the OS is below the current Python 3.11 support baseline; exit code 1 means host facts, file inspection, or the optional launch smoke check failed. The smoke check sends only the harmless text command "exit"; it does not click controls, type into other applications, record microphone audio, or modify user files.
+
+CI runs the same script on the GitHub Actions host and uploads Vyom_M10_4_CI_Preflight. A green CI-host smoke test proves only that the script and EXE can start and exit on that host.
+
+## Manual target-device acceptance checklist
+
+Keep each item's status as not_run until it has been performed on the target Windows device. Record pass/fail, a short non-sensitive observation, OS version, and the relevant report filename. Do not collect API keys, passwords, raw transcripts, personal clipboard contents, or screenshots of private documents.
+
+| Test ID | Acceptance step | Pass condition | Evidence status |
+|---|---|---|---|
+| typed_startup_and_exit | Launch the EXE, enter a benign typed greeting/status command, then exit. | Starts without crash; normal exit; no Python install needed. | not_run |
+| hindi_and_hinglish_text | Try representative Hindi, Roman Hindi and Hinglish text commands. | Meaning is preserved; ambiguity requests clarification rather than guessing. | not_run |
+| microphone_stt_and_tts | Enter voice mode and use a harmless greeting/status utterance in a quiet room. | Voice is captured and recognized; TTS is audible; unavailable devices are reported clearly. | not_run |
+| ui_grounding | Use a non-destructive app/window task with an unambiguous target. | Correct target/window is observed; ambiguous targets are rejected or clarified. | not_run |
+| multi_step_dependencies | Run a reversible multi-step task with a clear prerequisite and inspect the sequence. | Dependent steps do not run before prerequisites. | not_run |
+| postcondition_verification | Ask Vyom to perform a reversible UI action and inspect the resulting state. | It reports success only if the postcondition is actually observed; otherwise it reports unverified/failed. | not_run |
+| provider_outage_unknown_answer | With connectivity unavailable, ask a factual question that requires web retrieval. Restore connectivity after the check. | It returns a qualified unknown/outage response and does not fabricate a sourced answer. | not_run |
+| memory_consent_and_opt_out | Check memory consent and opt out using the documented memory CLI. | Consent starts OFF; opt-out blocks memory use; action authority is not granted by memory. | not_run |
+| low_memory_stability | Repeat a small safe task while observing system responsiveness and crashes. | No repeatable hang/crash; note measured RAM use without treating a synthetic threshold as product evidence. | not_run |
+
+## Release evidence and exit criteria
+
+1. Capture the preflight JSON and confirm the OS baseline is supported.
+2. Fill the manual acceptance statuses only after each test has actually been run; include concise non-sensitive observations.
+3. If any check fails, leave M10.4 in progress and open/fix the corresponding defect; never convert not-run into pass.
+4. The final release gate requires M10.3's synthetic regression gate, M9.1–M9.5 safety gates, and target-device evidence for UI grounding, voice/STT/TTS, provider outage, multi-step order and verified postconditions.
+5. A report from GitHub Actions is labelled github_actions_runner and cannot be used as evidence that the user's own Windows installation passed.
+
+## Current known platform risk
+
+The previously reported device is Windows 8 64-bit with 2 GB RAM. The OS-version probe must distinguish Windows 8.0 from Windows 8.1. If it reports version 6.2, current Python 3.11-based packaging is outside its documented baseline and the real-device phase remains blocked pending a supported OS or a separately reviewed packaging decision. The 2 GB RAM value is a resource-risk observation, not a pass/fail threshold.

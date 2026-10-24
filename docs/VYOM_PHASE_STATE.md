@@ -96,11 +96,20 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Metrics/report disclose scenario labels, counts, sample sizes and metric numerator/denominator. Missing observations count as errors, unselected scenarios stay unrun and are excluded, and product latency remains `not_measured`.
 - **Boundary:** fixed synthetic observations validate harness wiring and contract-label conformance only. They are not measurements of actual Vyom accuracy, safety, task completion, or performance.
 
-## Current phase — IN PROGRESS
+## Last verified completed phase — M10.3
 - **M10.3 — CI regression thresholds**
-- Add a versioned threshold policy and a deterministic checker that evaluates the M10.2 report in CI, emits a machine-readable gate report, and fails the build on contract/invariant regressions, missing/unrun/error scenarios in the full-suite baseline, denominator drift, or unsafe fixture signal regressions.
-- Thresholds apply only to synthetic harness conformance. They must explicitly preserve `product_accuracy_measured=false` and `product_latency_ms.status=not_measured`; do not represent them as live product accuracy or safety.
-- Acceptance requires tests for valid baseline, threshold breaches, missing metrics/denominators, invalid policy/report, output determinism and CI integration. M10.3 remains in progress until the exact code/test SHA passes full CI and EXE/artifact upload.
+- Exact tested commit: ec5f4753e6e386cdd50d5cf508de78732939862a
+- Exact-SHA full CI: [run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538) — **success**.
+- CI result: **459 tests passed, 30 subtests passed**; M10.2 report generation/validation passed; M10.3 threshold gate reported **22 checks passed, 0 failed**; clean build, Windows EXE verification and artifact uploads passed.
+- Artifacts: Vyom_EXE (12553818070), Vyom_M10_2_Benchmark_Baseline (12553669304), and Vyom_M10_3_Regression_Gate (12553967403).
+- Measurement boundary: thresholds apply only to the fixed synthetic benchmark/harness. They do not measure live product accuracy, safety, completion or latency.
+
+## Current phase — IN PROGRESS
+- **M10.4 — Real Windows integration and release exit gate**
+- The same PowerShell preflight script is being added to the repo and run against the CI-built EXE. It records OS/version, architecture, installed RAM, executable hash/size and a harmless clean-exit smoke result; it does not collect personal transcripts, click UI controls or record microphone audio.
+- Target-device UI grounding, microphone/STT/TTS, multi-step behavior, postcondition verification, provider outage, and low-memory stability remain **not tested** until actual device evidence is collected.
+- **Compatibility blocker:** the current build uses Python 3.11, whose official Windows support baseline is Windows 8.1/version 6.3 or newer. Windows 8.0/version 6.2 is outside that baseline. See https://docs.python.org/3.11/using/windows.html. The preflight must block launch testing on an unsupported OS; do not silently use an end-of-life interpreter.
+- M10.4 cannot be marked complete from GitHub-hosted Windows CI alone. Keep release blocked until target-device evidence exists on a supported OS, and record any platform/RAM limitations honestly.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -115,7 +124,7 @@ This is the authoritative phase register for continuing work across chats. Read 
 ## M7 gate — completed
 - M7.1–M7.7 combined source-grounded acceptance and the M7 audit passed on exact-SHA [run 39786556563](https://github.com/snchat78-svg/Vyom/actions/runs/39786556563), with 387 tests and 30 subtests, syntax/import checks, clean build, Windows EXE verification and artifact upload.
 - M8 then passed its own full exact-SHA CI on [run 39899815866](https://github.com/snchat78-svg/Vyom/actions/runs/39899815866), with 395 tests and 30 subtests, syntax/import checks, clean build, Windows EXE verification and artifact upload.
-- Current status: M8 complete; M9.1 is the only next phase. M10 is a cross-cutting evaluation track and its final release gate remains blocked until the roadmap's benchmark and real Windows acceptance requirements have evidence.
+- Current status: M7/M8 and M9.1–M9.5 automated gates are complete; M10.1–M10.3 automated gates are complete. M10.4 is active, but the final release gate remains blocked until supported target-device Windows/audio/UI evidence exists.
 
 ## Cross-chat and cross-project continuity rules
 - This file, the checkpoint and roadmap are durable handoff records. Update them whenever a phase changes status.
@@ -157,3 +166,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-24: M10.2 started on `137a3375892f4945f2213a2df39180b7509139c2`; offline synthetic-adapter runner, report schema, denominator tests and CI artifact integration added. Exact-SHA gate is pending.
 
 - 2026-10-24: M10.2 passed exact-SHA full CI on `5daeb9c5ec83bccb41a96f362c4141282551640f` in [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856): 449 tests + 30 subtests; benchmark report validation, Windows EXE verification and both artifacts succeeded. M10.3 CI regression thresholds is now in progress.
+
+- 2026-10-24: M10.3 passed exact-SHA CI on ec5f4753e6e386cdd50d5cf508de78732939862a in [run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538): 459 tests + 30 subtests, 22/22 synthetic checks, EXE and gate artifacts uploaded. M10.4 real Windows integration and release evidence is in progress; Python 3.11 makes Windows 8.0 a compatibility blocker.

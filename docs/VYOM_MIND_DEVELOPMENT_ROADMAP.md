@@ -224,17 +224,18 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 - Artifact `Vyom_M10_2_Benchmark_Baseline` (ID `12550488787`) contains both baseline JSON reports.
 - **Boundary:** fixed synthetic observations validate only harness/contract-label conformance. They are not product accuracy, safety, task-completion or latency measurements; `product_latency_ms` remains `not_measured`.
 
-### M10.3 — CI regression thresholds (IN PROGRESS)
-- Add a versioned synthetic-harness threshold policy and deterministic checker. CI must fail closed on report/policy schema errors, missing or unrun rows in the full suite, contract/invariant violations, numerator/denominator drift and safety-critical fixture signal regressions.
-- Upload a machine-readable gate report with every threshold's configured limit, actual value, sample size and pass/fail reason.
-- Keep threshold scope explicitly synthetic. The checker must reject a report that labels product accuracy measured or product latency measured by the stub.
-- **Gate:** deterministic checker tests for pass/fail, invalid/missing metrics, denominator integrity, unsafe signal limit, report determinism and CI wiring; then exact-SHA full test/build/EXE/artifact CI.
-- After M10.3 passes, begin M10.4 real Windows integration. No real-machine acceptance may be inferred from CI.
+### M10.3 — CI regression thresholds (COMPLETED)
+- Versioned synthetic policy: tests/fixtures/m10_3_regression_thresholds.json; checker: tools/vyom_benchmark_thresholds.py; tests: tests/test_m10_3_regression_thresholds.py.
+- Exact-SHA full CI: [run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538) on ec5f4753e6e386cdd50d5cf508de78732939862a passed 459 tests + 30 subtests; the deterministic threshold report showed 22 pass checks and 0 failures.
+- The job passed full Python syntax/core/voice imports, M10.2 report generation/validation, M10.3 thresholds, clean build, Windows EXE build/verification and uploads for EXE, M10.2 baseline and M10.3 gate report.
+- **Boundary:** thresholds certify synthetic harness conformance only. Product accuracy, live safety, completion and product latency remain unmeasured.
 
-### M10.4 — Real Windows integration and release exit gate
-- Test supported Windows environment, screen/UI grounding, microphone/STT/TTS, provider outages, multi-step commands and verified postconditions.
-- Record device/OS/test evidence and limitations. GitHub EXE compilation alone is not device acceptance.
-- **M10 gate:** benchmark thresholds pass on CI and representative Windows integration evidence exists. Release only after M9 safety gate and M10.1–M10.4 acceptance.
+### M10.4 — Real Windows integration and release exit gate (IN PROGRESS)
+- Host preflight helper: tools/vyom_windows_acceptance.ps1; protocol and evidence checklist: docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. GitHub Actions runs the helper against the built EXE and uploads Vyom_M10_4_CI_Preflight.
+- The helper records OS/version/build, architecture, total visible RAM and EXE size/SHA-256, and optionally sends only the harmless "exit" command to verify clean shutdown. It does not automate UI actions or record voice.
+- Python 3.11's official Windows baseline is Windows 8.1/version 6.3 or newer. Windows 8.0/version 6.2 is a platform blocker for the current package, not an app bug report.
+- Target-device checklist must collect typed startup/exit, Hindi/Hinglish input, microphone/STT/TTS, UI grounding, multi-step order, postcondition verification, provider-outage unknown behavior, memory opt-out and low-memory stability. Current status: all real-device checks not_run.
+- **Gate pending:** supported target OS confirmed, real device evidence attached/reviewed, no safety-critical failure unresolved. The CI-host smoke report is expressly not device acceptance.
 
 ## Ordered development sequence and anti-skip rule
 1. M0 baseline/trace and shared text/voice path.
@@ -247,7 +248,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 8. M7.1–M7.7 source retrieval/evidence quality and combined audit — completed.
 9. M8 general reasoning/sourced-answer evaluation — automated gate completed on exact-SHA run 39899815866.
 10. M9.1–M9.5 safe-learning gates **completed**; M9.5 passed exact-SHA [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937).
-11. M10.1 corpus **completed** on run 39913443550 and M10.2 runner/baseline **completed** on exact-SHA [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856). **M10.3 CI regression thresholds is in progress**, then M10.4 real Windows integration/release exit. Do not report measured product accuracy from synthetic fixtures.
+11. M10.1 corpus, M10.2 runner/baseline and M10.3 synthetic regression thresholds are **completed** (latest M10.3 exact-SHA run 40077787538: 459 tests + 30 subtests, 22/22 checks). **M10.4 real Windows integration/release exit is in progress**, blocked on supported target-device evidence. Do not report measured product accuracy from synthetic fixtures.
 
 At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head and latest applicable CI, then work only on the first incomplete item above. Do not skip, restart or mark a phase complete based only on a commit.
 

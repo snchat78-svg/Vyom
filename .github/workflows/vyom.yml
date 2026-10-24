@@ -459,6 +459,30 @@ jobs:
       # 14. UPLOAD EXE ARTIFACT; M10.2 METRICS ARE A SEPARATE ARTIFACT
       # ======================================================
 
+      - name: Run M10.4 CI-host executable smoke preflight (not device acceptance)
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/vyom_windows_acceptance.ps1 -ExePath "dist/Vyom.exe" -OutputPath "artifacts/m10_4/ci_host_preflight.json" -AttemptLaunchSmokeTest
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "M10.4 CI-host preflight failed or the runner OS is unsupported."
+              exit 1
+          }
+
+          if (!(Test-Path "artifacts/m10_4/ci_host_preflight.json")) {
+              Write-Error "M10.4 CI-host preflight report is missing."
+              exit 1
+          }
+
+          $report = Get-Content -LiteralPath "artifacts/m10_4/ci_host_preflight.json" | Out-String | ConvertFrom-Json
+          if ($report.scope -ne "preflight_only_not_device_acceptance" -or $report.overall_status -ne "preflight_passed_manual_acceptance_pending" -or $report.launch_smoke_test.status -ne "pass") {
+              Write-Error "M10.4 preflight report contract failed."
+              exit 1
+          }
+
+          Write-Host "M10.4 CI-host preflight passed. This is not target-device acceptance."
+
+
       - name: Upload Vyom EXE
         uses: actions/upload-artifact@v4
         with:
@@ -494,6 +518,15 @@ jobs:
       # ======================================================
       # 16. FINAL BUILD SUMMARY
       # ======================================================
+
+      - name: Upload M10.4 CI-host Preflight Diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_M10_4_CI_Preflight
+          path: artifacts/m10_4/ci_host_preflight.json
+          if-no-files-found: error
+          retention-days: 30
+
 
       - name: Build Summary
         shell: powershell
