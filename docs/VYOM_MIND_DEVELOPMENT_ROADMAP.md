@@ -217,16 +217,19 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 - **Gate passed:** exact-SHA [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) on `5841279846599e349dedaadd942ce7736e6c82c2`: **440 tests + 30 subtests**, Python syntax/core/voice imports, clean build, Windows EXE build/verification and artifact upload.
 - **Boundary:** this is a completeness/contract gate, not a benchmark run. No measured performance result is claimed. **Next: M10.2 reproducible runner and baseline metrics.**
 
-### M10.2 — Reproducible metrics runner and baseline (IN PROGRESS)
-- **Implemented, pending full CI:** `tools/vyom_benchmark_runner.py` compares M10.1 expected contract labels with separate synthetic observations in `tests/fixtures/m10_2_stub_observations.json`. No real web requests, live models, microphone capture or desktop actions are invoked.
-- It produces `artifacts/m10_2/benchmark_report.json` plus `artifacts/m10_2/metrics_summary.json`, including corpus version, scenario ID, pass/fail/unrun/error, expected/observed outcome, rationale, sample sizes and metric numerators/denominators. Unrun scenarios never count as passes.
-- Define denominator rules and sample sizes before calculating intent/interpretation correctness, unsafe-guess rate, action-verification correctness, task completion/recovery, epistemic-status correctness and latency. Exclude or explicitly classify unsupported/unmeasurable scenarios rather than silently dropping them.
-- `tests/test_m10_2_metrics_runner.py` checks determinism, unknown ID/outcome rejection, missing-observation/error treatment, mismatch failures, invariant failures and exclusion of unrun/error scenarios from denominators. CI invokes the runner and uploads both reports.
-- **Boundary:** fixture results are a synthetic harness-conformance baseline only—not product accuracy or safety rates. Product latency is `not_measured` because the stub does not invoke or time Vyom.
-- **Gate (pending exact-SHA CI):** full suite plus runner validate the JSON report and metrics; Windows EXE build/verification and report artifact upload must pass. Only then record baseline results and begin M10.3.
-### M10.3 — CI regression thresholds
-- Run deterministic benchmark slices in CI, report regressions and block release if safety-critical thresholds fail.
-- Keep flaky live-network tests separate from deterministic CI; network failure must not cause invented answers.
+### M10.2 — Reproducible metrics runner and baseline (COMPLETED)
+- Runner: `tools/vyom_benchmark_runner.py`; observations: `tests/fixtures/m10_2_stub_observations.json`; tests: `tests/test_m10_2_metrics_runner.py`.
+- The runner creates `artifacts/m10_2/benchmark_report.json` and `artifacts/m10_2/metrics_summary.json`, validates the written JSON against the in-memory report, records explicit sample sizes and numerator/denominator values, treats missing selected observations as errors, and excludes unrun/error scenarios from metrics.
+- Exact-SHA full CI: [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) on `5daeb9c5ec83bccb41a96f362c4141282551640f` passed **449 tests + 30 subtests**, syntax/core/voice imports, report generation/validation, clean build, Windows EXE verification and artifact uploads.
+- Artifact `Vyom_M10_2_Benchmark_Baseline` (ID `12550488787`) contains both baseline JSON reports.
+- **Boundary:** fixed synthetic observations validate only harness/contract-label conformance. They are not product accuracy, safety, task-completion or latency measurements; `product_latency_ms` remains `not_measured`.
+
+### M10.3 — CI regression thresholds (IN PROGRESS)
+- Add a versioned synthetic-harness threshold policy and deterministic checker. CI must fail closed on report/policy schema errors, missing or unrun rows in the full suite, contract/invariant violations, numerator/denominator drift and safety-critical fixture signal regressions.
+- Upload a machine-readable gate report with every threshold's configured limit, actual value, sample size and pass/fail reason.
+- Keep threshold scope explicitly synthetic. The checker must reject a report that labels product accuracy measured or product latency measured by the stub.
+- **Gate:** deterministic checker tests for pass/fail, invalid/missing metrics, denominator integrity, unsafe signal limit, report determinism and CI wiring; then exact-SHA full test/build/EXE/artifact CI.
+- After M10.3 passes, begin M10.4 real Windows integration. No real-machine acceptance may be inferred from CI.
 
 ### M10.4 — Real Windows integration and release exit gate
 - Test supported Windows environment, screen/UI grounding, microphone/STT/TTS, provider outages, multi-step commands and verified postconditions.
@@ -244,7 +247,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 8. M7.1–M7.7 source retrieval/evidence quality and combined audit — completed.
 9. M8 general reasoning/sourced-answer evaluation — automated gate completed on exact-SHA run 39899815866.
 10. M9.1–M9.5 safe-learning gates **completed**; M9.5 passed exact-SHA [run 39912869937](https://github.com/snchat78-svg/Vyom/actions/runs/39912869937).
-11. M10.1 synthetic representative benchmark corpus **completed** on exact-SHA [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550). **M10.2 reproducible metrics runner and baseline is in progress**, then M10.3 CI regression thresholds and M10.4 real Windows integration/release exit. Do not report measured accuracy before M10.2.
+11. M10.1 corpus **completed** on run 39913443550 and M10.2 runner/baseline **completed** on exact-SHA [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856). **M10.3 CI regression thresholds is in progress**, then M10.4 real Windows integration/release exit. Do not report measured product accuracy from synthetic fixtures.
 
 At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head and latest applicable CI, then work only on the first incomplete item above. Do not skip, restart or mark a phase complete based only on a commit.
 

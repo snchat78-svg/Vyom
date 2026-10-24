@@ -26,12 +26,13 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M10.1 passed; M10.2 in progress
-- Exact tested code/test commit: `5841279846599e349dedaadd942ce7736e6c82c2`
-- Exact-SHA full CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) — **success**, 440 tests + 30 subtests.
+## Current verified handoff — M10.2 passed; M10.3 in progress
+- M10.1 corpus exact-SHA CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) passed on `5841279846599e349dedaadd942ce7736e6c82c2` with 440 tests + 30 subtests.
+- M10.2 runner exact-SHA CI: [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) passed on `5daeb9c5ec83bccb41a96f362c4141282551640f` with 449 tests + 30 subtests.
 - CI passed tracked Python syntax, critical/core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload.
 - M10.1 delivers 15 synthetic benchmark contracts in `tests/fixtures/m10_1_vyom_benchmark_corpus.json`, coverage/oracle tests in `tests/test_m10_1_benchmark_corpus.py`, and the benchmark protocol.
-- **Boundary:** M10.1 corpus completeness is not model accuracy. M10.2 now implements a deterministic stub-adapter runner; its baseline must remain separate from actual product performance.
+- **M10.2 status:** full offline runner, benchmark-report validation, Windows EXE and both artifacts passed exact-SHA CI. Artifact ID `12550488787` is `Vyom_M10_2_Benchmark_Baseline`.
+- **Current phase:** M10.3 CI regression thresholds. Threshold policy and checker must continue to label all fixture values as synthetic harness conformance, never actual Vyom product accuracy or safety.
 
 | Phase/checkpoint | Existing implementation and evidence | Status before M0.3 | Remaining acceptance |
 |---|---|---|---|
@@ -127,9 +128,15 @@ This file is the hand-off record across conversations. The repository code and C
 - **Next: M10.2 — reproducible metrics runner and baseline.**
 
 
-## M10.2 work-in-progress checkpoint (2026-10-24)
-- Runner: `tools/vyom_benchmark_runner.py`. It validates schema-versioned M10.1 contracts and separate synthetic adapter observations, then emits deterministic JSON scenario and metrics-summary reports.
-- Adapter fixture: `tests/fixtures/m10_2_stub_observations.json`; tests: `tests/test_m10_2_metrics_runner.py`.
-- Metrics use explicit eligibility flags and numerator/denominator/sample-size fields: scenario contract conformance, intent/interpretation, unsafe-guess, action-verification, completion/recovery and epistemic-status signals. Product latency is `not_measured`; the runner never invokes a real application, model, provider, web request, microphone or desktop action.
-- GitHub Actions invokes the offline runner after pytest and uploads `Vyom_M10_2_Benchmark_Baseline` with both machine-readable report files.
-- Status remains in progress until the exact code/test SHA passes full suite, syntax/import, clean build, Windows EXE verification and artifact upload. The report is a synthetic harness baseline, not product accuracy. Then M10.3 becomes next.
+## M10.2 acceptance record — passed exact-SHA CI (2026-10-24)
+- Exact tested branch commit `5daeb9c5ec83bccb41a96f362c4141282551640f`; [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) succeeded with 449 tests + 30 subtests.
+- Workflow step `Run M10.2 Offline Benchmark and Validate Report` passed after pytest. It generated and validated `artifacts/m10_2/benchmark_report.json` and `artifacts/m10_2/metrics_summary.json`.
+- The Windows EXE was built and verified. Artifact `Vyom_M10_2_Benchmark_Baseline` (ID `12550488787`) and `Vyom_EXE` (ID `12551071242`) were uploaded.
+- Baseline is fixed synthetic fixture/harness conformance only. Product accuracy/safety and product latency are explicitly not measured.
+
+## M10.3 work-in-progress checkpoint (2026-10-24)
+- Add `tests/fixtures/m10_3_regression_thresholds.json`, `tools/vyom_benchmark_thresholds.py`, and `tests/test_m10_3_regression_thresholds.py`.
+- CI will run the threshold checker against the deterministic M10.2 report and upload a machine-readable M10.3 gate report.
+- Required failure modes: contract/invariant failure, nonzero errors/unrun in a required full run, missing metrics or invalid denominator, rate/numerator mismatch, threshold breach, unsafe fixture-signal regression, and any claim that product latency/accuracy was measured by this stub.
+- Status remains in progress until exact-SHA full CI and artifact upload succeed. M10.4 real Windows acceptance stays separate.
+

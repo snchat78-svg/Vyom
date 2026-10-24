@@ -87,13 +87,20 @@ This is the authoritative phase register for continuing work across chats. Read 
 - Coverage: English, Hindi, Roman Hindi, Hinglish, noisy STT, ambiguity, compound dependencies, web-grounded or unknown answers, conflicting sources, provider outage, uncertain recovery, post-action verification and memory safety.
 - Limits: this phase verifies corpus structure and deterministic expected contracts only. It is explicitly `contract_only_not_benchmarked`; no intent accuracy, unsafe-guess rate, latency or real-world completion metric has been measured. Live network and user-machine Windows/audio acceptance remain pending.
 
+## Last verified completed phase — M10.2
+- **M10.2 — Reproducible metrics runner and synthetic baseline**
+- Exact tested branch commit: `5daeb9c5ec83bccb41a96f362c4141282551640f`
+- Exact-SHA full CI: [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) — **success**.
+- Results: **449 tests passed, 30 subtests passed**; Python syntax/core/voice imports, complete test suite, offline benchmark report validation, clean build, Windows EXE build/verification and both report/EXE artifact uploads passed.
+- Artifacts: `Vyom_M10_2_Benchmark_Baseline` (artifact ID `12550488787`) and `Vyom_EXE` (artifact ID `12551071242`).
+- Metrics/report disclose scenario labels, counts, sample sizes and metric numerator/denominator. Missing observations count as errors, unselected scenarios stay unrun and are excluded, and product latency remains `not_measured`.
+- **Boundary:** fixed synthetic observations validate harness wiring and contract-label conformance only. They are not measurements of actual Vyom accuracy, safety, task completion, or performance.
+
 ## Current phase — IN PROGRESS
-- **M10.2 — Reproducible metrics runner and baseline**
-- Implementation commit: `137a3375892f4945f2213a2df39180b7509139c2`; exact-SHA full CI is pending.
-- Deliverables: `tools/vyom_benchmark_runner.py`, `tests/fixtures/m10_2_stub_observations.json`, `tests/test_m10_2_metrics_runner.py`, workflow integration in `.github/workflows/vyom.yml`, and ignored CI-generated outputs under `artifacts/m10_2/`.
-- The runner uses fixed synthetic adapter observations only. It reports expected/observed outcomes, pass/fail/error/unrun per scenario, rationale, counts and metric numerators/denominators. Missing observations are errors; unselected scenarios stay unrun and never enter denominators.
-- Baseline metrics include intent/interpretation, unsafe-guess, action-verification, task-completion/recovery, and epistemic-status fixture signals. **They are synthetic harness-conformance signals, not product accuracy/safety measurements. Product latency is explicitly not measured** by this stub runner.
-- CI additionally runs the runner and uploads a JSON scenario report plus a JSON metrics summary. M10.2 acceptance is pending full exact-SHA tests/build/artifact validation. Fix failures within M10.2; do not begin M10.3 first.
+- **M10.3 — CI regression thresholds**
+- Add a versioned threshold policy and a deterministic checker that evaluates the M10.2 report in CI, emits a machine-readable gate report, and fails the build on contract/invariant regressions, missing/unrun/error scenarios in the full-suite baseline, denominator drift, or unsafe fixture signal regressions.
+- Thresholds apply only to synthetic harness conformance. They must explicitly preserve `product_accuracy_measured=false` and `product_latency_ms.status=not_measured`; do not represent them as live product accuracy or safety.
+- Acceptance requires tests for valid baseline, threshold breaches, missing metrics/denominators, invalid policy/report, output determinism and CI integration. M10.3 remains in progress until the exact code/test SHA passes full CI and EXE/artifact upload.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -148,3 +155,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-23: M10.1 passed exact-SHA CI on `5841279846599e349dedaadd942ce7736e6c82c2` in [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550): 440 tests + 30 subtests; syntax/import checks, clean build, Windows EXE verification/upload. M10.2 reproducible metrics runner and baseline is next.
 
 - 2026-10-24: M10.2 started on `137a3375892f4945f2213a2df39180b7509139c2`; offline synthetic-adapter runner, report schema, denominator tests and CI artifact integration added. Exact-SHA gate is pending.
+
+- 2026-10-24: M10.2 passed exact-SHA full CI on `5daeb9c5ec83bccb41a96f362c4141282551640f` in [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856): 449 tests + 30 subtests; benchmark report validation, Windows EXE verification and both artifacts succeeded. M10.3 CI regression thresholds is now in progress.

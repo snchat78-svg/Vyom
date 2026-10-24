@@ -38,4 +38,10 @@ The exact-SHA full CI gate passed on `5841279846599e349dedaadd942ce7736e6c82c2` 
 - Metrics have explicit sample sizes and numerator/denominator rules: scenario-contract conformance, intent/interpretation correctness, unsafe-guess rate, action-verification correctness, task-completion/recovery correctness and epistemic-status correctness.
 - **Measurement limit:** observations are fixed synthetic fixtures. The runner measures reproducibility and harness/contract-label conformance only. It does not exercise the Vyom application; its baseline is not product accuracy, live safety, task completion or latency. `product_latency_ms` remains `not_measured` until a separately instrumented runtime harness is used.
 - Unknown scenario IDs/outcomes, duplicates, malformed signals and invalid corpus input fail closed. Fixed inputs produce byte-deterministic JSON.
-- **Acceptance pending exact-SHA CI:** runner tests, syntax/import, clean build, Windows EXE verification and upload of both report files must pass. **Next after M10.2: M10.3 — CI regression thresholds.**
+- **Acceptance passed:** exact-SHA [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) on `5daeb9c5ec83bccb41a96f362c4141282551640f` — **449 tests + 30 subtests**, syntax/core/voice imports, deterministic runner/report validation, clean build, Windows EXE verification, and upload of both report files passed. `Vyom_M10_2_Benchmark_Baseline` artifact ID: `12550488787`.
+
+## M10.3 — CI regression thresholds (in progress)
+- Thresholds are for deterministic synthetic harness conformance only; do not present them as measured product accuracy or safety.
+- The threshold checker will validate the full 15-scenario fixture, expected denominator contracts, zero stub invariant violations, all required metric numerator/denominator/rate relationships, and the unmeasured product latency/accuracy boundary.
+- CI will fail on a threshold breach and upload the machine-readable gate report.
+- **Next after M10.3:** M10.4 — real Windows integration and release exit gate.
