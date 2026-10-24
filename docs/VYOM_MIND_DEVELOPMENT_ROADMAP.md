@@ -231,7 +231,7 @@ Exact tested code/test commit: `0253010a1df4837a926631a63ad27042ce1f0d87`. [GitH
 - **Boundary:** thresholds certify synthetic harness conformance only. Product accuracy, live safety, completion and product latency remain unmeasured.
 
 ### M10.4 — Real Windows integration and release exit gate (IN PROGRESS)
-- Host preflight helper: tools/vyom_windows_acceptance.ps1; protocol and evidence checklist: docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. GitHub Actions runs the helper against the built EXE and uploads Vyom_M10_4_CI_Preflight.
+- Host preflight helper: tools/vyom_windows_acceptance.ps1; protocol and evidence checklist: docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. Exact-SHA [run 40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691) on 806565b798238853e16f611a742104da46df02d9 passed 459 tests + 30 subtests, 22/22 M10.3 threshold checks, Windows EXE verification, CI-host clean-exit smoke, and uploaded Vyom_M10_4_CI_Preflight (artifact ID 12554685802).
 - The helper records OS/version/build, architecture, total visible RAM and EXE size/SHA-256, and optionally sends only the harmless "exit" command to verify clean shutdown. It does not automate UI actions or record voice.
 - Python 3.11's official Windows baseline is Windows 8.1/version 6.3 or newer. Windows 8.0/version 6.2 is a platform blocker for the current package, not an app bug report.
 - Target-device checklist must collect typed startup/exit, Hindi/Hinglish input, microphone/STT/TTS, UI grounding, multi-step order, postcondition verification, provider-outage unknown behavior, memory opt-out and low-memory stability. Current status: all real-device checks not_run.

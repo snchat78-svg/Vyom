@@ -47,7 +47,7 @@ The exact-SHA full CI gate passed on `5841279846599e349dedaadd942ce7736e6c82c2` 
 - Scope remains deterministic harness conformance only; no live product accuracy or latency was measured.
 
 ## M10.4 Windows acceptance — in progress
-- Protocol: docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. Preflight helper: tools/vyom_windows_acceptance.ps1.
-- CI performs host OS/version checks and a harmless EXE clean-exit smoke test, then uploads Vyom_M10_4_CI_Preflight. This does not certify the user's device, microphone, audio output or desktop integration.
-- Current Python 3.11 package baseline requires Windows 8.1/version 6.3 or newer; version 6.2/Windows 8.0 must be marked unsupported. See https://docs.python.org/3.11/using/windows.html.
-- The actual device checklist remains not_run until evidence is collected for voice/STT/TTS, UI grounding, compound-task ordering, postcondition verification, provider outage/unknown responses, memory opt-out and low-memory stability.
+- Implementation commit 806565b798238853e16f611a742104da46df02d9 passed exact-SHA [run 40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691): 459 tests + 30 subtests, 22/22 M10.3 synthetic gate checks, clean build, EXE verification, and CI-host clean-exit smoke test.
+- Artifact Vyom_M10_4_CI_Preflight (ID 12554685802) records the CI host and explicitly leaves real device tests pending. This is not evidence for the user's own installation.
+- Protocol/checklist: docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. Current Python 3.11 package baseline requires Windows 8.1/version 6.3 or newer; Windows 8.0/version 6.2 is blocked.
+- The actual device checklist remains not_run until evidence is collected for voice/STT/TTS, UI grounding, compound-task ordering, postcondition verification, provider-outage unknown responses, memory opt-out and low-memory stability.

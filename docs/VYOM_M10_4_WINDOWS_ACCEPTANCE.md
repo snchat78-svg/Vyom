@@ -40,6 +40,10 @@ Keep each item's status as not_run until it has been performed on the target Win
 | memory_consent_and_opt_out | Check memory consent and opt out using the documented memory CLI. | Consent starts OFF; opt-out blocks memory use; action authority is not granted by memory. | not_run |
 | low_memory_stability | Repeat a small safe task while observing system responsiveness and crashes. | No repeatable hang/crash; note measured RAM use without treating a synthetic threshold as product evidence. | not_run |
 
+## Latest CI-host preflight result
+
+Exact-SHA [run 40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691) passed on commit 806565b798238853e16f611a742104da46df02d9: 459 tests + 30 subtests, 22/22 M10.3 threshold checks, Windows EXE verification, a clean-exit smoke test, and artifact upload. The preflight JSON reported overall_status=preflight_passed_manual_acceptance_pending. Artifact: Vyom_M10_4_CI_Preflight (ID 12554685802). This confirms the CI host only; the table above remains not_run until actual target-device evidence is supplied.
+
 ## Release evidence and exit criteria
 
 1. Capture the preflight JSON and confirm the OS baseline is supported.

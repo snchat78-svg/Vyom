@@ -30,7 +30,8 @@ This file is the hand-off record across conversations. The repository code and C
 - M10.1 corpus exact-SHA CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) passed on 5841279846599e349dedaadd942ce7736e6c82c2 with 440 tests + 30 subtests.
 - M10.2 runner exact-SHA CI: [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) passed on 5daeb9c5ec83bccb41a96f362c4141282551640f with 449 tests + 30 subtests.
 - M10.3 threshold gate passed on exact commit ec5f4753e6e386cdd50d5cf508de78732939862a in [run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538): 459 tests + 30 subtests and 22/22 threshold checks; Windows EXE and all M10.2/M10.3 artifacts were uploaded.
-- **Current phase:** M10.4 — real Windows integration and release exit gate. The repo now adds a PowerShell 3-compatible host preflight and clean-exit smoke test that records non-sensitive device facts and leaves real UI/audio cases as not_run.
+- **M10.4 implementation checkpoint:** exact-SHA [run 40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691) passed on commit 806565b798238853e16f611a742104da46df02d9 with 459 tests + 30 subtests, 22/22 synthetic threshold checks, Windows EXE verification, and uploaded Vyom_M10_4_CI_Preflight artifact (ID 12554685802).
+- **Current phase:** M10.4 — real Windows integration and release exit gate. The PowerShell 3-compatible preflight and harmless clean-exit smoke passed on GitHub's host; real UI/audio cases remain not_run.
 - **Platform risk:** Python 3.11's documented Windows baseline is Windows 8.1 (version 6.3) or newer. The previously reported Windows 8.0/version 6.2 host is outside this baseline; no release acceptance can be claimed until the actual OS version is checked and a supported target is tested.
 - A CI-host smoke report is not target-device evidence. Manual UI grounding, microphone/STT/TTS, compound tasks, postcondition verification, provider outage/unknown response and low-memory stability remain pending.
 
@@ -124,6 +125,6 @@ This file is the hand-off record across conversations. The repository code and C
 
 ## M10.4 work-in-progress checkpoint (2026-10-24)
 - Add tools/vyom_windows_acceptance.ps1 and docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. The script supports Windows PowerShell 3+, collects OS/version/architecture/RAM and EXE hash/size, then optionally sends only the harmless "exit" command to the EXE and verifies clean shutdown.
-- Workflow runs that script against the CI-built EXE and uploads Vyom_M10_4_CI_Preflight. This verifies the host smoke helper only; it is not evidence that a user's machine passed.
+- Exact-SHA workflow [40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691) ran that script against the CI-built EXE and uploaded Vyom_M10_4_CI_Preflight (ID 12554685802). Overall status was preflight_passed_manual_acceptance_pending. This verifies the host smoke helper only; it is not evidence that a user's machine passed.
 - Manual acceptance IDs: typed startup/exit, Hindi/Hinglish text, microphone/STT/TTS, UI grounding, multi-step dependency order, postcondition verification, provider outage/unknown response, memory consent/opt-out and low-memory stability. They remain not_run pending target-device evidence.
 - The current Python 3.11 build baseline supports Windows 8.1/version 6.3 or newer. Windows 8.0/version 6.2 must be blocked by preflight. The target-device release gate is not complete until a supported target is tested.
