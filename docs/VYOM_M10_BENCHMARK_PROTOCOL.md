@@ -45,3 +45,10 @@ The exact-SHA full CI gate passed on `5841279846599e349dedaadd942ce7736e6c82c2` 
 - The threshold checker will validate the full 15-scenario fixture, expected denominator contracts, zero stub invariant violations, all required metric numerator/denominator/rate relationships, and the unmeasured product latency/accuracy boundary.
 - CI will fail on a threshold breach and upload the machine-readable gate report.
 - **Next after M10.3:** M10.4 — real Windows integration and release exit gate.
+
+
+## M10.3 CI regression-threshold policy (in progress)
+- Policy: `tests/fixtures/m10_3_regression_thresholds.json`; checker: `tools/vyom_benchmark_thresholds.py`; tests: `tests/test_m10_3_regression_thresholds.py`.
+- The gate requires the complete 15-scenario synthetic fixture run, exact denominators for each applicable signal, internally consistent numerator/rate/sample-size values, no scenario/invariant/prohibited-outcome regressions, and zero unsafe-guess fixture signals.
+- The machine-readable report is `artifacts/m10_3/threshold_report.json` and will be uploaded as `Vyom_M10_3_Regression_Gate`.
+- This is a harness-only gate. Product accuracy and product latency must remain explicitly unmeasured by this synthetic runner.

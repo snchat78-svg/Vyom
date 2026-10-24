@@ -347,6 +347,25 @@ jobs:
 
           Write-Host "M10.2 deterministic report and summary created and validated."
 
+      # M10.3 gate: enforce deterministic synthetic harness regression limits.
+      # This does NOT measure live Vyom accuracy, safety, or latency.
+      - name: Run M10.3 Synthetic Regression Threshold Gate
+        shell: powershell
+        run: |
+          python tools/vyom_benchmark_thresholds.py --report artifacts/m10_2/benchmark_report.json --policy tests/fixtures/m10_3_regression_thresholds.json --output artifacts/m10_3/threshold_report.json
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "M10.3 regression threshold gate failed."
+              exit 1
+          }
+
+          if (!(Test-Path "artifacts/m10_3/threshold_report.json")) {
+              Write-Error "M10.3 threshold report is missing."
+              exit 1
+          }
+
+          Write-Host "M10.3 synthetic harness regression thresholds passed."
+
 
       # The optional local model provider is covered by unit tests.
       # CI does not install/download a model: Vyom's core build must not
@@ -463,6 +482,14 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload M10.3 Regression Gate Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_M10_3_Regression_Gate
+          path: artifacts/m10_3/threshold_report.json
+          if-no-files-found: error
+          retention-days: 30
+
 
       # ======================================================
       # 16. FINAL BUILD SUMMARY
@@ -491,6 +518,7 @@ jobs:
           Write-Host ""
           Write-Host "    Vyom_EXE"
           Write-Host "    Vyom_M10_2_Benchmark_Baseline (synthetic adapter conformance only)"
+          Write-Host "    Vyom_M10_3_Regression_Gate (synthetic threshold gate only)"
           Write-Host ""
 
           Write-Host "=============================================="
