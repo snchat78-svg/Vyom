@@ -13,3 +13,6 @@ dist/
 # Runtime skill proposals may contain user goals/plans; do not commit local registry state.
 /skills/registry.json
 /skills/registry.json.tmp
+
+# Generated benchmark reports are CI artifacts, not source fixtures.
+/artifacts/m10_2/

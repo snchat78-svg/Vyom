@@ -191,6 +191,7 @@ jobs:
               "tools/tool_manager.py",
               "tools/universal_app_launcher.py",
               "tools/universal_resolver.py",
+              "tools/vyom_benchmark_runner.py",
 
               # MEMORY
               "memory/selection_manager.py",
@@ -241,7 +242,9 @@ jobs:
               "tests/test_local_qwen_provider.py",
               "tests/test_m9_5_memory_learning_safety.py",
               "tests/test_m10_1_benchmark_corpus.py",
-              "tests/fixtures/m10_1_vyom_benchmark_corpus.json"
+              "tests/test_m10_2_metrics_runner.py",
+              "tests/fixtures/m10_1_vyom_benchmark_corpus.json",
+              "tests/fixtures/m10_2_stub_observations.json"
           )
 
           foreach ($file in $requiredFiles) {
@@ -321,6 +324,28 @@ jobs:
           }
 
           Write-Host "COMPLETE PYTEST SUITE PASSED."
+
+
+      # ======================================================
+      # 11. M10.2 REPRODUCIBLE OFFLINE BENCHMARK BASELINE
+      # ======================================================
+
+      - name: Run M10.2 Offline Benchmark and Validate Report
+        shell: powershell
+        run: |
+          python tools/vyom_benchmark_runner.py --output artifacts/m10_2/benchmark_report.json --summary-output artifacts/m10_2/metrics_summary.json
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "M10.2 benchmark runner failed or reported a contract mismatch."
+              exit 1
+          }
+
+          if (!(Test-Path "artifacts/m10_2/benchmark_report.json") -or !(Test-Path "artifacts/m10_2/metrics_summary.json")) {
+              Write-Error "M10.2 report or metrics summary is missing."
+              exit 1
+          }
+
+          Write-Host "M10.2 deterministic report and summary created and validated."
 
 
       # The optional local model provider is covered by unit tests.
@@ -412,7 +437,7 @@ jobs:
 
 
       # ======================================================
-      # 14. UPLOAD ONLY ONE EXE ARTIFACT
+      # 14. UPLOAD EXE ARTIFACT; M10.2 METRICS ARE A SEPARATE ARTIFACT
       # ======================================================
 
       - name: Upload Vyom EXE
@@ -425,7 +450,22 @@ jobs:
 
 
       # ======================================================
-      # 15. FINAL BUILD SUMMARY
+      # 15. UPLOAD REPRODUCIBLE M10.2 BASELINE
+      # ======================================================
+
+      - name: Upload M10.2 Benchmark Baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_M10_2_Benchmark_Baseline
+          path: |
+            artifacts/m10_2/benchmark_report.json
+            artifacts/m10_2/metrics_summary.json
+          if-no-files-found: error
+          retention-days: 30
+
+
+      # ======================================================
+      # 16. FINAL BUILD SUMMARY
       # ======================================================
 
       - name: Build Summary
@@ -447,9 +487,10 @@ jobs:
           Write-Host "    dist/Vyom.exe"
           Write-Host ""
 
-          Write-Host "ONE ARTIFACT:"
+          Write-Host "ARTIFACTS:"
           Write-Host ""
           Write-Host "    Vyom_EXE"
+          Write-Host "    Vyom_M10_2_Benchmark_Baseline (synthetic adapter conformance only)"
           Write-Host ""
 
           Write-Host "=============================================="
