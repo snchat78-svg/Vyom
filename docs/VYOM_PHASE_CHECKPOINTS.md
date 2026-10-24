@@ -26,12 +26,12 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M10.1 passed; M10.2 next
+## Current verified handoff — M10.1 passed; M10.2 in progress
 - Exact tested code/test commit: `5841279846599e349dedaadd942ce7736e6c82c2`
 - Exact-SHA full CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) — **success**, 440 tests + 30 subtests.
 - CI passed tracked Python syntax, critical/core/voice imports, clean build, Windows EXE build/verification and `Vyom_EXE` artifact upload.
 - M10.1 delivers 15 synthetic benchmark contracts in `tests/fixtures/m10_1_vyom_benchmark_corpus.json`, coverage/oracle tests in `tests/test_m10_1_benchmark_corpus.py`, and the benchmark protocol.
-- **Boundary:** corpus completeness is not model accuracy; the fixtures have not been run as benchmark measurements. M10.2 must implement the deterministic runner/baseline before metrics are reported.
+- **Boundary:** M10.1 corpus completeness is not model accuracy. M10.2 now implements a deterministic stub-adapter runner; its baseline must remain separate from actual product performance.
 
 | Phase/checkpoint | Existing implementation and evidence | Status before M0.3 | Remaining acceptance |
 |---|---|---|---|
@@ -127,7 +127,9 @@ This file is the hand-off record across conversations. The repository code and C
 - **Next: M10.2 — reproducible metrics runner and baseline.**
 
 
-## M10.2 hand-off — ready, not started
-- Implement an offline deterministic runner over the M10.1 contracts. Report run status, expected/observed outcome, pass/fail rationale and explicit denominators; unrun scenarios must remain unrun.
-- Measure intent/interpretation correctness, unsafe-guess rate, verification, completion/recovery, epistemic-status correctness and latency only from executed scenarios. Record sample sizes and exclusions.
-- Keep real Windows, microphone and live-network acceptance separate from deterministic CI; then M10.3 defines regression thresholds.
+## M10.2 work-in-progress checkpoint (2026-10-24)
+- Runner: `tools/vyom_benchmark_runner.py`. It validates schema-versioned M10.1 contracts and separate synthetic adapter observations, then emits deterministic JSON scenario and metrics-summary reports.
+- Adapter fixture: `tests/fixtures/m10_2_stub_observations.json`; tests: `tests/test_m10_2_metrics_runner.py`.
+- Metrics use explicit eligibility flags and numerator/denominator/sample-size fields: scenario contract conformance, intent/interpretation, unsafe-guess, action-verification, completion/recovery and epistemic-status signals. Product latency is `not_measured`; the runner never invokes a real application, model, provider, web request, microphone or desktop action.
+- GitHub Actions invokes the offline runner after pytest and uploads `Vyom_M10_2_Benchmark_Baseline` with both machine-readable report files.
+- Status remains in progress until the exact code/test SHA passes full suite, syntax/import, clean build, Windows EXE verification and artifact upload. The report is a synthetic harness baseline, not product accuracy. Then M10.3 becomes next.
