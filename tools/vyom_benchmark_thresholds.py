@@ -6,13 +6,11 @@ not measure or certify live Vyom accuracy, safety, completion, or latency.
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 import json
 from pathlib import Path
 import sys
 from typing import Any, Dict, List
 
-from tools.vyom_benchmark_runner import load_json, write_json
 
 
 RUNNER_METRICS = {
@@ -34,6 +32,20 @@ POLICY_KEYS = {
 
 class ThresholdInputError(ValueError):
     """Invalid policy/report input; the CI gate must fail closed."""
+
+
+def _load_json(path: Path) -> Any:
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ThresholdInputError("json_read_failed:" + Path(path).name) from exc
+
+
+def _write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\\n"
+    path.write_text(encoded, encoding="utf-8")
 
 
 def _is_int(value: Any) -> bool:
@@ -117,7 +129,7 @@ def evaluate_thresholds(report: Any, policy: Any) -> Dict[str, Any]:
         "A full regression run requires the report-level status to pass.")
     add("product_accuracy_boundary",
         report.get("product_accuracy_measured") is policy["product_accuracy_measured_must_be"],
-        policy["product_accuracy_measured_must_be",] if False else False,
+        False,
         report.get("product_accuracy_measured"),
         "Synthetic observations must not be labelled as measured product accuracy.")
     add("product_latency_boundary",
@@ -242,11 +254,11 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: List[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        report = load_json(args.report)
-        policy = load_json(args.policy)
+        report = _load_json(args.report)
+        policy = _load_json(args.policy)
         gate = evaluate_thresholds(report, policy)
-        write_json(args.output, gate)
-        written = load_json(args.output)
+        _write_json(args.output, gate)
+        written = _load_json(args.output)
         if written != gate:
             raise ThresholdInputError("written_gate_report_mismatch")
         print(json.dumps({
