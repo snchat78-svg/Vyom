@@ -26,6 +26,15 @@ For an interactive target-device checklist, run the same script on the target Wi
 
 CI runs the same script on the GitHub Actions host and uploads Vyom_M10_4_CI_Preflight. A green CI-host smoke test proves only that the script and EXE can start and exit on that host.
 
+
+## Latest target-device package — available
+
+The combined package was built and uploaded by exact-SHA [GitHub Actions run 40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625) from code/test commit `50c5a18c75daa2e16f11dd6e455065554996dcfe`. Artifact: `Vyom_M10_4_Target_Device_Package` (ID 12598460548; expires 2026-11-24). Download it from the run page's **Artifacts** section. It includes `Vyom.exe`, `vyom_windows_acceptance.ps1`, this checklist and `README_FIRST.txt`.
+
+The run passed **464 tests + 30 subtests**, Python syntax/import checks, clean build, M10.2/M10.3 gates, Windows EXE verification, CI-host smoke and target-package upload. This is build/CI evidence only; it does not prove the user's computer passed.
+
+Use `README_FIRST.txt` to run the preflight without installing Python. If the preflight reports Windows 8.0/version 6.2, stop: the current Python 3.11 build requires Windows 8.1/version 6.3 or newer. If the OS is supported and the harmless launch check succeeds, perform only checklist items you actually ran, then attach the JSON reports for review. Do not mark `not_run` as `pass`.
+
 ## One-download target-device package
 
 The Windows workflow now creates a separate `Vyom_M10_4_Target_Device_Package`
