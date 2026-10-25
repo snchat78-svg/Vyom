@@ -51,7 +51,7 @@ def test_m10_4_workflow_builds_and_uploads_single_target_device_package():
     assert 'Copy-Item -LiteralPath "tools/vyom_windows_acceptance.ps1"' in workflow
     assert 'Copy-Item -LiteralPath "docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md"' in workflow
     assert "README_FIRST.txt" in workflow
-    assert "Python installation is required" not in package_readme
+    assert "No Python installation is required for the EXE or preflight script." in package_readme
     assert "Windows 8.0/version 6.2 is unsupported" in package_readme
     assert "-CollectManualEvidence" in package_readme
     assert "not_run" in package_readme
