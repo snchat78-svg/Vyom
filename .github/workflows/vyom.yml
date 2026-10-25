@@ -243,6 +243,7 @@ jobs:
               "tests/test_m9_5_memory_learning_safety.py",
               "tests/test_m10_1_benchmark_corpus.py",
               "tests/test_m10_2_metrics_runner.py",
+              "tests/test_m10_4_windows_acceptance.py",
               "tests/fixtures/m10_1_vyom_benchmark_corpus.json",
               "tests/fixtures/m10_2_stub_observations.json"
           )
