@@ -22,6 +22,8 @@ The script is compatible with Windows PowerShell 3+ and does not require a Pytho
 
 It writes a JSON report before returning. Exit code 2 means the OS is below the current Python 3.11 support baseline; exit code 1 means host facts, file inspection, or the optional launch smoke check failed. The smoke check sends only the harmless text command "exit"; it does not click controls, type into other applications, record microphone audio, or modify user files.
 
+For an interactive target-device checklist, run the same script on the target Windows computer with `-CollectManualEvidence` added. It prompts for each test and accepts only `pass`, `fail`, `block`, or `not_run`; blank or invalid input stays `not_run`. It refuses to collect manual evidence on GitHub Actions and blocks app testing when the OS is unsupported or the EXE is missing/invalid. User-entered statuses and notes are not independently verified and still require review. Notes are bounded and credential-like patterns are redacted, but do not enter secrets or private content.
+
 CI runs the same script on the GitHub Actions host and uploads Vyom_M10_4_CI_Preflight. A green CI-host smoke test proves only that the script and EXE can start and exit on that host.
 
 ## Manual target-device acceptance checklist
@@ -55,3 +57,8 @@ Exact-SHA [run 40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40
 ## Current known platform risk
 
 The previously reported device is Windows 8 64-bit with 2 GB RAM. The OS-version probe must distinguish Windows 8.0 from Windows 8.1. If it reports version 6.2, current Python 3.11-based packaging is outside its documented baseline and the real-device phase remains blocked pending a supported OS or a separately reviewed packaging decision. The 2 GB RAM value is a resource-risk observation, not a pass/fail threshold.
+
+
+## Evidence collector implementation CI (2026-10-25)
+
+Exact-SHA [run 40175621834](https://github.com/snchat78-svg/Vyom/actions/runs/40175621834) passed on `c025c32b9ae0f4e29339e2c26c8e3d0a589e06fd`: 463 tests + 30 subtests, 22/22 M10.3 threshold checks, Windows EXE build/verification, CI-host clean-exit smoke, and artifacts. The first implementation run failed on a PowerShell parsing issue; the follow-up commit corrected it and passed. This remains CI-host evidence only; no target-device acceptance is claimed.

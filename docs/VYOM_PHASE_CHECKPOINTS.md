@@ -123,8 +123,11 @@ This file is the hand-off record across conversations. The repository code and C
 - Artifact outputs: Vyom_EXE ID 12553818070; Vyom_M10_2_Benchmark_Baseline ID 12553669304; Vyom_M10_3_Regression_Gate ID 12553967403.
 - Product accuracy/safety/latency remain unmeasured by the synthetic runner.
 
-## M10.4 work-in-progress checkpoint (2026-10-24)
-- Add tools/vyom_windows_acceptance.ps1 and docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md. The script supports Windows PowerShell 3+, collects OS/version/architecture/RAM and EXE hash/size, then optionally sends only the harmless "exit" command to the EXE and verifies clean shutdown.
-- Exact-SHA workflow [40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691) ran that script against the CI-built EXE and uploaded Vyom_M10_4_CI_Preflight (ID 12554685802). Overall status was preflight_passed_manual_acceptance_pending. This verifies the host smoke helper only; it is not evidence that a user's machine passed.
-- Manual acceptance IDs: typed startup/exit, Hindi/Hinglish text, microphone/STT/TTS, UI grounding, multi-step dependency order, postcondition verification, provider outage/unknown response, memory consent/opt-out and low-memory stability. They remain not_run pending target-device evidence.
-- The current Python 3.11 build baseline supports Windows 8.1/version 6.3 or newer. Windows 8.0/version 6.2 must be blocked by preflight. The target-device release gate is not complete until a supported target is tested.
+## M10.4 work-in-progress checkpoint (updated 2026-10-25)
+- CI-host helper: `tools/vyom_windows_acceptance.ps1` collects OS/version/build, architecture, visible RAM and EXE hash/size; optional `-AttemptLaunchSmokeTest` sends only the harmless `exit` command.
+- New opt-in `-CollectManualEvidence` mode prompts for the nine target-device acceptance checks. Only explicit `pass`, `fail`, `block`, or `not_run` is accepted; blank/invalid input remains `not_run`. Notes are limited to 240 characters and credential-like patterns are redacted. GitHub Actions cannot claim target-device evidence.
+- Static safety-contract tests: `tests/test_m10_4_windows_acceptance.py`.
+- Exact-SHA [run 40175621834](https://github.com/snchat78-svg/Vyom/actions/runs/40175621834) passed on `c025c32b9ae0f4e29339e2c26c8e3d0a589e06fd`: **463 tests + 30 subtests**, syntax/import, clean build, 22/22 M10.3 thresholds, Windows EXE verification, CI-host clean-exit smoke and artifacts.
+- An initial CI attempt exposed a Windows PowerShell parsing issue; the non-ASCII prompt separator and quoted regex were corrected, and the follow-up exact-SHA run passed. The failed attempt is not counted as a successful gate.
+- **Still blocked:** target-device checks are not independently verified and remain pending. The current Python 3.11 package requires Windows 8.1/version 6.3 or newer; Windows 8.0/version 6.2 is blocked. The user's reported Windows 8 64-bit / 2 GB RAM needs exact OS-version preflight and low-memory device evidence.
+- **Next:** supported target-device report and manual acceptance evidence; keep M10.4 in progress until evidence is reviewed. Do not advance to M10.5 based on CI-host evidence alone.
