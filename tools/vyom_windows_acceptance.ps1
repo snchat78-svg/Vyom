@@ -242,7 +242,7 @@ if ($CollectManualEvidence) {
         Write-Host "Do not enter passwords, API keys, private transcripts, or personal file contents."
         foreach ($item in $manualAcceptance) {
             Write-Host ""
-            Write-Host ("Test: " + $item.id + " — " + $item.note)
+            Write-Host ("Test: " + $item.id + ": " + $item.note)
             $enteredStatus = (Read-Host "Actual result [pass/fail/block/not_run; blank=not_run]").Trim().ToLowerInvariant()
             if ($enteredStatus -in @("pass", "fail", "block", "not_run")) {
                 $item.status = $enteredStatus
@@ -254,7 +254,7 @@ if ($CollectManualEvidence) {
             if ($enteredNote.Length -gt 240) {
                 $enteredNote = $enteredNote.Substring(0, 240)
             }
-            if ($enteredNote -match "(?i)(password\s*[:=]|api[_ -]?key\s*[:=]|bearer\s+[A-Za-z0-9._-]{12,}|-----BEGIN .*PRIVATE KEY-----|sk-[A-Za-z0-9]{16,})") {
+            if ($enteredNote -match '(?i)(password\s*[:=]|api[_ -]?key\s*[:=]|bearer\s+[A-Za-z0-9._-]{12,}|-----BEGIN .*PRIVATE KEY-----|sk-[A-Za-z0-9]{16,})') {
                 $enteredNote = "[redacted: note matched a credential-like pattern]"
             }
             $item.note = $enteredNote
