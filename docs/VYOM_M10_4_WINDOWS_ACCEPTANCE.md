@@ -26,6 +26,20 @@ For an interactive target-device checklist, run the same script on the target Wi
 
 CI runs the same script on the GitHub Actions host and uploads Vyom_M10_4_CI_Preflight. A green CI-host smoke test proves only that the script and EXE can start and exit on that host.
 
+## One-download target-device package
+
+The Windows workflow now creates a separate `Vyom_M10_4_Target_Device_Package`
+artifact containing `Vyom.exe`, the PowerShell preflight/evidence collector,
+this acceptance checklist, and `README_FIRST.txt` with the exact no-Python
+commands. Download it from the latest green [Vyom Actions run](https://github.com/snchat78-svg/Vyom/actions).
+
+Run the first preflight before filling any manual checklist. The package blocks
+the current Python 3.11 build on Windows 8.0/version 6.2; Windows 8.1/version
+6.3 or newer is the documented baseline. If unsupported, return the preflight
+JSON and do not mark manual tests pass. If supported, collect the explicit
+manual report and attach both JSON reports for review. GitHub-hosted tests
+remain CI-host evidence only.
+
 ## Manual target-device acceptance checklist
 
 Keep each item's status as not_run until it has been performed on the target Windows device. Record pass/fail, a short non-sensitive observation, OS version, and the relevant report filename. Do not collect API keys, passwords, raw transcripts, personal clipboard contents, or screenshots of private documents.

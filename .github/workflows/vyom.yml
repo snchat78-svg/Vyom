@@ -484,6 +484,39 @@ jobs:
           Write-Host "M10.4 CI-host preflight passed. This is not target-device acceptance."
 
 
+      - name: Prepare M10.4 target-device package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packageDir = "artifacts/m10_4/target_device_package"
+          $zipPath = "artifacts/m10_4/Vyom_M10_4_Target_Device_Package.zip"
+
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          Copy-Item -LiteralPath "dist/Vyom.exe" -Destination (Join-Path $packageDir "Vyom.exe") -Force
+          Copy-Item -LiteralPath "tools/vyom_windows_acceptance.ps1" -Destination (Join-Path $packageDir "vyom_windows_acceptance.ps1") -Force
+          Copy-Item -LiteralPath "docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md" -Destination (Join-Path $packageDir "M10_4_WINDOWS_ACCEPTANCE.md") -Force
+          Copy-Item -LiteralPath "docs/VYOM_M10_4_TARGET_DEVICE_PACKAGE_README.txt" -Destination (Join-Path $packageDir "README_FIRST.txt") -Force
+
+          if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -Force
+
+          if (!(Test-Path -LiteralPath $zipPath) -or (Get-Item -LiteralPath $zipPath).Length -lt 100000) {
+              Write-Error "M10.4 target-device package was not created or is unexpectedly small."
+              exit 1
+          }
+          Write-Host "Target-device package prepared: $zipPath"
+          Write-Host "This bundle is for user-run target-device evidence; CI does not certify the user's PC."
+
+
+      - name: Upload M10.4 Target Device Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_M10_4_Target_Device_Package
+          path: artifacts/m10_4/Vyom_M10_4_Target_Device_Package.zip
+          if-no-files-found: error
+          retention-days: 30
+
+
       - name: Upload Vyom EXE
         uses: actions/upload-artifact@v4
         with:
@@ -553,6 +586,7 @@ jobs:
           Write-Host "    Vyom_EXE"
           Write-Host "    Vyom_M10_2_Benchmark_Baseline (synthetic adapter conformance only)"
           Write-Host "    Vyom_M10_3_Regression_Gate (synthetic threshold gate only)"
+          Write-Host "    Vyom_M10_4_Target_Device_Package (run locally; not CI device evidence)"
           Write-Host ""
 
           Write-Host "=============================================="

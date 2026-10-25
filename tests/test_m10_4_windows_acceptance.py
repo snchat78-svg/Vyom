@@ -36,3 +36,23 @@ def test_m10_4_evidence_notes_are_bounded_and_credential_like_text_is_redacted()
     assert "$enteredNote.Length -gt 240" in SCRIPT
     assert "[redacted: note matched a credential-like pattern]" in SCRIPT
     assert "Do not enter passwords, API keys, private transcripts, or personal file contents." in SCRIPT
+
+
+def test_m10_4_workflow_builds_and_uploads_single_target_device_package():
+    workflow = (ROOT / ".github" / "workflows" / "vyom.yml").read_text(encoding="utf-8")
+    package_readme = (
+        ROOT / "docs" / "VYOM_M10_4_TARGET_DEVICE_PACKAGE_README.txt"
+    ).read_text(encoding="utf-8")
+
+    assert "Prepare M10.4 target-device package" in workflow
+    assert "Vyom_M10_4_Target_Device_Package.zip" in workflow
+    assert "name: Vyom_M10_4_Target_Device_Package" in workflow
+    assert 'Copy-Item -LiteralPath "dist/Vyom.exe"' in workflow
+    assert 'Copy-Item -LiteralPath "tools/vyom_windows_acceptance.ps1"' in workflow
+    assert 'Copy-Item -LiteralPath "docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md"' in workflow
+    assert "README_FIRST.txt" in workflow
+    assert "Python installation is required" not in package_readme
+    assert "Windows 8.0/version 6.2 is unsupported" in package_readme
+    assert "-CollectManualEvidence" in package_readme
+    assert "not_run" in package_readme
+    assert "M10_4_preflight.json" in package_readme
