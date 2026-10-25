@@ -26,13 +26,14 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M10.3 passed; M10.4 in progress
+## Current verified handoff — M10.3 passed; M10.4 target-device package ready, device evidence pending
 - M10.1 corpus exact-SHA CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) passed on 5841279846599e349dedaadd942ce7736e6c82c2 with 440 tests + 30 subtests.
 - M10.2 runner exact-SHA CI: [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) passed on 5daeb9c5ec83bccb41a96f362c4141282551640f with 449 tests + 30 subtests.
 - M10.3 threshold gate passed on exact commit ec5f4753e6e386cdd50d5cf508de78732939862a in [run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538): 459 tests + 30 subtests and 22/22 threshold checks; Windows EXE and all M10.2/M10.3 artifacts were uploaded.
 - **M10.4 implementation checkpoint:** exact-SHA [run 40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691) passed on commit 806565b798238853e16f611a742104da46df02d9 with 459 tests + 30 subtests, 22/22 synthetic threshold checks, Windows EXE verification, and uploaded Vyom_M10_4_CI_Preflight artifact (ID 12554685802).
-- **Current phase:** M10.4 — real Windows integration and release exit gate. The PowerShell 3-compatible preflight and harmless clean-exit smoke passed on GitHub's host; real UI/audio cases remain not_run.
+- **Current phase:** M10.4 — real Windows integration and release exit gate. Latest exact-SHA code/test run [40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625) passed with 464 tests + 30 subtests, clean build, EXE verification, 22/22 M10.3 thresholds, CI-host clean-exit smoke, and target-device package artifact ID 12598460548. The CI-host smoke is not actual PC evidence.
 - **Platform risk:** Python 3.11's documented Windows baseline is Windows 8.1 (version 6.3) or newer. The previously reported Windows 8.0/version 6.2 host is outside this baseline; no release acceptance can be claimed until the actual OS version is checked and a supported target is tested.
+- **Next action:** download `Vyom_M10_4_Target_Device_Package` from [run 40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625), extract it, read `README_FIRST.txt`, and run the preflight on the real target PC. If OS version is 6.3+ and preflight succeeds, collect manual evidence and return both JSON reports. Windows 8.0/version 6.2 is blocked by the Python 3.11 baseline.
 - A CI-host smoke report is not target-device evidence. Manual UI grounding, microphone/STT/TTS, compound tasks, postcondition verification, provider outage/unknown response and low-memory stability remain pending.
 
 ## Current phase hand-off
@@ -131,3 +132,9 @@ This file is the hand-off record across conversations. The repository code and C
 - An initial CI attempt exposed a Windows PowerShell parsing issue; the non-ASCII prompt separator and quoted regex were corrected, and the follow-up exact-SHA run passed. The failed attempt is not counted as a successful gate.
 - **Still blocked:** target-device checks are not independently verified and remain pending. The current Python 3.11 package requires Windows 8.1/version 6.3 or newer; Windows 8.0/version 6.2 is blocked. The user's reported Windows 8 64-bit / 2 GB RAM needs exact OS-version preflight and low-memory device evidence.
 - **Next:** supported target-device report and manual acceptance evidence; keep M10.4 in progress until evidence is reviewed. Do not advance to M10.5 based on CI-host evidence alone.
+
+
+## M10.4 target-device package milestone (2026-10-25)
+- Commit `50c5a18c75daa2e16f11dd6e455065554996dcfe`; exact-SHA [run 40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625) passed with 464 tests + 30 subtests, syntax/import checks, clean build, 22/22 M10.3 thresholds, Windows EXE verification and package/artifact upload.
+- Artifact `Vyom_M10_4_Target_Device_Package` (ID 12598460548, expires 2026-11-24) contains the EXE, PowerShell evidence collector, checklist and `README_FIRST.txt`.
+- Status remains **M10.4 in progress** until the actual target-device preflight and required manual checks are supplied and reviewed. Do not start M10.5.

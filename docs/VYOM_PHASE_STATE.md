@@ -106,13 +106,14 @@ This is the authoritative phase register for continuing work across chats. Read 
 
 ## Current phase — IN PROGRESS
 - **M10.4 — Real Windows integration and release exit gate**
-- **Latest code/test commit:** `c025c32b9ae0f4e29339e2c26c8e3d0a589e06fd`; exact-SHA [GitHub Actions run 40175621834](https://github.com/snchat78-svg/Vyom/actions/runs/40175621834) — **success**.
-- CI: **463 tests passed, 30 subtests passed**; syntax/import checks, clean build, Windows EXE build/verification, M10.2 report, M10.3 threshold gate (22/22 checks), M10.4 CI-host clean-exit smoke and artifact uploads passed.
-- M10.4 implementation: `tools/vyom_windows_acceptance.ps1` has opt-in `-CollectManualEvidence` mode for a local target device; `tests/test_m10_4_windows_acceptance.py` covers the evidence-collection safety contract. The default remains preflight-only.
-- Manual statuses are explicitly user-entered; invalid/blank statuses stay `not_run`. The collector blocks manual testing when the OS is below the current runtime baseline or the EXE is missing/invalid, and refuses to treat GitHub Actions as target-device evidence. User-entered evidence is not independently verified.
+- **Latest code/test commit:** `50c5a18c75daa2e16f11dd6e455065554996dcfe`; exact-SHA [GitHub Actions run 40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625) — **success**.
+- CI: **464 tests passed, 30 subtests passed**; syntax/core/voice imports, clean build, Windows EXE build/verification, M10.2 baseline, M10.3 synthetic threshold checks, M10.4 CI-host clean-exit smoke and artifact uploads passed.
+- New deliverable: **`Vyom_M10_4_Target_Device_Package`** [artifact ID 12598460548](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625), built from the exact tested workflow run. It bundles `Vyom.exe`, the PowerShell preflight/evidence collector, the acceptance checklist and `README_FIRST.txt` with no-Python commands. Artifact retention expires on 2026-11-24.
+- To continue M10.4, download that package from the Actions run, extract it, and run the first preflight on the actual target PC. If supported, run the optional manual-evidence command and return `M10_4_preflight.json` and `M10_4_target_device_evidence.json` for review.
+- Manual statuses are explicitly user-entered; invalid/blank statuses stay `not_run`. The collector blocks manual testing when the OS is below the current runtime baseline or the EXE is missing/invalid, and refuses to treat GitHub Actions as target-device evidence.
 - **Release gate remains BLOCKED:** no target-device evidence has been supplied. Typed startup/exit, Hindi/Hinglish, microphone/STT/TTS, UI grounding, multi-step dependencies, postcondition verification, provider outage and low-memory stability remain unverified.
-- **Compatibility blocker:** the current EXE is built with Python 3.11, whose documented Windows baseline is Windows 8.1/version 6.3 or newer. Windows 8.0/version 6.2 is unsupported for this package. The previously reported device is Windows 8 64-bit with 2 GB RAM; its exact version must be confirmed before application testing. Do not silently switch to an end-of-life interpreter.
-- M10.4 cannot be marked complete from GitHub-hosted CI alone. Next action is to run the preflight/evidence collector on a supported target device, review its JSON report, and resolve any failures. Do not start M10.5 or claim release readiness until the M10.4 exit criteria are met.
+- **Compatibility blocker:** Python 3.11 supports Windows 8.1/version 6.3 or newer; Windows 8.0/version 6.2 is unsupported by this package. The reported PC is Windows 8 64-bit with 2 GB RAM, so verify the precise version first. Do not silently switch to an end-of-life interpreter.
+- M10.4 cannot be marked complete from GitHub-hosted CI alone. Do not start M10.5 or claim release readiness until supported target-device evidence is reviewed.
 
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
@@ -175,3 +176,5 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-24: M10.4 preflight helper passed CI-host smoke on exact commit 806565b798238853e16f611a742104da46df02d9 in [run 40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691): 459 tests + 30 subtests, 22/22 M10.3 threshold checks, EXE and all benchmark/preflight artifacts uploaded. Device microphone/UI acceptance remains not_run.
 
 - 2026-10-25: M10.4 evidence-collector implementation passed exact-SHA CI on `c025c32b9ae0f4e29339e2c26c8e3d0a589e06fd` in [run 40175621834](https://github.com/snchat78-svg/Vyom/actions/runs/40175621834): 463 tests + 30 subtests, 22/22 synthetic thresholds, EXE verification, CI-host smoke and artifacts. M10.4 remains in progress pending supported target-device evidence.
+
+- 2026-10-25: M10.4 target-device package created on exact code/test commit `50c5a18c75daa2e16f11dd6e455065554996dcfe` in [run 40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625): 464 tests + 30 subtests, EXE build/verification, M10.2/M10.3 gates, CI-host smoke and artifact `Vyom_M10_4_Target_Device_Package` (ID 12598460548). Device acceptance is still blocked pending the user's actual Windows report.
