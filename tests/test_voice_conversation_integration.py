@@ -310,3 +310,94 @@ def test_selection_parser_does_not_treat_arbitrary_number_mentions_as_choices():
     parser = executor.intent_engine
     assert parser._detect_selection("please explain number theory") is None
     assert parser._detect_selection("what is the number of districts in Rajasthan") is None
+
+
+def test_factual_unknown_is_not_reported_as_a_successful_answer():
+    class Context:
+        @staticmethod
+        def snapshot():
+            return {}
+
+    class Agent:
+        context = Context()
+
+    class ToolBoundary:
+        selection_manager = None
+
+    class ResponseBoundary:
+        last_knowledge_outcome = {
+            "answer_status": "unknown",
+            "reason": "no_source_or_network_unavailable",
+            "source_count": 0,
+        }
+
+        @staticmethod
+        def format(**_kwargs):
+            return "Mujhe bharosemand source nahi mila."
+
+    original_agent = executor.autonomous_agent
+    original_tools = executor.tool_manager
+    original_response = executor.response_engine
+    try:
+        executor.autonomous_agent = Agent()
+        executor.tool_manager = ToolBoundary()
+        executor.response_engine = ResponseBoundary()
+        result = executor._natural_response(
+            "bharat ki rajadhani kya hai",
+            {"success": True, "status": "success", "stage": "conversation", "message": ""},
+            {"intent": "conversation"},
+        )
+    finally:
+        executor.autonomous_agent = original_agent
+        executor.tool_manager = original_tools
+        executor.response_engine = original_response
+
+    assert result["success"] is False
+    assert result["status"] == "unknown"
+    assert result["stage"] == "knowledge_unknown"
+    assert result["knowledge_outcome"]["source_count"] == 0
+
+
+def test_conflicting_source_outcome_is_not_reported_as_a_successful_answer():
+    class Context:
+        @staticmethod
+        def snapshot():
+            return {}
+
+    class Agent:
+        context = Context()
+
+    class ToolBoundary:
+        selection_manager = None
+
+    class ResponseBoundary:
+        last_knowledge_outcome = {
+            "answer_status": "conflicting_sources",
+            "reason": "source_disagreement",
+            "source_count": 2,
+        }
+
+        @staticmethod
+        def format(**_kwargs):
+            return "Sources disagree; unresolved."
+
+    original_agent = executor.autonomous_agent
+    original_tools = executor.tool_manager
+    original_response = executor.response_engine
+    try:
+        executor.autonomous_agent = Agent()
+        executor.tool_manager = ToolBoundary()
+        executor.response_engine = ResponseBoundary()
+        result = executor._natural_response(
+            "what is the disputed fact?",
+            {"success": True, "status": "success", "stage": "conversation", "message": ""},
+            {"intent": "conversation"},
+        )
+    finally:
+        executor.autonomous_agent = original_agent
+        executor.tool_manager = original_tools
+        executor.response_engine = original_response
+
+    assert result["success"] is False
+    assert result["status"] == "conflicting_sources"
+    assert result["stage"] == "knowledge_conflict"

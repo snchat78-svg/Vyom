@@ -32,6 +32,7 @@ class ResponseEngine:
 
     def __init__(self, model_gateway=None, knowledge_lookup=None):
         self.last_language = "hindi"
+        self.last_knowledge_outcome = None
         self._reply_count = 0
         self.model_gateway = model_gateway or ModelGateway()
         self.knowledge_lookup = knowledge_lookup or WebKnowledge()
@@ -458,6 +459,9 @@ class ResponseEngine:
         selection_options=None,
         context: Optional[Dict[str, Any]] = None,
     ) -> str:
+        # This per-turn marker lets the executor distinguish a completed
+        # conversation turn from a factual answer that retrieval could not verify.
+        self.last_knowledge_outcome = None
         # Factual questions use website retrieval rather than a conversational
         # model. Hindi is the default response language, even when the user
         # speaks Roman Hindi or asks the question in English.
@@ -562,6 +566,17 @@ class ResponseEngine:
 
             has_answer = bool(str(lookup.get("answer") or "").strip())
             lookup_succeeded = bool(lookup.get("success")) and has_answer
+            if not answer_status:
+                answer_status = "sourced_excerpt" if lookup_succeeded else "unknown"
+            self.last_knowledge_outcome = {
+                "answer_status": answer_status,
+                "reason": str(lookup.get("reason") or "")[:120],
+                "source_count": len(sources),
+                "provider_diagnostics": (
+                    list(evidence.get("provider_diagnostics", []))[:8]
+                    if isinstance(evidence.get("provider_diagnostics"), list) else []
+                ),
+            }
             if answer_status == "unknown" or not lookup_succeeded:
                 log("[KNOWLEDGE] NO SOURCE: %s | status=%s" % (
                     str(lookup.get("reason") or "empty_result"), answer_status or "unspecified"

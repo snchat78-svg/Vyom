@@ -451,6 +451,23 @@ def _natural_response(
             )
             payload["message"] = str(message or "")
             payload["response"] = str(message or "")
+
+            # A spoken turn can complete successfully while factual retrieval
+            # still fails to establish an answer. Keep those outcomes distinct
+            # so logs/telemetry do not mark an honest unknown as a correct fact.
+            knowledge_outcome = getattr(response_engine, "last_knowledge_outcome", None)
+            if isinstance(knowledge_outcome, dict):
+                payload["knowledge_outcome"] = dict(knowledge_outcome)
+                answer_status = str(knowledge_outcome.get("answer_status") or "").strip().lower()
+                if answer_status == "unknown":
+                    payload["success"] = False
+                    payload["status"] = "unknown"
+                    payload["stage"] = "knowledge_unknown"
+                elif answer_status == "conflicting_sources":
+                    payload["success"] = False
+                    payload["status"] = "conflicting_sources"
+                    payload["stage"] = "knowledge_conflict"
+
             return normalize_result(
                 payload,
                 default_stage=payload["stage"],
