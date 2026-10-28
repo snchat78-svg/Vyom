@@ -520,6 +520,16 @@ class ResponseEngine:
                 str(quality.get("status") or "").lower() in {"weak", "insufficient", "low"}
                 or quality.get("sufficient") is False
             )
+            # Set this before every early return, including source conflicts.
+            self.last_knowledge_outcome = {
+                "answer_status": answer_status or "unknown",
+                "reason": str(lookup.get("reason") or "")[:120],
+                "source_count": len(sources),
+                "provider_diagnostics": (
+                    list(evidence.get("provider_diagnostics", []))[:8]
+                    if isinstance(evidence.get("provider_diagnostics"), list) else []
+                ),
+            }
 
             def citation_suffix(source_items=None):
                 citations = []
@@ -568,15 +578,7 @@ class ResponseEngine:
             lookup_succeeded = bool(lookup.get("success")) and has_answer
             if not answer_status:
                 answer_status = "sourced_excerpt" if lookup_succeeded else "unknown"
-            self.last_knowledge_outcome = {
-                "answer_status": answer_status,
-                "reason": str(lookup.get("reason") or "")[:120],
-                "source_count": len(sources),
-                "provider_diagnostics": (
-                    list(evidence.get("provider_diagnostics", []))[:8]
-                    if isinstance(evidence.get("provider_diagnostics"), list) else []
-                ),
-            }
+            self.last_knowledge_outcome["answer_status"] = answer_status
             if answer_status == "unknown" or not lookup_succeeded:
                 log("[KNOWLEDGE] NO SOURCE: %s | status=%s" % (
                     str(lookup.get("reason") or "empty_result"), answer_status or "unspecified"

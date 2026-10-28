@@ -183,3 +183,47 @@ def test_m8_provider_reported_known_information_is_not_mislabeled_as_verified():
     assert "not independent verification" in answer
     assert "https://example.org/reference" in answer
     assert gateway.calls == 0
+
+
+def test_response_engine_records_conflict_status_before_conflict_early_return():
+    knowledge = StubKnowledge({
+        "success": False,
+        "answer": "",
+        "answer_status": "conflicting_sources",
+        "sources": [{"title": "A", "url": "https://a.example.org"},
+                    {"title": "B", "url": "https://b.example.org"}],
+        "evidence": {"source_count": 2},
+    })
+    engine = ResponseEngine(model_gateway=OfflineModelGateway(), knowledge_lookup=knowledge)
+
+    answer = engine.format(
+        command="what is the disputed fact? answer in english",
+        result={"success": True, "stage": "conversation"},
+        intent={"intent": "conversation", "conversation_type": "unknown"},
+    )
+
+    assert "sources disagree" in answer
+    assert engine.last_knowledge_outcome["answer_status"] == "conflicting_sources"
+    assert engine.last_knowledge_outcome["source_count"] == 2
+
+
+def test_response_engine_records_unknown_status_for_no_source_fallback():
+    knowledge = StubKnowledge({
+        "success": False,
+        "answer": "",
+        "answer_status": "unknown",
+        "reason": "no_source_or_network_unavailable",
+        "sources": [],
+        "evidence": {"source_count": 0},
+    })
+    engine = ResponseEngine(model_gateway=OfflineModelGateway(), knowledge_lookup=knowledge)
+
+    answer = engine.format(
+        command="what is the capital of India? answer in english",
+        result={"success": True, "stage": "conversation"},
+        intent={"intent": "conversation", "conversation_type": "unknown"},
+    )
+
+    assert "couldn't find a reliable answer" in answer
+    assert engine.last_knowledge_outcome["answer_status"] == "unknown"
+    assert engine.last_knowledge_outcome["source_count"] == 0
