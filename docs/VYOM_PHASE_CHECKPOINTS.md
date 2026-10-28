@@ -26,16 +26,14 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M10.3 passed; M10.4 target-device package ready, device evidence pending
-- M10.1 corpus exact-SHA CI: [run 39913443550](https://github.com/snchat78-svg/Vyom/actions/runs/39913443550) passed on 5841279846599e349dedaadd942ce7736e6c82c2 with 440 tests + 30 subtests.
-- M10.2 runner exact-SHA CI: [run 40070421856](https://github.com/snchat78-svg/Vyom/actions/runs/40070421856) passed on 5daeb9c5ec83bccb41a96f362c4141282551640f with 449 tests + 30 subtests.
-- M10.3 threshold gate passed on exact commit ec5f4753e6e386cdd50d5cf508de78732939862a in [run 40077787538](https://github.com/snchat78-svg/Vyom/actions/runs/40077787538): 459 tests + 30 subtests and 22/22 threshold checks; Windows EXE and all M10.2/M10.3 artifacts were uploaded.
-- **M10.4 implementation checkpoint:** exact-SHA [run 40078621691](https://github.com/snchat78-svg/Vyom/actions/runs/40078621691) passed on commit 806565b798238853e16f611a742104da46df02d9 with 459 tests + 30 subtests, 22/22 synthetic threshold checks, Windows EXE verification, and uploaded Vyom_M10_4_CI_Preflight artifact (ID 12554685802).
-- **Current phase:** M10.4 — real Windows integration and release exit gate. Latest exact-SHA code/test run [40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625) passed with 464 tests + 30 subtests, clean build, EXE verification, 22/22 M10.3 thresholds, CI-host clean-exit smoke, and target-device package artifact ID 12598460548. The CI-host smoke is not actual PC evidence.
-- **Platform risk:** Python 3.11's documented Windows baseline is Windows 8.1 (version 6.3) or newer. The previously reported Windows 8.0/version 6.2 host is outside this baseline; no release acceptance can be claimed until the actual OS version is checked and a supported target is tested.
-- **Next action:** download `Vyom_M10_4_Target_Device_Package` from [run 40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625), extract it, read `README_FIRST.txt`, and run the preflight on the real target PC. If OS version is 6.3+ and preflight succeeds, collect manual evidence and return both JSON reports. Windows 8.0/version 6.2 is blocked by the Python 3.11 baseline.
-- A CI-host smoke report is not target-device evidence. Manual UI grounding, microphone/STT/TTS, compound tasks, postcondition verification, provider outage/unknown response and low-memory stability remain pending.
-
+## Current verified handoff — M10.4 code fixes CI-verified; target-device gate still blocked
+- **Latest code/test commit:** 1144c8de227a2a5d344ddf3aa17a7f5792305b3a
+- **Exact-SHA CI:** [run 40631719205](https://github.com/snchat78-svg/Vyom/actions/runs/40631719205) passed with **473 tests + 30 subtests**; syntax/core/voice imports, complete suite, clean build, M10.2 baseline validation, M10.3 thresholds (**22/22**), Windows EXE verification, CI-host smoke and artifact uploads passed.
+- **Fixes covered by automated regression tests:** “number van/wan/won” and long spoken choices route to pending selection; Windows Hindi TTS attempts WAV rendering and winsound playback with direct eSpeak fallback; source provider errors expose bounded secret-safe diagnostics; unknown/conflicting factual lookups no longer carry success status.
+- **Latest package:** Vyom_M10_4_Target_Device_Package artifact ID 12792081432 from the latest run, expires 2026-11-27. Vyom_EXE artifact ID 12791877328, expires 2026-11-04.
+- **Observed log review:** docs/VYOM_M10_4_OBSERVED_LOG_REVIEW.md records the user's 2026-10-28 log and maps findings to tests/fixes. It is partial manual evidence only.
+- **Next required step:** run the packaged preflight on the actual PC and provide M10_4_preflight.json; if OS version is 6.3+ and preflight passes, collect the target-device evidence report covering actual Hindi/Hinglish audio, selection, factual retrieval/unknown handling, UI grounding, multi-step postconditions and low-memory behavior.
+- **Still BLOCKED:** CI proves the mocked WAV code path and deterministic selection/parser/status checks—not physical speaker audibility, real microphone/STT quality, live internet/TLS availability, actual target OS compatibility or real desktop task completion. Do not mark M10.4 complete or move to M10.5 without reviewed device evidence.
 ## Current phase hand-off
 
 - **Authoritative cross-chat tracker:** [`docs/VYOM_PHASE_STATE.md`](VYOM_PHASE_STATE.md). Read this file first before starting a phase; update it whenever phase status changes. Completed phases must be backed by an exact-commit CI run. Never restart a completed phase; resume the recorded in-progress phase or select the next explicitly listed incomplete item.
@@ -138,3 +136,9 @@ This file is the hand-off record across conversations. The repository code and C
 - Commit `50c5a18c75daa2e16f11dd6e455065554996dcfe`; exact-SHA [run 40190738625](https://github.com/snchat78-svg/Vyom/actions/runs/40190738625) passed with 464 tests + 30 subtests, syntax/import checks, clean build, 22/22 M10.3 thresholds, Windows EXE verification and package/artifact upload.
 - Artifact `Vyom_M10_4_Target_Device_Package` (ID 12598460548, expires 2026-11-24) contains the EXE, PowerShell evidence collector, checklist and `README_FIRST.txt`.
 - Status remains **M10.4 in progress** until the actual target-device preflight and required manual checks are supplied and reviewed. Do not start M10.5.
+
+
+## M10.4 observed EXE log review and regression fixes (2026-10-28)
+- Log was supplied directly by the user; raw private transcript/full log is not copied into the repository. The structured finding summary is in docs/VYOM_M10_4_OBSERVED_LOG_REVIEW.md.
+- Latest exact-SHA CI [40631719205](https://github.com/snchat78-svg/Vyom/actions/runs/40631719205) on 1144c8de227a2a5d344ddf3aa17a7f5792305b3a passed 473 tests + 30 subtests, M10.2/M10.3 gates, EXE verification and fresh package artifacts.
+- Do not equate TTS subprocess success with audible playback. The new Windows WAV playback helper has hardware-free regression coverage; actual output still requires target-device acceptance.
