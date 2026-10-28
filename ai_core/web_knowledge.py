@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from ai_core.logger import log
+
 
 
 
@@ -958,7 +960,8 @@ class WebKnowledge:
         try:
             search_data = json.loads(self._read_url(search_url))
             candidates = search_data.get("query", {}).get("search", [])
-        except Exception:
+        except Exception as error:
+            self._record_provider_diagnostic("wikipedia", "search_fetch", error)
             return None
 
         for candidate in candidates[:1]:
@@ -1027,7 +1030,8 @@ class WebKnowledge:
             parser = _DuckDuckGoResults()
             parser.feed(self._read_url(url))
             candidates = parser.finish()
-        except Exception:
+        except Exception as error:
+            self._record_provider_diagnostic("duckduckgo", "search_fetch", error)
             return None
         if not candidates:
             return None
@@ -1494,6 +1498,26 @@ class WebKnowledge:
             return "textually_aligned"
         return "divergent_unresolved"
 
+    def _record_provider_diagnostic(self, provider: str, stage: str, error: Optional[BaseException] = None) -> None:
+        """Record bounded, secret-free retrieval failure metadata."""
+        diagnostics = getattr(self, "_provider_diagnostics", None)
+        if not isinstance(diagnostics, list):
+            diagnostics = []
+            self._provider_diagnostics = diagnostics
+        if len(diagnostics) >= 8:
+            return
+        item = {
+            "provider": re.sub(r"[^A-Za-z0-9_.-]", "_", str(provider or "unknown"))[:80],
+            "stage": re.sub(r"[^A-Za-z0-9_.-]", "_", str(stage or "unknown"))[:80],
+        }
+        if error is not None:
+            item["error_type"] = type(error).__name__[:80]
+        diagnostics.append(item)
+        suffix = (" error_type=" + item["error_type"]) if error is not None else ""
+        log("[KNOWLEDGE] PROVIDER DIAGNOSTIC: provider=%s stage=%s%s" % (
+            item["provider"], item["stage"], suffix
+        ))
+
     @staticmethod
     def _unknown_result(question: str, reason: str) -> Dict[str, Any]:
         """Return an honest unknown result with explicit evidence limits."""
@@ -1527,6 +1551,7 @@ class WebKnowledge:
         self._provider_fetch_counts = {}
         self._total_provider_fetches = 0
         self._active_provider_name = None
+        self._provider_diagnostics = []
 
         # Providers run in explicit configured order. Each is invoked once,
         # has a small result cap, and shares this lookup's deadline and the
@@ -1541,8 +1566,9 @@ class WebKnowledge:
                 self._active_provider_name = provider.name
                 try:
                     provider_output = provider.retrieve(self, tuple(variants[:2]), preferred)
-                except Exception:
-                    # Provider failures are isolated; continue with the next configured provider.
+                except Exception as error:
+                    # Never log query contents, source URLs or response bodies.
+                    self._record_provider_diagnostic(provider.name, "provider_call", error)
                     continue
                 finally:
                     self._active_provider_name = None
@@ -1574,7 +1600,10 @@ class WebKnowledge:
                     if self._deadline is not None and time.monotonic() >= self._deadline
                     else "no_source_or_network_unavailable"
                 )
-                return self._unknown_result(question, reason)
+                unknown = self._unknown_result(question, reason)
+                if self._provider_diagnostics:
+                    unknown["evidence"]["provider_diagnostics"] = list(self._provider_diagnostics[:8])
+                return unknown
 
             # Preserve the first usable result as the primary excerpt, then add
             # only additional distinct hostnames. Different hosts are not proof

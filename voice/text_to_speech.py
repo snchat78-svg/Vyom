@@ -389,6 +389,52 @@ class TextToSpeech:
                 ))
         return next((path for path in candidates if path and os.path.isfile(path)), None)
 
+    def _speak_with_espeak_wav(self, executable, text):
+        """Render Hindi speech to WAV, then play it through Windows audio."""
+        temporary_path = None
+        try:
+            import tempfile
+            import winsound
+
+            timeout = max(15, min(45, int(len(str(text)) / 8) + 15))
+            kwargs = {"check": True, "capture_output": True, "timeout": timeout}
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            rendered = subprocess.run(
+                [executable, "-v", "hi", "--stdout", str(text)], **kwargs
+            )
+            audio = getattr(rendered, "stdout", None)
+            if not isinstance(audio, (bytes, bytearray)):
+                raise RuntimeError("eSpeak NG returned no WAV bytes")
+            audio = bytes(audio)
+            if not audio.startswith(b"RIFF") or b"WAVE" not in audio[:16]:
+                raise RuntimeError("eSpeak NG did not return a valid WAV stream")
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as stream:
+                temporary_path = stream.name
+                stream.write(audio)
+                stream.flush()
+
+            flags = getattr(winsound, "SND_FILENAME", 0) | getattr(winsound, "SND_SYNC", 0)
+            winsound.PlaySound(temporary_path, flags)
+            self._log("Hindi WAV playback completed through Windows audio.")
+            return {
+                "success": True, "text": str(text),
+                "message": "Speech rendered and played with local eSpeak NG Hindi voice.",
+            }
+        except Exception as error:
+            self._log("Hindi WAV playback path failed: " + type(error).__name__)
+            return {
+                "success": False, "text": str(text or ""),
+                "message": "Hindi WAV playback failed: " + type(error).__name__,
+            }
+        finally:
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except OSError:
+                    pass
+
     def _speak_with_espeak(self, text):
         executable = self._find_espeak_ng()
         if not executable:
@@ -401,6 +447,13 @@ class TextToSpeech:
                 "message": "Hindi TTS voice is not installed. Install eSpeak NG or a compatible Hindi SAPI voice.",
             }
         try:
+            if os.name == "nt":
+                self._log("Rendering Hindi speech to WAV for Windows audio playback.")
+                wav_result = self._speak_with_espeak_wav(executable, text)
+                if wav_result.get("success"):
+                    return wav_result
+                self._log("WAV playback failed; falling back to direct eSpeak playback.")
+
             self._log("Using local eSpeak NG Hindi voice (hi); no cloud TTS is used.")
             kwargs = {
                 "check": True, "capture_output": True, "text": True,
@@ -411,8 +464,8 @@ class TextToSpeech:
             subprocess.run([executable, "-v", "hi", str(text)], **kwargs)
             return {"success": True, "text": str(text), "message": "Speech completed with local eSpeak NG Hindi voice."}
         except Exception as error:
-            self._log("eSpeak NG Hindi speech failed: " + str(error))
-            return {"success": False, "text": str(text or ""), "message": "Local Hindi TTS failed: " + str(error)}
+            self._log("eSpeak NG Hindi speech failed: " + type(error).__name__)
+            return {"success": False, "text": str(text or ""), "message": "Local Hindi TTS failed: " + type(error).__name__}
 
     def _select_voice_on_engine(self, engine, text):
         try:

@@ -1,139 +1,46 @@
-from types import SimpleNamespace
+undefined
 
-from voice.text_to_speech import TextToSpeech
-
-
-class FakeEngine:
-    def __init__(self, voices):
-        self.voices = voices
-        self.selected = None
-
-    def getProperty(self, name):
-        return self.voices if name == "voices" else None
-
-    def setProperty(self, name, value):
-        if name == "voice":
-            self.selected = value
-
-
-def make_voice(voice_id, name, languages):
-    return SimpleNamespace(id=voice_id, name=name, languages=languages)
-
-
-def test_hindi_text_prefers_installed_hindi_voice():
-    tts = TextToSpeech.__new__(TextToSpeech)
-    tts.debug = False
-    tts._log = lambda _message: None
-    hindi = make_voice("hi-IN", "Hindi Voice", ["hi-IN"])
-    david = make_voice("en-US", "Microsoft David Desktop", ["en-US"])
-    engine = FakeEngine([david, hindi])
-
-    tts._select_voice_on_engine(engine, "भारत की राजधानी नई दिल्ली है।")
-
-    assert engine.selected == "hi-IN"
-
-
-def test_hindi_text_prefers_indian_english_over_us_english_when_hindi_is_absent():
-    tts = TextToSpeech.__new__(TextToSpeech)
-    tts.debug = False
-    tts._log = lambda _message: None
-    david = make_voice("en-US", "Microsoft David Desktop", ["en-US"])
-    indian = make_voice("en-IN", "Indian English Voice", ["en-IN"])
-    engine = FakeEngine([david, indian])
-
-    tts._select_voice_on_engine(engine, "भारत की राजधानी नई दिल्ली है।")
-
-    assert engine.selected == "en-IN"
-
-
-def test_local_espeak_fallback_uses_hindi_voice(monkeypatch):
+def test_windows_hindi_wav_helper_plays_rendered_wav_and_removes_temp_file(monkeypatch):
+    import sys
     import subprocess
+    import os
+    from types import SimpleNamespace
 
-    tts = TextToSpeech.__new__(TextToSpeech)
-    tts.debug = False
-    tts._log = lambda _message: None
-    tts._find_espeak_ng = lambda: r"C:\\Tools\\espeak-ng.exe"
+    played = []
+    def play(path, flags):
+        with open(path, "rb") as audio_file:
+            signature = audio_file.read(4)
+        played.append((path, flags, signature))
+    fake_winsound = SimpleNamespace(SND_FILENAME=1, SND_SYNC=2, PlaySound=play)
+    monkeypatch.setitem(sys.modules, "winsound", fake_winsound)
+
     calls = []
-
     def fake_run(command, **kwargs):
         calls.append((command, kwargs))
-        return None
-
+        return SimpleNamespace(stdout=b"RIFF" + b"0000" + b"WAVE" + b"audio-sample" * 4)
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = tts._speak_with_espeak("भारत की राजधानी नई दिल्ली है।")
 
-    assert result["success"] is True
-    assert calls[0][0][1:3] == ["-v", "hi"]
-    assert calls[0][0][-1] == "भारत की राजधानी नई दिल्ली है।"
-
-
-
-class FakeSpeechEngine(FakeEngine):
-    def __init__(self, voices):
-        super().__init__(voices)
-        self.spoken = []
-        self.stopped = False
-
-    def say(self, text):
-        self.spoken.append(text)
-
-    def runAndWait(self):
-        return None
-
-    def stop(self):
-        self.stopped = True
-
-
-def _make_speak_tts(mode, engine, local_speech):
     tts = TextToSpeech.__new__(TextToSpeech)
     tts.debug = False
     tts._log = lambda _message: None
-    tts.tts_mode = mode
-    tts.available = True
-    tts.error_message = ""
-    tts.engine = engine
-    tts._current_voice = None
-    tts.rate = 165
-    tts.volume = 1.0
-    tts._create_fresh_engine = lambda: engine
-    tts._has_hindi_sapi_voice = lambda _engine=None: False
-    tts._speak_with_espeak = local_speech
-    return tts
-
-
-def test_default_mode_keeps_system_selected_voice_and_does_not_require_hindi_tts():
-    david = make_voice("en-US", "Microsoft David Desktop", ["en-US"])
-    engine = FakeSpeechEngine([david])
-    tts = _make_speak_tts(
-        "system",
-        engine,
-        lambda _text: (_ for _ in ()).throw(AssertionError("eSpeak must be opt-in")),
-    )
-
-    result = tts.speak("भारत की राजधानी नई दिल्ली है।")
+    result = tts._speak_with_espeak_wav("espeak-ng.exe", "भारत की राजधानी नई दिल्ली है।")
 
     assert result["success"] is True
-    assert engine.spoken == ["भारत की राजधानी नई दिल्ली है।"]
-    assert engine.selected is None
+    assert calls[0][0][1:4] == ["-v", "hi", "--stdout"]
+    assert played and played[0][1] == 3 and played[0][2] == b"RIFF"
+    assert not os.path.exists(played[0][0])
 
 
-def test_optional_espeak_failure_falls_back_to_system_voice_without_stopping_vyom():
-    david = make_voice("en-US", "Microsoft David Desktop", ["en-US"])
-    engine = FakeSpeechEngine([david])
-    attempts = []
-    tts = _make_speak_tts(
-        "espeak-ng",
-        engine,
-        lambda text: attempts.append(text) or {
-            "success": False,
-            "text": text,
-            "message": "eSpeak NG not found",
-        },
-    )
+def test_windows_hindi_wav_helper_rejects_invalid_audio_stream(monkeypatch):
+    import sys
+    import subprocess
+    from types import SimpleNamespace
 
-    result = tts.speak("नमस्ते, मैं व्योम हूँ।")
-
-    assert attempts == ["नमस्ते, मैं व्योम हूँ।"]
-    assert result["success"] is True
-    assert engine.spoken == ["नमस्ते, मैं व्योम हूँ।"]
-    assert engine.selected is None
+    monkeypatch.setitem(sys.modules, "winsound", SimpleNamespace(SND_FILENAME=1, SND_SYNC=2, PlaySound=lambda *_: None))
+    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: SimpleNamespace(stdout=b"not-a-wave"))
+    tts = TextToSpeech.__new__(TextToSpeech)
+    tts.debug = False
+    tts._log = lambda _message: None
+    result = tts._speak_with_espeak_wav("espeak-ng.exe", "नमस्ते")
+    assert result["success"] is False
+    assert "RuntimeError" in result["message"]

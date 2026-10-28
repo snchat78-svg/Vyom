@@ -33,7 +33,9 @@ class IntentEngine:
         "पाँचवा": "5", "छह": "6", "छः": "6", "सात": "7", "आठ": "8",
         "नौ": "9", "दस": "10",
         # Romanized Hindi number words commonly produced by speech recognition.
-        "ek": "1", "one": "1", "do": "2", "teen": "3", "char": "4", "chaar": "4",
+        "ek": "1", "one": "1", "van": "1", "wan": "1", "won": "1", "wun": "1",
+        "do": "2", "too": "2", "tu": "2", "to": "2", "teen": "3", "tree": "3",
+        "char": "4", "chaar": "4",
         "paanch": "5", "panch": "5", "che": "6", "chhe": "6", "chhah": "6",
         "saat": "7", "aath": "8", "nau": "9", "das": "10", "dus": "10",
         "pahla": "1", "pehla": "1", "pehli": "1", "pehle": "1",
@@ -190,10 +192,15 @@ class IntentEngine:
             if direct is not None:
                 return direct
 
-            # Spoken number followed by extra action words.
+            # Explicit "number/option N" must still select when STT appends
+            # trailing words (for example "number 1 vala not kaise kholen").
+            numeric_prefix = re.match(r"^(\d{1,2})(?:\s+.*)?$", candidate)
+            if numeric_prefix:
+                return numeric_prefix.group(1)
+
             first_token = candidate.split(" ", 1)[0] if candidate else ""
             direct = self._selection_value(first_token)
-            if direct is not None and len(candidate.split()) <= 3:
+            if direct is not None and len(candidate.split()) <= 6:
                 return direct
 
         # Bare numeric selection followed by a generic action:
