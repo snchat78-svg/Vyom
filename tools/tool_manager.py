@@ -744,9 +744,12 @@ class ToolManager:
         #     pic samu.jpg
         # -----------------------------------------------------
 
-        resolver_results = self.resolver.find(
-            target
-        )
+        file_only_finder = getattr(self.resolver, "find_file_or_folder", None)
+        if callable(file_only_finder):
+            resolver_results = file_only_finder(target)
+        else:
+            # Compatibility with resolver adapters created by older callers.
+            resolver_results = self.resolver.find(target)
 
         if resolver_results:
 

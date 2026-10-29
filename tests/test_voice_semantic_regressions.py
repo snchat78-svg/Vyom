@@ -41,6 +41,51 @@ def test_expired_web_lookup_deadline_does_not_start_another_request():
     assert calls == []
 
 
+def test_stt_corrupted_english_question_routes_directly_to_knowledge_not_semantic_agent():
+    engine = IntentEngine()
+    roman = engine.detect("vhat is kaipital off indiya")
+    dev = engine.detect("व्हाट इस कैपिटल ऑफ इंडिया")
+
+    assert roman["intent"] == "conversation"
+    assert roman["conversation_type"] == "information_question"
+    assert dev["intent"] == "conversation"
+    assert dev["conversation_type"] == "information_question"
+
+
+def test_devanagari_english_question_prefers_romanized_query_for_web_lookup():
+    class Knowledge:
+        def __init__(self):
+            self.calls = []
+
+        def answer(self, question, preferred_language="hi"):
+            self.calls.append((question, preferred_language))
+            return {
+                "success": False,
+                "answer": "",
+                "answer_status": "unknown",
+                "reason": "simulated_no_source",
+                "sources": [],
+            }
+
+    knowledge = Knowledge()
+    response = ResponseEngine(knowledge_lookup=knowledge)
+    intent = IntentEngine().detect(
+        "vhat is kaipital off indiya",
+        metadata={"voice": {
+            "raw_text": "व्हाट इस कैपिटल ऑफ इंडिया",
+            "roman_text": "vhat is kaipital off indiya",
+        }},
+    )
+    answer = response.format(
+        command="vhat is kaipital off indiya",
+        result={"success": True, "stage": "conversation"},
+        intent=intent,
+    )
+
+    assert knowledge.calls == [("vhat is kaipital off indiya", "hi")]
+    assert "भरोसेमंद उत्तर" in answer
+
+
 def test_information_question_uses_web_lookup_without_remote_chat_model():
     class Knowledge:
         def __init__(self):

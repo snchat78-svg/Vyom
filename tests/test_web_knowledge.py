@@ -2,6 +2,8 @@ import io
 from datetime import datetime, timezone
 import json
 import socket
+import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -11,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from ai_core.web_knowledge import (
     RetrievalProvider,
     WebKnowledge,
+    _BoundedDNSResolver,
     _PinnedPublicHTTPConnection,
     _PinnedPublicHTTPSConnection,
     _PinnedPublicHTTPHandler,
@@ -953,6 +956,55 @@ class WebKnowledgeTests(unittest.TestCase):
             result["evidence"]["source_quality"]["score_semantics"],
         )
 
+
+    def test_bounded_dns_resolver_times_out_without_blocking_the_turn(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_resolver(host, port, **kwargs):
+            started.set()
+            release.wait(2.0)
+            return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port))]
+
+        resolver = _BoundedDNSResolver(slow_resolver, timeout=0.05, max_workers=1)
+        before = time.monotonic()
+        try:
+            with self.assertRaises(TimeoutError):
+                resolver("example.com", 443, type=socket.SOCK_STREAM)
+            self.assertTrue(started.wait(0.2))
+            self.assertLess(time.monotonic() - before, 0.35)
+            # A stuck resolver consumes the only slot; later turns time out
+            # rather than spawning an unbounded number of blocked workers.
+            with self.assertRaises(TimeoutError):
+                resolver("another.example.com", 443, type=socket.SOCK_STREAM)
+        finally:
+            release.set()
+
+    def test_bounded_dns_resolver_caches_completed_records_briefly(self):
+        calls = []
+        records = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 443))]
+
+        def fast_resolver(host, port, **kwargs):
+            calls.append((host, port))
+            return records
+
+        resolver = _BoundedDNSResolver(fast_resolver, timeout=0.2, cache_ttl=1.0)
+        first = resolver("example.com", 443, type=socket.SOCK_STREAM)
+        second = resolver("example.com", 443, type=socket.SOCK_STREAM)
+
+        self.assertEqual(first, records)
+        self.assertEqual(second, records)
+        self.assertEqual(calls, [("example.com", 443)])
+
+    def test_noisy_english_and_devanagari_stt_questions_normalize_for_retrieval(self):
+        self.assertEqual(
+            WebKnowledge._query_variants("vhat is kaipital off indiya")[0],
+            "भारत की राजधानी क्या है",
+        )
+        self.assertEqual(
+            WebKnowledge._query_variants("व्हाट इस कैपिटल ऑफ़ इंडिया")[0],
+            "भारत की राजधानी क्या है",
+        )
 
     def test_provider_transport_failures_are_logged_and_reported_without_raw_error_data(self):
         def fail_fetch(_client, _variants, _language):

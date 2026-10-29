@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import time
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -363,6 +364,116 @@ class _PinnedPublicHTTPSHandler(urllib.request.HTTPSHandler):
         )
 
 
+
+class _BoundedDNSResolver:
+    """Run synchronous DNS resolution behind a strict deadline and worker cap.
+
+    A stuck platform resolver must not hold up a factual voice turn forever.
+    Worker threads are daemons; when DNS is unresponsive, the call times out,
+    and the bounded semaphore prevents repeated turns from spawning unlimited
+    blocked resolver threads.
+    """
+
+    def __init__(
+        self,
+        resolver: Callable[..., Any],
+        timeout: float = 0.75,
+        deadline_getter: Optional[Callable[[], Optional[float]]] = None,
+        max_workers: int = 2,
+        cache_ttl: float = 1.5,
+    ) -> None:
+        self._resolver = resolver
+        self.timeout = min(1.0, max(0.05, float(timeout)))
+        self._deadline_getter = deadline_getter
+        self._slots = threading.BoundedSemaphore(max(1, min(2, int(max_workers))))
+        self._cache_ttl = min(3.0, max(0.0, float(cache_ttl)))
+        self._cache: Dict[tuple, tuple] = {}
+        self._cache_lock = threading.Lock()
+
+    def __call__(
+        self,
+        host: str,
+        port: Any,
+        family: int = 0,
+        type: int = 0,
+        proto: int = 0,
+        flags: int = 0,
+    ) -> List[Any]:
+        key = (str(host).lower().rstrip("."), port, family, type, proto, flags)
+        now = time.monotonic()
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            if cached and cached[0] > now:
+                return list(cached[1])
+            if cached:
+                self._cache.pop(key, None)
+
+        budget = self.timeout
+        if callable(self._deadline_getter):
+            try:
+                deadline = self._deadline_getter()
+            except Exception:
+                deadline = None
+            if deadline is not None:
+                remaining = float(deadline) - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Web knowledge DNS deadline reached.")
+                budget = min(budget, remaining)
+
+        if not self._slots.acquire(timeout=budget):
+            raise TimeoutError("Web knowledge DNS resolver capacity is busy.")
+
+        completed = threading.Event()
+        result: Dict[str, Any] = {}
+
+        def resolve_once() -> None:
+            try:
+                try:
+                    records = self._resolver(
+                        host, port, family=family, type=type, proto=proto, flags=flags
+                    )
+                except TypeError:
+                    # Keep lightweight injected test resolvers compatible with
+                    # common narrow signatures, without changing production DNS.
+                    try:
+                        records = self._resolver(host, port, type=type)
+                    except TypeError:
+                        records = self._resolver(host, port)
+                result["records"] = list(records or [])
+            except Exception as error:
+                result["error"] = error
+            finally:
+                records = result.get("records")
+                if isinstance(records, list) and self._cache_ttl > 0:
+                    with self._cache_lock:
+                        self._cache[key] = (
+                            time.monotonic() + self._cache_ttl,
+                            list(records),
+                        )
+                completed.set()
+                self._slots.release()
+
+        worker = threading.Thread(
+            target=resolve_once,
+            name="VyomBoundedDNS",
+            daemon=True,
+        )
+        try:
+            worker.start()
+        except Exception:
+            self._slots.release()
+            raise
+
+        if not completed.wait(timeout=budget):
+            raise TimeoutError("Web knowledge DNS resolution timed out.")
+        if "error" in result:
+            raise result["error"]
+        records = result.get("records")
+        if not isinstance(records, list) or not records:
+            raise OSError("DNS returned no address records.")
+        return list(records)
+
+
 class WebKnowledge:
     """Searches public web sources and returns extractive answers."""
 
@@ -516,7 +627,16 @@ class WebKnowledge:
         # the security guard pass a resolver explicitly.
         self._resolver = (
             resolver if resolver is not None
-            else (None if opener is not None else socket.getaddrinfo)
+            else (
+                None if opener is not None
+                else _BoundedDNSResolver(
+                    socket.getaddrinfo,
+                    timeout=min(0.75, self.timeout),
+                    deadline_getter=lambda: self._deadline,
+                    max_workers=2,
+                    cache_ttl=1.5,
+                )
+            )
         )
         if opener is not None:
             self._opener = opener
@@ -735,9 +855,73 @@ class WebKnowledge:
             return []
         return [item for item in candidates if isinstance(item, dict)]
 
+    _STT_ENGLISH_WH_ALIASES = {
+        "vhat": "what", "wat": "what", "wot": "what", "whut": "what",
+        "wher": "where", "were": "where", "wen": "when", "whn": "when",
+        "wai": "why", "hoo": "who", "wich": "which",
+    }
+    _ENGLISH_QUERY_VOCABULARY = frozenset({
+        "what", "who", "why", "when", "where", "how", "which", "whose", "whom",
+        "is", "are", "am", "was", "were", "the", "a", "an", "of", "in", "on",
+        "at", "to", "for", "and", "or", "does", "do", "did", "has", "have",
+        "had", "can", "could", "will", "would", "should", "many", "much", "from",
+        "capital", "country", "state", "city", "district", "districts", "population",
+        "national", "animal", "bird", "river", "area", "largest", "smallest",
+        "current", "president", "minister", "india", "rajasthan", "new", "delhi",
+        "meaning", "cause", "reason", "work", "works", "called", "name",
+    })
+    _DEVANAGARI_ENGLISH_QUERY_ALIASES = {
+        "व्हाट": "what", "वाट": "what", "वॉट": "what", "ह्वाट": "what",
+        "व्हेयर": "where", "वेयर": "where",
+        "व्हेन": "when", "वेन": "when", "व्हाय": "why", "वाय": "why",
+        "हाउ": "how", "हू": "who", "व्हिच": "which", "व्हाट्स": "what",
+        "इस": "is", "इज": "is", "द": "the", "कैपिटल": "capital",
+        "ऑफ": "of", "ऑफ़": "of", "इंडिया": "india",
+    }
+
+    @classmethod
+    def _normalize_stt_question(cls, question: str) -> str:
+        """Repair a small, bounded set of common question-word STT errors."""
+        clean = re.sub(r"\s+", " ", str(question or "")).strip(" \t\r\n?？")
+        if not clean:
+            return ""
+        tokens = clean.split()
+        first = tokens[0].lower()
+        if first in cls._DEVANAGARI_ENGLISH_QUERY_ALIASES:
+            tokens = [cls._DEVANAGARI_ENGLISH_QUERY_ALIASES.get(t.lower(), t) for t in tokens]
+            first = tokens[0].lower()
+
+        first = cls._STT_ENGLISH_WH_ALIASES.get(first, first)
+        if first not in {"what", "who", "why", "when", "where", "how", "which", "whose", "whom"}:
+            import difflib
+            matches = difflib.get_close_matches(
+                first, ("what", "who", "why", "when", "where", "how", "which", "whose", "whom"),
+                n=1, cutoff=0.72,
+            )
+            if not matches or abs(len(first) - len(matches[0])) > 2:
+                return clean
+            first = matches[0]
+        tokens[0] = first
+
+        normalized = [tokens[0]]
+        vocabulary = sorted(cls._ENGLISH_QUERY_VOCABULARY)
+        import difflib
+        for raw in tokens[1:]:
+            word = raw.lower()
+            alias = cls._STT_ENGLISH_WH_ALIASES.get(word, word)
+            if alias in cls._ENGLISH_QUERY_VOCABULARY:
+                normalized.append(alias)
+                continue
+            matches = difflib.get_close_matches(word, vocabulary, n=2, cutoff=0.78)
+            if matches and abs(len(word) - len(matches[0])) <= 2:
+                normalized.append(matches[0])
+            else:
+                normalized.append(raw)
+        return " ".join(normalized)
+
     @classmethod
     def _query_variants(cls, question: str) -> List[str]:
-        clean = re.sub(r"\s+", " ", str(question or "")).strip(" \t\r\n?？")
+        clean = cls._normalize_stt_question(question)
         if not clean:
             return []
         translated = cls._english_question_to_hindi(clean)
@@ -852,6 +1036,9 @@ class WebKnowledge:
                 address = ipaddress.ip_address(str(sockaddr[0]))
                 addresses.append(address.is_global)
             return bool(addresses) and all(addresses)
+        except TimeoutError:
+            # Propagate timed-out DNS so provider fallback and diagnostics can run.
+            raise
         except Exception:
             # DNS failures, malformed answers, and non-public mixed answers fail closed.
             return False

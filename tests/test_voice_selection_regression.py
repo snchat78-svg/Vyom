@@ -48,6 +48,34 @@ class GenericVoiceSelectionTests(unittest.TestCase):
         self.assertGreaterEqual(score_candidate("vard", "word"), 0.72)
         self.assertLess(score_candidate("pik sanu", "calculator"), 0.72)
 
+    def test_short_noisy_open_name_does_not_fuzzy_match_random_local_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "Kalam-Light.jpg").write_text("synthetic", encoding="utf-8")
+            (base / "kala-kuwa.mp3").write_text("synthetic", encoding="utf-8")
+
+            resolver = UniversalResolver()
+            resolver.common_paths = [str(base)]
+            resolver.start_menu_paths = []
+            resolver.desktop_paths = []
+            resolver.program_paths = []
+            resolver.max_results = 20
+
+            self.assertEqual(resolver.search_common_locations("kal"), [])
+            self.assertEqual(resolver._fuzzy_search_known_locations("kal"), [])
+            self.assertEqual(resolver.find_file_or_folder("kal"), [])
+
+    def test_exact_short_file_name_remains_openable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            exact = base / "kal"
+            exact.write_text("synthetic", encoding="utf-8")
+            resolver = UniversalResolver()
+            resolver.common_paths = [str(base)]
+            resolver.start_menu_paths = []
+            resolver.desktop_paths = []
+            self.assertEqual(resolver.find_file_or_folder("kal"), [str(exact)])
+
     def test_fuzzy_duplicate_files_remain_selectable(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

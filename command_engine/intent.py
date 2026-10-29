@@ -10,6 +10,7 @@ Purpose:
 This module only interprets commands. It never executes them.
 """
 
+import difflib
 import re
 from typing import Any, Dict
 
@@ -128,6 +129,53 @@ class IntentEngine:
             if re.match(pattern, text, flags=re.IGNORECASE):
                 return kind
         return None
+
+    @staticmethod
+    def _is_information_question_text(text: Any) -> bool:
+        """Recognize factual questions despite common English/Hinglish STT errors."""
+        value = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if not value:
+            return False
+        tokens = re.findall(r"[a-z]+|[\u0900-\u097f]+", value)
+        if not tokens:
+            return False
+        action_prefixes = {
+            "open", "launch", "start", "run", "close", "stop", "type", "write",
+            "send", "click", "press", "select", "choose", "search", "find",
+            "create", "make", "put", "enter", "khol", "kholo", "likho", "bhejo",
+            "खोलो", "खोलना", "लिखो", "भेजो", "बंद",
+        }
+        if tokens[0] in action_prefixes:
+            return False
+        english_wh = {"what", "who", "why", "when", "where", "how", "which", "whose", "whom"}
+        dev_wh = {
+            "व्हाट", "वाट", "वॉट", "ह्वाट", "व्हेयर", "वेयर", "व्हेन", "वेन",
+            "व्हाय", "वाय", "हाउ", "हू", "व्हिच",
+        }
+        first = tokens[0]
+        if first in dev_wh:
+            return True
+        if first in english_wh or first in {"vhat", "wat", "wot", "whut", "wher", "wen", "wai", "wich"}:
+            return True
+        candidate = difflib.get_close_matches(first, sorted(english_wh), n=1, cutoff=0.72)
+        if candidate and abs(len(first) - len(candidate[0])) <= 2:
+            return True
+        if value.startswith((
+            "tell me about ", "tell me what ", "explain ", "define ",
+            "describe ", "give me information about ",
+        )):
+            return True
+        roman_hindi_questions = {
+            "kya", "kaun", "kyu", "kyun", "kyon", "kab", "kahan", "kahaan",
+            "kaise", "kitna", "kitni", "kitne", "kitney", "kitana", "kitane",
+            "kitani", "kitanaa", "kitanee", "kitnay", "kis", "kise", "kiska",
+            "kiski", "kiske", "kisne", "kisko",
+        }
+        native_hindi_questions = {
+            "क्या", "कौन", "क्यों", "कब", "कहाँ", "कहां", "कैसे", "कितना",
+            "कितनी", "कितने", "किसने", "किसका", "किसकी", "किसे",
+        }
+        return any(token in roman_hindi_questions or token in native_hindi_questions for token in tokens[1:])
 
     def _selection_value(self, value: str):
         candidate = self._normalize(value).strip()
@@ -409,6 +457,17 @@ class IntentEngine:
             return {
                 "intent": "search_file",
                 "target": self._strip_polite_suffix(file_search_match.group(1)),
+                "voice": voice_meta,
+            }
+
+        # STT can produce "vhat is kaipital off indiya" or spell English
+        # WH words in Devanagari. Route information questions directly to the
+        # response layer so slow desktop planning is never needed to answer.
+        if self._is_information_question_text(text):
+            return {
+                "intent": "conversation",
+                "target": "information_question",
+                "conversation_type": "information_question",
                 "voice": voice_meta,
             }
 

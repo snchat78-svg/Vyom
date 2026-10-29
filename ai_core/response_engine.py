@@ -21,6 +21,7 @@ Security:
 
 import os
 import re
+import time
 from typing import Any, Dict, Optional
 
 from ai_core.model_gateway import ModelGateway
@@ -414,6 +415,16 @@ class ResponseEngine:
             voice = intent.get("voice")
             if isinstance(voice, dict):
                 raw = str(voice.get("raw_text") or "").strip()
+                dev_english_question = bool(re.match(
+                    r"^\s*(?:व्हाट|वाट|वॉट|ह्वाट|व्हेयर|वेयर|व्हेन|व्हाय|हाउ|हू|व्हिच)(?:\s|$)",
+                    raw,
+                    flags=re.IGNORECASE,
+                ))
+                command_text = str(command or "").strip()
+                # Preserve the Romanized English question when Hindi-script
+                # STT output is only a phonetic rendering of English.
+                if dev_english_question and re.search(r"[A-Za-z]", command_text):
+                    return command_text
                 if raw:
                     return raw
         return str(command or "").strip()
@@ -434,9 +445,15 @@ class ResponseEngine:
             flags=re.IGNORECASE,
         ):
             return True
+        if re.match(
+            r"^\s*(?:व्हाट|वाट|वॉट|ह्वाट|व्हेयर|वेयर|व्हेन|वेन|व्हाय|वाय|हाउ|हू|व्हिच)(?:\s|$)",
+            value,
+            flags=re.IGNORECASE,
+        ):
+            return True
         question_words = (
-            r"\b(?:what|who|why|when|where|how|which|whose|whom|"
-            r"kya|kaun|kyu|kyun|kab|kahan|kaise|kitna|kitni|kitne|kitney|"
+            r"\b(?:what|who|why|when|where|how|which|whose|whom|vhat|wat|wot|whut|"
+            r"wher|wen|wai|wich|kya|kaun|kyu|kyun|kab|kahan|kaise|kitna|kitni|kitne|kitney|"
             r"kitana|kitane|kitani|kitanaa|kitanee|kitnay|kis|kise|kiska|kiski|kiske|kisne|kisko)\b|"
             r"(?:क्या|कौन|क्यों|कब|कहाँ|कहां|कैसे|कितना|कितनी|कितने|"
             r"किसने|किसका|किसकी|किसे)"
@@ -501,15 +518,29 @@ class ResponseEngine:
             log("[KNOWLEDGE] LOOKUP START: language=%s question=%s" % (
                 preferred_language, safe_question[:240]
             ))
+            lookup_started = time.monotonic()
             try:
                 lookup = self.knowledge_lookup.answer(
                     question_text,
                     preferred_language=preferred_language,
                 )
             except Exception as error:
-                log("[KNOWLEDGE] Web lookup failed: %s" % str(error)[:180])
-                lookup = {"success": False, "answer": ""}
+                # Avoid logging raw URL/query/transport exception contents.
+                log("[KNOWLEDGE] Web lookup failed: error_type=%s" % type(error).__name__)
+                lookup = {
+                    "success": False, "answer": "", "answer_status": "unknown",
+                    "reason": "lookup_exception",
+                }
             lookup = lookup if isinstance(lookup, dict) else {}
+            elapsed_ms = int(max(0.0, time.monotonic() - lookup_started) * 1000)
+            end_status = str(lookup.get("answer_status") or (
+                "sourced_excerpt" if lookup.get("success") and str(lookup.get("answer") or "").strip()
+                else "unknown"
+            )).strip().lower()
+            end_reason = str(lookup.get("reason") or "no_reason")[:100]
+            log("[KNOWLEDGE] LOOKUP END: elapsed_ms=%d status=%s reason=%s" % (
+                elapsed_ms, end_status, end_reason
+            ))
             answer_status = str(lookup.get("answer_status") or "").strip().lower()
             sources = lookup.get("sources")
             sources = sources if isinstance(sources, list) else []

@@ -1533,7 +1533,11 @@ catch {
         )
 
         if not normalized_target:
-
+            return []
+        # Very short targets are not distinctive enough for fuzzy suggestions
+        # across the installed-app inventory ("kal" can match unrelated names).
+        compact_target = re.sub(r"[^a-z0-9]", "", normalized_target)
+        if len(compact_target) < 4:
             return []
 
         database = self.build_database()
@@ -1572,7 +1576,7 @@ catch {
         phonetic_matches = rank_candidates(
             normalized_target,
             candidates,
-            threshold=0.62,
+            threshold=0.74,
             limit=limit
         )
 
