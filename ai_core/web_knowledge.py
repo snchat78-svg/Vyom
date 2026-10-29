@@ -908,9 +908,12 @@ class WebKnowledge:
         import difflib
         for raw in tokens[1:]:
             word = raw.lower()
-            alias = cls._STT_ENGLISH_WH_ALIASES.get(word, word)
+            mapped_alias = cls._STT_ENGLISH_WH_ALIASES.get(word)
+            alias = mapped_alias if mapped_alias is not None else word
             if alias in cls._ENGLISH_QUERY_VOCABULARY:
-                normalized.append(alias)
+                # Preserve untouched source capitalization (for example India)
+                # in the second query variant; only changed tokens are lowered.
+                normalized.append(alias if mapped_alias is not None else raw)
                 continue
             matches = difflib.get_close_matches(word, vocabulary, n=2, cutoff=0.78)
             if matches and abs(len(word) - len(matches[0])) <= 2:
