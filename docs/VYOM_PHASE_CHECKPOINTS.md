@@ -27,11 +27,11 @@ This file is the hand-off record across conversations. The repository code and C
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
 ## Current verified handoff — M10.4 regression fix CI-verified; target-device gate still blocked
-- **Latest code/test commit:** `c4434d45be1bcf472100fc7d2c7b1847c4e0e135`
-- **Exact-SHA CI:** [run 40817785734](https://github.com/snchat78-svg/Vyom/actions/runs/40817785734) passed with **482 tests + 30 subtests**; syntax/core/voice imports, full suite, clean build, M10.2 benchmark validation, M10.3 thresholds (**22/22**), Windows EXE verification, CI-host preflight and artifacts passed.
+- **Latest code/test commit:** `93a6be04973bff3854d4c7a6ed2e2b794e2764b2`
+- **Exact-SHA CI:** [run 40818579534](https://github.com/snchat78-svg/Vyom/actions/runs/40818579534) passed with **483 tests + 30 subtests**; syntax/core/voice imports, full suite, clean build, M10.2 benchmark validation, M10.3 thresholds (**22/22**), Windows EXE verification, CI-host preflight and artifacts passed.
 - **Fixes:** deadline-bounded DNS; STT-corrupted English/Devanagari factual-question routing; lookup end elapsed/status/reason logs; safe exception diagnostics; app fallback separated from global fuzzy file matching; exact short filenames preserved; tiny substring overlap no longer produces high phonetic confidence.
-- **Artifacts:** `Vyom_EXE` ID 12873471349 (expires 2026-11-05); `Vyom_M10_4_Target_Device_Package` ID 12873456416 (expires 2026-11-28); CI preflight and M10.2/M10.3 reports are attached to [run 40817785734](https://github.com/snchat78-svg/Vyom/actions/runs/40817785734).
-- **Next:** download/extract the target-device package from the run's Artifacts section, read `README_FIRST.txt`, run preflight and provide `M10_4_preflight.json`. If supported, collect `M10_4_target_device_evidence.json` for actual Hindi/Hinglish audio, STT, pending selection, file/folder/PDF/JPG opening, UI grounding and multi-step postconditions.
+- **Latest artifacts:** `Vyom_EXE` ID 12874020570 (expires 2026-11-05); `Vyom_M10_4_Target_Device_Package` ID 12873975747 (expires 2026-11-28); CI preflight ID 12873631976; refreshed benchmark/gate reports are attached to [run 40818579534](https://github.com/snchat78-svg/Vyom/actions/runs/40818579534).
+- **Next:** download/extract the target-device package from [run 40818579534](https://github.com/snchat78-svg/Vyom/actions/runs/40818579534) → Artifacts, read `README_FIRST.txt`, run preflight and return `M10_4_preflight.json`. If the PC is supported, collect `M10_4_target_device_evidence.json` for real Hindi/Hinglish audio, STT, selection, file/folder/PDF/JPG opening, UI grounding and postconditions.
 - **Still BLOCKED:** CI cannot verify physical audio, actual microphone, user-network DNS/TLS or real desktop completion. Python 3.11 requires Windows 8.1/version 6.3 or newer. Do not mark M10.4 complete or move to M10.5 without target-device evidence.
 
 ## Current phase hand-off
@@ -142,3 +142,9 @@ This file is the hand-off record across conversations. The repository code and C
 - Log was supplied directly by the user; raw private transcript/full log is not copied into the repository. The structured finding summary is in docs/VYOM_M10_4_OBSERVED_LOG_REVIEW.md.
 - Latest exact-SHA CI [40631719205](https://github.com/snchat78-svg/Vyom/actions/runs/40631719205) on 1144c8de227a2a5d344ddf3aa17a7f5792305b3a passed 473 tests + 30 subtests, M10.2/M10.3 gates, EXE verification and fresh package artifacts.
 - Do not equate TTS subprocess success with audible playback. The new Windows WAV playback helper has hardware-free regression coverage; actual output still requires target-device acceptance.
+
+
+## M10.4 latest CI refresh — 2026-10-29
+- Current code/test SHA: `93a6be04973bff3854d4c7a6ed2e2b794e2764b2`; exact-SHA [run 40818579534](https://github.com/snchat78-svg/Vyom/actions/runs/40818579534) passed **483 tests + 30 subtests**, syntax/core/voice imports, full suite, clean build, M10.2 report validation, M10.3 22/22 thresholds, Windows EXE verification, CI-host smoke preflight and artifact upload.
+- Latest package `Vyom_M10_4_Target_Device_Package` ID `12873975747` expires 2026-11-28; EXE ID `12874020570` expires 2026-11-05; CI preflight ID `12873631976`.
+- Required next evidence: `M10_4_preflight.json` from the actual target PC. Python 3.11 package requires Windows 8.1/version 6.3 or newer; Windows 8.0/version 6.2 is unsupported. If supported, submit target-device evidence. CI success does not clear this blocker.
