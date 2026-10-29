@@ -26,14 +26,14 @@ This file is the hand-off record across conversations. The repository code and C
 - M1 final acceptance suite `6a7054de0828949f1f1bcade33a06cb9438fa192` passed exact-SHA [CI run 39405455918](https://github.com/snchat78-svg/Vyom/actions/runs/39405455918), including the full suite and Windows EXE build/verification/upload. Real audio/desktop acceptance remains external.
 - Current M2 patch fixes target suppression in the semantic frame and adds target/payload separation, ambiguity alternatives and same-plan paraphrase tests. Exact-SHA CI pending.
 
-## Current verified handoff — M10.4 code fixes CI-verified; target-device gate still blocked
-- **Latest code/test commit:** 1144c8de227a2a5d344ddf3aa17a7f5792305b3a
-- **Exact-SHA CI:** [run 40631719205](https://github.com/snchat78-svg/Vyom/actions/runs/40631719205) passed with **473 tests + 30 subtests**; syntax/core/voice imports, complete suite, clean build, M10.2 baseline validation, M10.3 thresholds (**22/22**), Windows EXE verification, CI-host smoke and artifact uploads passed.
-- **Fixes covered by automated regression tests:** “number van/wan/won” and long spoken choices route to pending selection; Windows Hindi TTS attempts WAV rendering and winsound playback with direct eSpeak fallback; source provider errors expose bounded secret-safe diagnostics; unknown/conflicting factual lookups no longer carry success status.
-- **Latest package:** Vyom_M10_4_Target_Device_Package artifact ID 12792081432 from the latest run, expires 2026-11-27. Vyom_EXE artifact ID 12791877328, expires 2026-11-04.
-- **Observed log review:** docs/VYOM_M10_4_OBSERVED_LOG_REVIEW.md records the user's 2026-10-28 log and maps findings to tests/fixes. It is partial manual evidence only.
-- **Next required step:** run the packaged preflight on the actual PC and provide M10_4_preflight.json; if OS version is 6.3+ and preflight passes, collect the target-device evidence report covering actual Hindi/Hinglish audio, selection, factual retrieval/unknown handling, UI grounding, multi-step postconditions and low-memory behavior.
-- **Still BLOCKED:** CI proves the mocked WAV code path and deterministic selection/parser/status checks—not physical speaker audibility, real microphone/STT quality, live internet/TLS availability, actual target OS compatibility or real desktop task completion. Do not mark M10.4 complete or move to M10.5 without reviewed device evidence.
+## Current verified handoff — M10.4 regression fix CI-verified; target-device gate still blocked
+- **Latest code/test commit:** `c4434d45be1bcf472100fc7d2c7b1847c4e0e135`
+- **Exact-SHA CI:** [run 40817785734](https://github.com/snchat78-svg/Vyom/actions/runs/40817785734) passed with **482 tests + 30 subtests**; syntax/core/voice imports, full suite, clean build, M10.2 benchmark validation, M10.3 thresholds (**22/22**), Windows EXE verification, CI-host preflight and artifacts passed.
+- **Fixes:** deadline-bounded DNS; STT-corrupted English/Devanagari factual-question routing; lookup end elapsed/status/reason logs; safe exception diagnostics; app fallback separated from global fuzzy file matching; exact short filenames preserved; tiny substring overlap no longer produces high phonetic confidence.
+- **Artifacts:** `Vyom_EXE` ID 12873471349 (expires 2026-11-05); `Vyom_M10_4_Target_Device_Package` ID 12873456416 (expires 2026-11-28); CI preflight and M10.2/M10.3 reports are attached to [run 40817785734](https://github.com/snchat78-svg/Vyom/actions/runs/40817785734).
+- **Next:** download/extract the target-device package from the run's Artifacts section, read `README_FIRST.txt`, run preflight and provide `M10_4_preflight.json`. If supported, collect `M10_4_target_device_evidence.json` for actual Hindi/Hinglish audio, STT, pending selection, file/folder/PDF/JPG opening, UI grounding and multi-step postconditions.
+- **Still BLOCKED:** CI cannot verify physical audio, actual microphone, user-network DNS/TLS or real desktop completion. Python 3.11 requires Windows 8.1/version 6.3 or newer. Do not mark M10.4 complete or move to M10.5 without target-device evidence.
+
 ## Current phase hand-off
 
 - **Authoritative cross-chat tracker:** [`docs/VYOM_PHASE_STATE.md`](VYOM_PHASE_STATE.md). Read this file first before starting a phase; update it whenever phase status changes. Completed phases must be backed by an exact-commit CI run. Never restart a completed phase; resume the recorded in-progress phase or select the next explicitly listed incomplete item.

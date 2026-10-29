@@ -13,20 +13,26 @@ The user supplied an excerpt from a real local Vyom EXE session on 2026-10-28. I
 | Factual retrieval | Capital-of-India and Rajasthan-district questions reached WebKnowledge, whose result reason was no_source_or_network_unavailable; Vyom gave an honest unknown answer | Retrieval could not return a safe source on that run. This does not establish whether DNS, socket, TLS, remote filtering or page markup was the exact cause; provider diagnostics were added rather than guessing. |
 | Structured status | The no-source response text was honest but the executor still reported success=True for the overall conversation stage | New structured status propagates unknown/conflict instead of calling the factual answer successful. The message still goes to console and TTS. |
 
+## Cross-check of regressions and verified fixes
+
+The second submitted log was traced through the live branch and compared with the older `fix/universal-resolver-file-folder` branch. The older and current `ToolManager._handle_launcher_response` used the same broad resolver fallback; the current branch had accumulated more fuzzy discovery. The generic phonetic matcher also awarded a 0.90 substring score even when a one-character piece matched, explaining why a misspelled app target could become unrelated A.JPG/MP3/Dart candidates.
+
+The factual-query stall had a separate root cause: the intent detector treated “vhat is kaipital off indiya” as unknown, and synchronous production DNS lookup could outlive the overall retrieval deadline because `socket.getaddrinfo` itself had no timeout.
+
 ## Code and test changes covered by latest exact-SHA CI
 
-Exact code/test commit 1144c8de227a2a5d344ddf3aa17a7f5792305b3a; [GitHub Actions run 40631719205](https://github.com/snchat78-svg/Vyom/actions/runs/40631719205) passed **473 tests + 30 subtests**, Python syntax/core/voice imports, full test suite, clean build, M10.2 report validation, M10.3 threshold checks **22/22**, Windows EXE verification, CI-host smoke and artifact uploads.
+Exact code/test commit `c4434d45be1bcf472100fc7d2c7b1847c4e0e135`; [GitHub Actions run 40817785734](https://github.com/snchat78-svg/Vyom/actions/runs/40817785734) passed **482 tests + 30 subtests**, syntax/core/voice imports, full suite, clean build, M10.2 baseline validation, M10.3 threshold checks **22/22**, Windows EXE build/verification, CI-host preflight and artifact uploads.
 
-- command_engine/intent.py: added common STT aliases such as van, wan and won, and handled numeric selection prefixes followed by noisy trailing words. Shared parser is used by voice and typed routes.
-- voice/text_to_speech.py: on Windows, local eSpeak NG now attempts WAV rendering and synchronous playback through winsound; if that route fails, the existing direct eSpeak fallback remains. Tests use fake audio/playback APIs; hardware acceptance is still outstanding.
-- ai_core/web_knowledge.py: bounded diagnostics log provider name, stage and exception type only. Raw query strings, URLs, response content, credentials and secret-bearing exception messages are excluded from the diagnostic structure. Safe-URL, DNS and fetch limits remain intact.
-- ai_core/response_engine.py and command_engine/executor.py: unknown/conflicting source outcomes are preserved in the structured turn status; unknown/conflict is not reported as a successful fact.
-- Regression coverage: selection phrase aliases/long-noisy choices, the Windows WAV helper and invalid-WAV rejection, provider diagnostics without raw error data, and unknown/conflict status propagation/early-return tracking.
+- `ai_core/web_knowledge.py`: bounded daemon DNS with worker cap/cache/deadline; timeouts return control so provider fallback can finish. A bounded STT normalizer repairs common English question errors and phonetic English WH words in Devanagari. `ai_core/response_engine.py` logs lookup elapsed/status/reason and avoids exposing raw transport exception text.
+- `command_engine/intent.py`: noisy factual questions route directly to the response/knowledge path instead of waiting for semantic action planning. Action-prefix phrases stay on the command path.
+- `tools/tool_manager.py` and `tools/universal_resolver.py`: failed app lookup no longer triggers unrestricted fuzzy local-file searching; file/folder fallback checks exact paths and plausible common-location matches. Exact short names remain usable, and explicit file requests keep the file resolver.
+- `tools/phonetic_matcher.py` and `tools/universal_app_launcher.py`: short strings are not treated as high-confidence fuzzy matches. Selection and app suggestions remain available for sufficiently distinctive candidates.
+- Hindi TTS: current local eSpeak NG WAV + Windows playback attempt and direct eSpeak fallback are preserved. The log proves the playback function returned, not that sound was physically audible.
 
-## Still required for M10.4
+## Latest artifacts and remaining M10.4 gate
 
-1. Download Vyom_M10_4_Target_Device_Package (artifact ID 12792081432) from the run above, extract it and read README_FIRST.txt.
-2. Run its preflight on the actual target PC and return M10_4_preflight.json. Confirm Windows version, architecture, memory and EXE checks; current Python 3.11 package requires Windows 8.1/version 6.3 or newer.
-3. Only after preflight passes, perform and record real-device tests for audible Hindi/Hinglish output, number one/number van selection, source lookup and honest unknown behavior, microphone/STT, UI grounding, multi-step postconditions, provider outage/opt-out and low-memory stability. Return M10_4_target_device_evidence.json.
+- [Exact-SHA run 40817785734](https://github.com/snchat78-svg/Vyom/actions/runs/40817785734): `Vyom_EXE` ID `12873471349` (expires 2026-11-05), `Vyom_M10_4_Target_Device_Package` ID `12873456416` (expires 2026-11-28), CI preflight ID `12873272240`, M10.2 baseline ID `12873003736`, M10.3 gate report ID `12873008824`.
+- From the run's Artifacts section, download the target-device package, extract it, read `README_FIRST.txt` and run preflight on the actual PC. Return `M10_4_preflight.json`. If supported, run real-device checks and return `M10_4_target_device_evidence.json`.
+- Python 3.11 requires Windows 8.1/version 6.3 or newer; Windows 8.0/version 6.2 is unsupported. Confirm the actual OS.
 
-**Status stays BLOCKED until those target-device checks are supplied and reviewed.** Do not mark M10.4 complete from CI alone, and do not begin M10.5 early.
+**Status remains BLOCKED until the real target-device evidence is returned and reviewed.** CI does not prove physical speaker output, microphone quality, live user-network DNS/TLS, real desktop postconditions or low-memory behavior. Do not mark M10.4 complete or begin M10.5 yet.
