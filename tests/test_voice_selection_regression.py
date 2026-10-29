@@ -76,6 +76,12 @@ class GenericVoiceSelectionTests(unittest.TestCase):
             resolver.desktop_paths = []
             self.assertEqual(resolver.find_file_or_folder("kal"), [str(exact)])
 
+    def test_short_substrings_do_not_make_unrelated_files_high_confidence(self):
+        self.assertLess(score_candidate("kal", "Kalam-Light.jpg"), 0.72)
+        self.assertLess(score_candidate("amejon", "A.JPG"), 0.72)
+        self.assertLess(score_candidate("photos e tu j", "o.jpg"), 0.72)
+        self.assertGreaterEqual(score_candidate("Project Notes", "Project Notes.txt"), 0.99)
+
     def test_fuzzy_duplicate_files_remain_selectable(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
