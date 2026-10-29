@@ -1266,10 +1266,24 @@ class ToolManager:
         )
 
         file_only_finder = getattr(self.resolver, "find_file_or_folder", None)
-        if callable(file_only_finder):
+        target_words = set(re.findall(
+            r"[a-z0-9]+|[\u0900-\u097f]+",
+            str(target or "").lower(),
+        ))
+        # Use fuzzy file matching only when the utterance itself signals a
+        # file/photo/document/folder request. A generic failed app name such
+        # as "amejon" must never fan out into arbitrary JPG/MP3 suggestions.
+        explicit_file_cues = {
+            "file", "files", "folder", "folders", "directory", "directories",
+            "photo", "photos", "foto", "fotos", "picture", "pictures",
+            "image", "images", "pdf", "jpg", "jpeg", "png", "gif", "document",
+            "documents", "file", "tasveer", "tasveeren", "tasveeron",
+            "फोटो", "तस्वीर", "तस्वीरें", "चित्र", "फाइल", "फ़ाइल", "पीडीएफ",
+            "इमेज", "दस्तावेज", "दस्तावेज़", "फ़ोल्डर", "फोल्डर",
+        }
+        if callable(file_only_finder) and not (target_words & explicit_file_cues):
             resolver_results = file_only_finder(target)
         else:
-            # Compatibility with resolver adapters created by older callers.
             resolver_results = self.resolver.find(target)
 
         if resolver_results:
