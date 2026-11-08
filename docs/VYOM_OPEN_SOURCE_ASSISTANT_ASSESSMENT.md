@@ -72,6 +72,21 @@ The current Vyom M10.4 register says the Python 3.11 baseline requires Windows 8
 - Shruti README, comparative results, integration guide and limitations: https://github.com/udgamlabs/shruti, https://github.com/udgamlabs/shruti/blob/main/docs/comparison.md, https://github.com/udgamlabs/shruti/blob/main/onnx/docs/integrate.md, https://github.com/udgamlabs/shruti/blob/main/onnx/docs/limits.md
 - Vosk, whisper.cpp and Piper: https://github.com/alphacep/vosk-api, https://github.com/ggml-org/whisper.cpp, https://github.com/OHF-Voice/piper1-gpl
 
+## 2026-11-08 — screen understanding and coding-agent shortlist
+
+| Project | Useful component | Vyom decision |
+|---|---|---|
+| [Microsoft OmniParser](https://github.com/microsoft/OmniParser) | Screenshot-to-structured-elements and icon captions | Architecture reference only. Current setup uses Python 3.12 and a comparatively large vision/OCR dependency set; model folders carry distinct licences. Do not transplant the full stack into the legacy target. |
+| [Moondream](https://ollama.com/library/moondream) | Small local vision-language model for image description | First optional model candidate through local Ollama. The listed download is about 1.7 GB; disk size is not peak RAM. Disabled by default and not a fit assumption for the 2 GB device. |
+| [Qwen3-VL](https://ollama.com/library/qwen3-vl) | Visual reasoning and GUI interaction understanding | Stronger future candidate. The 2B quantized model is listed around 1.9 GB on disk and requires current Ollama; not suitable to test on a 2 GB PC without upgraded hardware. |
+| [OpenHands](https://github.com/OpenHands/OpenHands) | Plan/edit/test/review engineering workflow; self-hosted/local model backends | Future workflow reference only. Do not add its full runtime before target-device gate and bounded workspace/approval contracts are ready. |
+
+The first implementation is Vyom-owned: vision/screen_understanding.py exposes read-only analyze_screen, uses UIA-only fallback and optionally calls a literal loopback Ollama endpoint. It does not import OmniParser or OpenHands and does not let a vision description trigger an unvalidated click/type action.
+
+**Free/no-paid policy:** ModelGateway defaults to local Qwen. VYOM_ALLOW_PAID_API defaults false and blocks cloud/paid selection even if a Gemini key exists. A missing local server/model must not cause cloud fallback. Visual AI is separately optional and disabled until explicitly configured.
+
+**Platform constraint:** current official Ollama Windows documentation requires Windows 10 22H2 or newer. The previously recorded Windows 8/8.1, 2 GB PC cannot be assumed to run it. Keep the existing UIA/deterministic path and wait for the actual M10.4 preflight before selecting an install route.
+
 ## Final status
 
 **Research complete; no third-party runtime or model has been installed or integrated.** M10.4 remains the active Vyom phase. Shruti is the first STT candidate for a controlled Windows feasibility test, while Leon is the closest overall architecture reference. No phase is skipped or marked complete by this research note.
