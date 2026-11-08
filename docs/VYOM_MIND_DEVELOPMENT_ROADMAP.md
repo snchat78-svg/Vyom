@@ -258,3 +258,18 @@ At every new chat, read `docs/VYOM_PHASE_STATE.md`, verify the live branch head 
 ## Explicit limitation
 
 No system can guarantee correct interpretation of every possible sentence or badly corrupted audio. Vyom should use context and safe hypotheses to maximize correct recovery, but ask when meaning is ambiguous, report missing model/network capability honestly, and never claim an unverified desktop action succeeded.
+
+---
+
+## M10.4 additive Office capability prototype — 2026-11-08
+
+**Status:** implemented as an additive prototype; exact-SHA CI passed; real-device Office acceptance remains pending under M10.4.
+
+- Microsoft UFO² was inspected as the primary Windows/Office automation reference. Only the narrow Office COM receiver approach was adapted; the complete UFO agent runtime, MCP server stack and large dependency set were not transplanted.
+- `windows_agent/office_capability.py` supplies an optional Office COM capability for Word, Excel and PowerPoint. It is registered through the existing `CapabilityExecutor`; Vyom retains its own semantic Brain, MissionPlanner, MissionRuntime, UI Automation, risk policy and verification.
+- Initial actions: Office document open/create/read/save; bounded Excel range read/write; Word append/replace/table insertion; PowerPoint slide creation.
+- `tests/test_office_capability.py` provides mocked COM contract tests. `docs/VYOM_OFFICE_AUTOMATION_INTEGRATION.md` contains the detailed design, limits, safeguards and M10.5/M10.6 expansion sequence. `THIRD_PARTY_NOTICES.md` records the Microsoft UFO MIT attribution.
+- Exact-SHA CI on `d7d2a6911fb78d6b0c2737a41529fea06b2c38c7`: [run 42455456449](https://github.com/snchat78-svg/Vyom/actions/runs/42455456449) — **492 tests + 30 subtests passed**, M10.2/M10.3 gates, Windows EXE verification, CI-host smoke and artifact uploads succeeded.
+- This is not real Office acceptance: mocked COM tests do not establish that Office is installed/activated or that COM calls work on the user's physical PC.
+- **Anti-skip:** M10.4 remains the first incomplete phase. Finish supported target-device preflight and actual Windows/Office manual evidence first; only then advance to M10.5 Office/file-workflow expansion. Windows 8.0/version 6.2 remains outside the Python 3.11 package baseline; Windows 8.1/version 6.3 or newer is required for the current build. Full UFO² itself requires Windows 10+, and is not bundled.
+
