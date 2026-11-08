@@ -24,6 +24,7 @@ from ai_core.capability_registry import CapabilityRegistry
 from ai_core.capability_resolver import CapabilityResolver
 from windows_agent.ui_automation import WindowsUICapability
 from windows_agent.office_capability import OfficeCOMCapability
+from vision.screen_understanding import ScreenUnderstandingCapability
 
 
 class UIAutonomousAgent(AutonomousAgent):
@@ -71,6 +72,15 @@ class UIAutonomousAgent(AutonomousAgent):
             self.office_capability,
             enabled=True,
             priority=40,
+        )
+
+        # Optional read-only visual perception. The provider accepts only a
+        # literal loopback Ollama endpoint; it never uses paid/cloud vision APIs.
+        self.screen_understanding_capability = ScreenUnderstandingCapability()
+        self.capability_executor.register(
+            self.screen_understanding_capability,
+            enabled=True,
+            priority=30,
         )
 
     def _execute_step(self, step):
