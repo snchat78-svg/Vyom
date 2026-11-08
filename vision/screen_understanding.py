@@ -314,14 +314,110 @@ class ScreenUnderstandingCapability:
         "local vision model on the same computer. It never performs UI actions."
     )
 
-    def __init__(self, screen_observer: Any = None, vision_provider: Any = None):
+    def __init__(
+        self,
+        screen_observer: Any = None,
+        vision_provider: Any = None,
+        ui_observer: Any = None,
+    ):
         from windows_agent.screen_observer import ScreenObserver
+        from windows_agent.ui_state_observer import UIStateObserver
 
         self.screen_observer = screen_observer or ScreenObserver()
         self.vision_provider = vision_provider or LocalOllamaVisionProvider()
+        self.ui_observer = ui_observer or UIStateObserver()
 
     def supported_actions(self):
         return ["analyze_screen"]
+
+    def _ui_snapshot(self) -> Dict[str, Any]:
+        snapshotter = getattr(self.ui_observer, "snapshot", None)
+        if not callable(snapshotter):
+            return {"available": False, "coherent": False}
+        try:
+            value = snapshotter()
+        except Exception:
+            return {"available": False, "coherent": False}
+        if not isinstance(value, dict):
+            return {"available": False, "coherent": False}
+
+        def bounded_state(raw: Any) -> Dict[str, Any]:
+            if not isinstance(raw, dict):
+                return {}
+            allowed = (
+                "exists", "name", "control_type", "automation_id", "class_name",
+                "enabled", "visible", "focused", "hwnd", "pid",
+            )
+            result = {}
+            for key in allowed:
+                if key not in raw:
+                    continue
+                item = raw.get(key)
+                if isinstance(item, str):
+                    result[key] = item[:240]
+                elif item is None or isinstance(item, (bool, int, float)):
+                    result[key] = item
+            return result
+
+        tree = value.get("ui_tree_signature")
+        if not isinstance(tree, list):
+            tree = []
+        bounded_tree = []
+        for item in tree[:40]:
+            bounded_tree.append(bounded_state(item))
+
+        windows = value.get("running_windows")
+        if not isinstance(windows, list):
+            windows = []
+        bounded_windows = [
+            bounded_state(item) for item in windows[:20]
+        ]
+
+        return {
+            "available": bool(value.get("available")),
+            "coherent": bool(value.get("coherent")),
+            "active_window": bounded_state(value.get("active_window")),
+            "focused_element": bounded_state(value.get("focused_element")),
+            "selected_element": bounded_state(value.get("selected_element")),
+            "ui_tree_signature": bounded_tree,
+            "running_windows": bounded_windows,
+        }
+
+    @staticmethod
+    def _uia_only_result(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        if not snapshot.get("available"):
+            return {
+                "success": False,
+                "stage": "screen_observation_unavailable",
+                "message": (
+                    "Local vision is disabled and Windows UI Automation could not "
+                    "describe the active desktop. Existing application/file commands remain available."
+                ),
+                "verification": {"verified": False},
+            }
+        if not snapshot.get("coherent"):
+            return {
+                "success": False,
+                "stage": "screen_observation_incoherent",
+                "message": "The active window changed while Vyom was observing the screen; no UI snapshot is trusted.",
+                "verification": {"verified": False},
+            }
+        return {
+            "success": True,
+            "stage": "screen_observation_completed",
+            "message": "Vyom observed the active window and visible UI Automation controls. Local visual AI is not enabled.",
+            "result": {
+                "observation": snapshot,
+                "visual_model_used": False,
+                "action_taken": False,
+                "ui_automation_observation": ui_snapshot,
+            },
+            "verification": {
+                "verified": True,
+                "method": "coherent_windows_ui_automation_snapshot",
+                "verification_level": "ui_structure_observation",
+            },
+        }
 
     def execute(self, action: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(action, dict) or str(action.get("action") or "").lower() != "analyze_screen":
@@ -332,24 +428,21 @@ class ScreenUnderstandingCapability:
                 "verification": {"verified": False},
             }
 
+        ui_snapshot = self._ui_snapshot()
         configured = getattr(self.vision_provider, "is_configured", None)
         if not callable(configured) or not configured():
-            return {
-                "success": False,
-                "stage": "local_vision_disabled",
-                "message": (
-                    "Local screen understanding is not enabled. Vyom will continue "
-                    "using its existing Windows UI Automation without a vision model."
-                ),
-                "verification": {"verified": False},
-            }
+            return self._uia_only_result(ui_snapshot)
 
         available = getattr(self.screen_observer, "is_available", None)
         if not callable(available) or not available():
+            fallback = self._uia_only_result(ui_snapshot)
+            if fallback.get("success"):
+                fallback["message"] += " Pixel capture is unavailable; no visual model was called."
+                return fallback
             return {
                 "success": False,
                 "stage": "screen_capture_unavailable",
-                "message": "Windows screen capture is unavailable on this computer.",
+                "message": "Windows screen capture is unavailable and UI Automation did not provide a coherent snapshot.",
                 "verification": {"verified": False},
             }
 
@@ -406,6 +499,14 @@ class ScreenUnderstandingCapability:
 
         vision_result = self.vision_provider.analyze_image(png, question=question)
         if not isinstance(vision_result, dict) or not vision_result.get("success"):
+            fallback = self._uia_only_result(ui_snapshot)
+            if fallback.get("success"):
+                fallback["message"] += " The optional local visual model was unavailable; no cloud fallback was attempted."
+                fallback["result"]["visual_model_error_stage"] = (
+                    vision_result.get("stage", "local_vision_failed")
+                    if isinstance(vision_result, dict) else "local_vision_failed"
+                )
+                return fallback
             return {
                 "success": False,
                 "stage": (
