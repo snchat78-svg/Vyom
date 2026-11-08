@@ -464,6 +464,11 @@ class ScreenUnderstandingCapability:
         try:
             capture = self.screen_observer.capture(path=path)
             if not isinstance(capture, dict) or not capture.get("success"):
+                fallback = self._uia_only_result(ui_snapshot)
+                if fallback.get("success"):
+                    fallback["message"] += " Pixel capture failed; this result uses UI Automation only."
+                    fallback["result"]["visual_model_error_stage"] = "screen_capture_failed"
+                    return fallback
                 return {
                     "success": False,
                     "stage": "screen_capture_failed",
@@ -484,6 +489,11 @@ class ScreenUnderstandingCapability:
                 bmp = handle.read(MAX_BMP_BYTES + 1)
             png = bmp_to_png_bytes(bmp)
         except (OSError, ValueError, struct.error):
+            fallback = self._uia_only_result(ui_snapshot)
+            if fallback.get("success"):
+                fallback["message"] += " Pixel image processing failed; this result uses UI Automation only."
+                fallback["result"]["visual_model_error_stage"] = "screen_image_processing_failed"
+                return fallback
             return {
                 "success": False,
                 "stage": "screen_image_processing_failed",
