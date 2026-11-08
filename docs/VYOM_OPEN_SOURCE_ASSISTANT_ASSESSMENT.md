@@ -83,7 +83,7 @@ The current Vyom M10.4 register says the Python 3.11 baseline requires Windows 8
 
 The first implementation is Vyom-owned: vision/screen_understanding.py exposes read-only analyze_screen, uses UIA-only fallback and optionally calls a literal loopback Ollama endpoint. It does not import OmniParser or OpenHands and does not let a vision description trigger an unvalidated click/type action.
 
-**Free/no-paid policy:** ModelGateway defaults to local Qwen. VYOM_ALLOW_PAID_API defaults false and blocks cloud/paid selection even if a Gemini key exists. A missing local server/model must not cause cloud fallback. Visual AI is separately optional and disabled until explicitly configured.
+**Free/no-paid policy:** ModelGateway defaults to the local_qwen provider route. VYOM_ALLOW_PAID_API defaults false and blocks cloud/paid selection even if a Gemini key exists. Local Qwen inference remains opt-in until the local runtime is configured. A missing local server/model must not cause cloud fallback. Visual AI is separately optional and disabled until explicitly configured.
 
 **Platform constraint:** current official Ollama Windows documentation requires Windows 10 22H2 or newer. The previously recorded Windows 8/8.1, 2 GB PC cannot be assumed to run it. Keep the existing UIA/deterministic path and wait for the actual M10.4 preflight before selecting an install route.
 
