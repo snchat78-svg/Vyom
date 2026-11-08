@@ -410,7 +410,6 @@ class ScreenUnderstandingCapability:
                 "observation": snapshot,
                 "visual_model_used": False,
                 "action_taken": False,
-                "ui_automation_observation": ui_snapshot,
             },
             "verification": {
                 "verified": True,
@@ -540,6 +539,7 @@ class ScreenUnderstandingCapability:
                 "screen_width": int(capture.get("width", 0) or 0),
                 "screen_height": int(capture.get("height", 0) or 0),
                 "action_taken": False,
+                "ui_automation_observation": ui_snapshot,
             },
             "verification": {
                 "verified": True,
