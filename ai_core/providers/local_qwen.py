@@ -15,7 +15,7 @@ class LocalQwenProvider:
     DEFAULT_MODEL = "qwen3.5:0.8b"
 
     def __init__(self, enabled=None, api_url=None, model=None):
-        env_enabled = os.environ.get("QWEN_LOCAL_ENABLED", "false")
+        env_enabled = os.environ.get("QWEN_LOCAL_ENABLED", "true")
         if enabled is None:
             enabled = env_enabled.strip().lower() not in {"0", "false", "no", "off"}
 
