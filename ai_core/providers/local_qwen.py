@@ -6,6 +6,7 @@ request/response transport and provider fallback policy.
 """
 
 import os
+from urllib.parse import urlsplit
 
 
 class LocalQwenProvider:
@@ -32,9 +33,21 @@ class LocalQwenProvider:
         return "local_qwen"
 
     def is_local_url(self):
-        return self.api_url.lower().startswith(
-            ("http://127.0.0.1", "http://localhost", "http://[::1]")
-        )
+        try:
+            parsed = urlsplit(self.api_url)
+            return (
+                parsed.scheme == "http"
+                and parsed.hostname in {"127.0.0.1", "::1"}
+                and parsed.port is not None
+                and 1 <= parsed.port <= 65535
+                and parsed.path == "/v1/chat/completions"
+                and not parsed.username
+                and not parsed.password
+                and not parsed.query
+                and not parsed.fragment
+            )
+        except Exception:
+            return False
 
     def is_configured(self):
         return bool(self.enabled and self.api_url and self.model and self.is_local_url())
