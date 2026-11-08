@@ -6,7 +6,7 @@
 
 ## Non-negotiable cost and privacy policy
 
-- Default reasoning mode is local Qwen through a literal loopback endpoint only.
+- The reasoning provider defaults to the local Qwen route, but local inference remains disabled until the user deliberately enables/configures a local runtime. Any configured Qwen endpoint is restricted to a literal loopback address only.
 - \`VYOM_ALLOW_PAID_API=false\` is the default. A Gemini key or custom remote URL by itself must not cause a network call.
 - Paid/cloud model use requires a deliberate explicit opt-in by changing \`VYOM_ALLOW_PAID_API=true\`; the intended Vyom profile keeps this false.
 - If the local model server is missing, return the existing deterministic/unknown fallback. Do not silently switch to Gemini or another cloud provider.
@@ -31,7 +31,7 @@ VYOM_VISION_MODEL=moondream
 VYOM_VISION_TIMEOUT=60
 \`\`\`
 
-The runtime also enforces the no-paid policy if a Gemini key remains in the machine environment. Qwen local endpoint validation checks the parsed URL host/path, not a string prefix, so a lookalike external hostname cannot masquerade as 127.0.0.1.
+The runtime enforces the no-paid policy if a Gemini key remains in the machine environment. Local Qwen is opted out in an untouched runtime and is enabled by the sample local profile above; without that deliberate setup the gateway uses its deterministic fallback. Qwen local endpoint validation checks the parsed URL host/path, not a string prefix, so a lookalike external hostname cannot masquerade as 127.0.0.1.
 
 Ollama is a separate local runtime and model download; it is not bundled in Vyom.exe. Current official Ollama Windows documentation requires Windows 10 22H2 or newer. The previously recorded Windows 8/8.1, 2 GB target therefore cannot be assumed to run current Ollama or a vision model. Do not ask that older PC to download large model weights. Until a supported machine is available, Vyom uses Windows UI Automation and deterministic local capabilities without paid AI.
 
@@ -101,7 +101,7 @@ Every phase has its own exit criteria. A phase is not complete because source co
 ## Current implementation status
 
 - [x] Local-only no-paid model policy enforced in ModelGateway by default.
-- [x] Local Qwen enabled by default as the only free-mode LLM candidate; unavailable local service yields no cloud fallback.
+- [x] Local Qwen is the only free-mode LLM candidate; it remains opt-in in an untouched runtime and is enabled by the sample local profile. An unavailable local service yields no cloud fallback.
 - [x] Tightened Local Qwen endpoint validation to literal loopback IP and the expected OpenAI-compatible chat path.
 - [x] Added local-only screenshot-to-PNG-to-Ollama vision adapter; disabled by default.
 - [x] Added UI Automation-only fallback when visual inference is disabled/unavailable.
