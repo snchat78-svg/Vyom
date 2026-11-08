@@ -90,6 +90,16 @@ class LocalQwenProviderTests(unittest.TestCase):
 
         self.assertEqual([item["provider"] for item in candidates], ["local_qwen"])
 
+    def test_local_qwen_rejects_hostnames_that_only_start_with_loopback_text(self):
+        with self._env(
+            QWEN_LOCAL_API_URL="http://127.0.0.1.attacker.example:11434/v1/chat/completions",
+            VYOM_ALLOW_PAID_API="false",
+        ):
+            gateway = ModelGateway()
+            candidates = gateway._provider_candidates()
+
+        self.assertEqual(candidates, [])
+
     def test_forced_local_qwen_requires_no_real_api_key(self):
         with self._env(
             VYOM_AI_PROVIDER="local_qwen",
