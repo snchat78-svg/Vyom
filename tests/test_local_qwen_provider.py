@@ -29,6 +29,7 @@ class LocalQwenProviderTests(unittest.TestCase):
         values = {
             "VYOM_AI_ENABLED": "true",
             "VYOM_AI_PROVIDER": "auto",
+            "VYOM_ALLOW_PAID_API": "false",
             "VYOM_AI_API_URL": "",
             "VYOM_AI_MODEL": "",
             "GEMINI_API_KEY": "",
@@ -41,7 +42,7 @@ class LocalQwenProviderTests(unittest.TestCase):
         return patch.dict(os.environ, values, clear=False)
 
     def test_auto_mode_exposes_gemini_then_local_qwen(self):
-        with self._env(GEMINI_API_KEY="gem-key"):
+        with self._env(GEMINI_API_KEY="gem-key", VYOM_ALLOW_PAID_API="true"):
             gateway = ModelGateway()
             candidates = gateway._provider_candidates()
 
@@ -54,6 +55,7 @@ class LocalQwenProviderTests(unittest.TestCase):
     def test_explicit_gemini_endpoint_keeps_local_qwen_as_fallback(self):
         with self._env(
             GEMINI_API_KEY="gem-key",
+            VYOM_ALLOW_PAID_API="true",
             VYOM_AI_API_URL="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
             VYOM_AI_MODEL="gemini-3.6-flash",
         ):
@@ -64,6 +66,29 @@ class LocalQwenProviderTests(unittest.TestCase):
             [item["provider"] for item in candidates],
             ["gemini", "local_qwen"],
         )
+
+    def test_free_mode_ignores_gemini_even_when_key_is_present(self):
+        with self._env(
+            GEMINI_API_KEY="must-not-be-used",
+            VYOM_AI_PROVIDER="auto",
+            VYOM_ALLOW_PAID_API="false",
+        ):
+            gateway = ModelGateway()
+            candidates = gateway._provider_candidates()
+
+        self.assertEqual([item["provider"] for item in candidates], ["local_qwen"])
+        self.assertFalse(gateway.provider_status()["paid_api_allowed"])
+
+    def test_paid_provider_requires_explicit_opt_in(self):
+        with self._env(
+            GEMINI_API_KEY="must-not-be-used",
+            VYOM_AI_PROVIDER="gemini",
+            VYOM_ALLOW_PAID_API="false",
+        ):
+            gateway = ModelGateway()
+            candidates = gateway._provider_candidates()
+
+        self.assertEqual([item["provider"] for item in candidates], ["local_qwen"])
 
     def test_forced_local_qwen_requires_no_real_api_key(self):
         with self._env(
@@ -107,7 +132,7 @@ class LocalQwenProviderTests(unittest.TestCase):
                 )
             return _FakeResponse(model_payload)
 
-        with self._env(GEMINI_API_KEY="gem-key"):
+        with self._env(GEMINI_API_KEY="gem-key", VYOM_ALLOW_PAID_API="true"):
             gateway = ModelGateway()
             with patch("urllib.request.urlopen", side_effect=fake_urlopen):
                 result = gateway.complete("hello")
@@ -135,7 +160,7 @@ class LocalQwenProviderTests(unittest.TestCase):
                 '{"choices":[{"message":{"content":"LOCAL_QWEN_OK"}}]}'
             )
 
-        with self._env(GEMINI_API_KEY="gem-key"):
+        with self._env(GEMINI_API_KEY="gem-key", VYOM_ALLOW_PAID_API="true"):
             gateway = ModelGateway()
             with patch("urllib.request.urlopen", side_effect=fake_urlopen):
                 result = gateway.chat("system", {"message": "hello"})
