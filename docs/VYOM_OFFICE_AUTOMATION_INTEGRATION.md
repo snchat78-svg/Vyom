@@ -100,6 +100,15 @@ tests/test_office_capability.py uses fake COM objects to cover provider registra
 
 A green CI result means these contracts and the EXE build pass. It is not real Office acceptance.
 
+## No-paid AI and screen perception extension (2026-11-08)
+
+See [VYOM_FREE_LOCAL_AI_AND_SCREEN_PERCEPTION.md](VYOM_FREE_LOCAL_AI_AND_SCREEN_PERCEPTION.md) for the full design and future phases.
+
+- ModelGateway now defaults to local Qwen and blocks all paid/cloud providers unless VYOM_ALLOW_PAID_API=true is explicitly enabled. The sample configuration sets it to false.
+- The optional analyze_screen capability combines a coherent bounded UIA snapshot with an optional local-only vision model. Screenshots are sent only to literal loopback IPs, temporary BMP files are deleted, and model output is read-only observation data.
+- Without local vision, Vyom uses UI Automation only. No Ollama/model is bundled or silently downloaded.
+- Current Ollama Windows builds require Windows 10 22H2+. The previously recorded Windows 8/8.1, 2 GB target should use UIA-only mode; do not attempt to install the current Ollama runtime there.
+
 ## Remaining implementation roadmap
 
 Do not skip the active M10.4 real-device acceptance gate. Once the supported target-device preflight/evidence is reviewed, continue in this order:
