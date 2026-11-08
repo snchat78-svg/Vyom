@@ -95,6 +95,25 @@ class FakeVisionProvider:
         }
 
 
+class FakeUIObserver:
+    def __init__(self, available=True, coherent=True):
+        self.available = available
+        self.coherent = coherent
+        self.called = False
+
+    def snapshot(self):
+        self.called = True
+        return {
+            "available": self.available,
+            "coherent": self.coherent,
+            "active_window": {"exists": True, "name": "Browser", "hwnd": 12, "pid": 44},
+            "focused_element": {"exists": True, "name": "Address bar", "control_type": "Edit"},
+            "selected_element": {"exists": False},
+            "ui_tree_signature": [{"name": "Search", "control_type": "Button"}],
+            "running_windows": [{"name": "Browser", "visible": True}],
+        }
+
+
 class LocalVisionProviderTests(unittest.TestCase):
 
     def test_only_literal_loopback_ollama_endpoint_is_accepted(self):
@@ -178,6 +197,7 @@ class LocalVisionProviderTests(unittest.TestCase):
         capability = ScreenUnderstandingCapability(
             screen_observer=observer,
             vision_provider=model,
+            ui_observer=FakeUIObserver(),
         )
         result = capability.execute({
             "action": "analyze_screen",
@@ -196,23 +216,57 @@ class LocalVisionProviderTests(unittest.TestCase):
         capability = ScreenUnderstandingCapability(
             screen_observer=observer,
             vision_provider=model,
+            ui_observer=FakeUIObserver(available=False),
         )
         result = capability.execute({"action": "analyze_screen", "args": {}})
         self.assertFalse(result["success"])
         self.assertEqual(result["stage"], "screen_capture_failed")
         self.assertIsNone(model.image)
 
-    def test_disabled_vision_never_captures_screen(self):
+    def test_disabled_vision_uses_ui_automation_without_capture_or_cloud(self):
         observer = FakeScreenObserver()
         model = FakeVisionProvider(configured=False)
+        ui_observer = FakeUIObserver()
         capability = ScreenUnderstandingCapability(
             screen_observer=observer,
             vision_provider=model,
+            ui_observer=ui_observer,
         )
         result = capability.execute({"action": "analyze_screen", "args": {}})
-        self.assertFalse(result["success"])
-        self.assertEqual(result["stage"], "local_vision_disabled")
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["stage"], "screen_observation_completed")
+        self.assertFalse(result["result"]["visual_model_used"])
+        self.assertEqual(
+            result["result"]["observation"]["active_window"]["name"],
+            "Browser",
+        )
         self.assertIsNone(observer.last_path)
+        self.assertTrue(ui_observer.called)
+
+    def test_visual_model_failure_falls_back_to_coherent_ui_automation(self):
+        class FailedVisionProvider(FakeVisionProvider):
+            def analyze_image(self, image, question=""):
+                self.image = image
+                return {
+                    "success": False,
+                    "stage": "local_vision_unavailable",
+                    "message": "model not running",
+                }
+
+        observer = FakeScreenObserver()
+        model = FailedVisionProvider()
+        capability = ScreenUnderstandingCapability(
+            screen_observer=observer,
+            vision_provider=model,
+            ui_observer=FakeUIObserver(),
+        )
+        result = capability.execute({"action": "analyze_screen", "args": {}})
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result["result"]["visual_model_used"])
+        self.assertEqual(
+            result["result"]["visual_model_error_stage"],
+            "local_vision_unavailable",
+        )
 
 
 if __name__ == "__main__":
