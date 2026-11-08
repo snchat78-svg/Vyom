@@ -55,6 +55,7 @@ Keep each item's status as not_run until it has been performed on the target Win
 
 | Test ID | Acceptance step | Pass condition | Evidence status |
 |---|---|---|---|
+| screen_observation | Ask Vyom to analyze the current screen with the visual model disabled; if a supported machine has a local vision model configured, also test its local-only visual description. | UIA snapshot identifies the active window/visible controls coherently; optional VLM uses loopback only; when unavailable no cloud fallback occurs and no temporary screenshot remains. | not_run |
 | typed_startup_and_exit | Launch the EXE, enter a benign typed greeting/status command, then exit. | Starts without crash; normal exit; no Python install needed. | not_run |
 | hindi_and_hinglish_text | Try representative Hindi, Roman Hindi and Hinglish text commands. | Meaning is preserved; ambiguity requests clarification rather than guessing. | not_run |
 | microphone_stt_and_tts | Enter voice mode and use a harmless greeting/status utterance in a quiet room. | Voice is captured and recognized; TTS is audible; unavailable devices are reported clearly. | not_run |
