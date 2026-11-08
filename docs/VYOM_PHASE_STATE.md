@@ -117,6 +117,18 @@ This is the authoritative phase register for continuing work across chats. Read 
 - **Release gate:** remain **BLOCKED** until supported target-device preflight and real-device evidence are supplied and reviewed. Do not mark M10.4 complete or advance to M10.5 based on CI alone.
 - Open-source assistant/voice integration research: [VYOM_OPEN_SOURCE_ASSISTANT_ASSESSMENT.md](VYOM_OPEN_SOURCE_ASSISTANT_ASSESSMENT.md). Research only; no third-party runtime integrated. Shruti is a possible STT feasibility candidate, but Windows is untested; M10.4 target-device acceptance and OS compatibility must come first.
 
+## M10.4 additive Office capability prototype — CI passed, target-device acceptance pending (2026-11-08)
+
+- Added `windows_agent/office_capability.py`, an optional, independently implemented Office COM provider informed by Microsoft UFO²'s Office WinCOM receiver pattern. The complete UFO runtime/MCP stack was not copied.
+- Registered `OfficeCOMCapability` beside the existing `WindowsUICapability` in `ai_core/ui_autonomous_agent.py`, using Vyom's existing `CapabilityExecutor`, `ActionValidator`, `MissionRuntime` and verification contract.
+- Initial supported actions: open/create/read/save Word, Excel and PowerPoint documents; bounded Excel range read/write; Word append/replace/insert-table; PowerPoint add-slide. Opening is read-only by default; create/Save As refuses an existing destination; Excel macros and automatic link updates are disabled on the automation instance; writes use COM read-back verification.
+- Added mocked COM regression coverage in `tests/test_office_capability.py`, architecture and remaining-work documentation in `docs/VYOM_OFFICE_AUTOMATION_INTEGRATION.md`, and the Microsoft UFO MIT notice in `THIRD_PARTY_NOTICES.md`.
+- Exact tested integration commit: `d7d2a6911fb78d6b0c2737a41529fea06b2c38c7`.
+- Exact-SHA GitHub Actions: [run 42455456449](https://github.com/snchat78-svg/Vyom/actions/runs/42455456449) — **success**. Complete test suite: **492 passed, 30 subtests passed**; Python syntax, core/voice imports, M10.2 benchmark validation, M10.3 synthetic regression gate, clean build, Windows EXE build/verification, CI-host launch smoke, target-device package and artifacts all passed.
+- **Evidence boundary:** tests use fake COM objects. GitHub's Windows runner did not verify Word/Excel/PowerPoint installed or activated on the user's PC, nor actual Office editing. CI-host preflight is not target-device acceptance.
+- **Current phase remains M10.4 IN PROGRESS/BLOCKED** until the user's actual supported Windows device preflight and manual evidence are supplied and reviewed. Do not start/mark M10.5 complete on CI alone. The previous M10.4 artifact may have expired; download the latest `Vyom_M10_4_Target_Device_Package` from the exact-SHA run above.
+- Platform note: full Microsoft UFO² requires Windows 10+; Vyom only adapted the narrow COM pattern. Vyom's current Python 3.11 package baseline still requires Windows 8.1/version 6.3 or newer; Windows 8.0/version 6.2 remains unsupported.
+
 ## M7 automated acceptance — completed
 1. M7.1 public-source boundary, URL checks, bounded responses and honest unknown results.
 2. M7.2 multi-source excerpt comparison, normalized-host deduplication, numeric/date disagreement handling.
