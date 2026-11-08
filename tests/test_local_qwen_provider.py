@@ -79,6 +79,20 @@ class LocalQwenProviderTests(unittest.TestCase):
         self.assertEqual([item["provider"] for item in candidates], ["local_qwen"])
         self.assertFalse(gateway.provider_status()["paid_api_allowed"])
 
+    def test_free_mode_never_calls_remote_when_local_model_is_not_installed(self):
+        with self._env(
+            GEMINI_API_KEY="must-not-be-used",
+            QWEN_LOCAL_ENABLED="false",
+            VYOM_ALLOW_PAID_API="false",
+        ):
+            gateway = ModelGateway()
+            with patch("urllib.request.urlopen") as remote_request:
+                result = gateway.complete("Explain this question")
+
+        self.assertFalse(result["success"])
+        self.assertFalse(result["available"])
+        remote_request.assert_not_called()
+
     def test_paid_provider_requires_explicit_opt_in(self):
         with self._env(
             GEMINI_API_KEY="must-not-be-used",
