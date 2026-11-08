@@ -223,6 +223,23 @@ class LocalVisionProviderTests(unittest.TestCase):
         self.assertEqual(result["stage"], "screen_capture_failed")
         self.assertIsNone(model.image)
 
+    def test_screen_capture_failure_falls_back_to_coherent_ui_automation(self):
+        observer = FakeScreenObserver(capture_success=False)
+        model = FakeVisionProvider()
+        capability = ScreenUnderstandingCapability(
+            screen_observer=observer,
+            vision_provider=model,
+            ui_observer=FakeUIObserver(),
+        )
+        result = capability.execute({"action": "analyze_screen", "args": {}})
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["stage"], "screen_observation_completed")
+        self.assertEqual(
+            result["result"]["visual_model_error_stage"],
+            "screen_capture_failed",
+        )
+        self.assertIsNone(model.image)
+
     def test_disabled_vision_uses_ui_automation_without_capture_or_cloud(self):
         observer = FakeScreenObserver()
         model = FakeVisionProvider(configured=False)
