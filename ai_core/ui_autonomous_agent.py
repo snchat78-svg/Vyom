@@ -23,6 +23,7 @@ from ai_core.capability_executor import CapabilityExecutor
 from ai_core.capability_registry import CapabilityRegistry
 from ai_core.capability_resolver import CapabilityResolver
 from windows_agent.ui_automation import WindowsUICapability
+from windows_agent.office_capability import OfficeCOMCapability
 
 
 class UIAutonomousAgent(AutonomousAgent):
@@ -62,6 +63,15 @@ class UIAutonomousAgent(AutonomousAgent):
         )
         self.ui_capability = WindowsUICapability()
         self.capability_executor.register(self.ui_capability, enabled=True, priority=50)
+
+        # Microsoft UFO²-inspired Office COM/API adapter. The provider is
+        # optional and imports pywin32 lazily only when an Office action runs.
+        self.office_capability = OfficeCOMCapability()
+        self.capability_executor.register(
+            self.office_capability,
+            enabled=True,
+            priority=40,
+        )
 
     def _execute_step(self, step):
         if not isinstance(step, dict):
