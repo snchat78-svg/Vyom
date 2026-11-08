@@ -278,7 +278,7 @@ No system can guarantee correct interpretation of every possible sentence or bad
 
 **Status:** code and focused tests added; exact-SHA CI pending; target-device acceptance remains blocked under M10.4.
 
-- Default AI mode is local Qwen. VYOM_ALLOW_PAID_API=false prevents Gemini/custom/cloud providers from being selected even when a Gemini key is present. QWEN_LOCAL_ENABLED=true is the free-mode default; missing local Ollama/model produces no cloud fallback.
+- Default AI mode is local Qwen. VYOM_ALLOW_PAID_API=false prevents Gemini/custom/cloud providers from being selected even when a Gemini key is present. The sample free-mode profile sets QWEN_LOCAL_ENABLED=true; an untouched runtime leaves it off until Ollama/model setup is deliberate. A missing local Ollama/model produces no cloud fallback.
 - Local Qwen URL validation now parses the URL and accepts only literal 127.0.0.1/::1 with the expected /v1/chat/completions path. Lookalike hostnames are rejected.
 - Added vision/screen_understanding.py: read-only analyze_screen capability; bounded Windows screen capture; pure-standard-library BMP-to-PNG conversion; temporary BMP cleanup; optional Ollama image inference restricted to literal loopback; UIA coherent-snapshot fallback.
 - Registered the capability through the existing CapabilityExecutor; action results remain observation data. Visual output cannot execute commands or bypass the ActionValidator, action-risk policy, UI grounding or postcondition verification.
