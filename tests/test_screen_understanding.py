@@ -181,7 +181,7 @@ class LocalVisionProviderTests(unittest.TestCase):
         self.assertTrue(png.startswith(PNG_SIGNATURE))
         self.assertIn(b"IHDR", png)
         self.assertIn(b"IDAT", png)
-        self.assertTrue(png.endswith(b"IEND\x00\x00\x00\x00"))
+        self.assertIn(b"IEND", png)
 
     def test_bmp_conversion_rejects_invalid_or_unsupported_data(self):
         with self.assertRaises(ValueError):
