@@ -50,9 +50,9 @@ class OfficeCOMCapability:
         },
     }
     _EXTENSION_TO_APP = {
-        extension: app_name
-        for app_name, config in _APP_CONFIG.items()
-        for extension in config["extensions"]
+        ".docx": "word", ".doc": "word", ".rtf": "word", ".txt": "word",
+        ".xlsx": "excel", ".xls": "excel", ".xlsm": "excel", ".csv": "excel",
+        ".pptx": "powerpoint", ".ppt": "powerpoint",
     }
     _CREATE_EXTENSIONS = {
         "word": {".docx"},
@@ -350,10 +350,26 @@ class OfficeCOMCapability:
             for index in range(1, count + 1):
                 sheet = worksheet_collection(index)
                 used = sheet.UsedRange
-                values = self._plain(used.Value)
+                start_row = int(used.Row)
+                start_col = int(used.Column)
+                row_count = min(int(used.Rows.Count), 40)
+                col_count = min(int(used.Columns.Count), 16)
+                if row_count > 0 and col_count > 0:
+                    first_cell = sheet.Cells(start_row, start_col)
+                    last_cell = sheet.Cells(
+                        start_row + row_count - 1,
+                        start_col + col_count - 1,
+                    )
+                    values = self._plain(sheet.Range(first_cell, last_cell).Value)
+                else:
+                    values = []
                 sheets.append({
                     "name": str(sheet.Name),
                     "values": values,
+                    "truncated": (
+                        int(used.Rows.Count) > row_count
+                        or int(used.Columns.Count) > col_count
+                    ),
                 })
             return sheets
 
@@ -407,10 +423,13 @@ class OfficeCOMCapability:
     def _excel_read_range(self, args: Dict[str, Any]) -> Dict[str, Any]:
         address = str(args.get("range_address") or "").strip()
         cell_range = self._excel_range(args)
+        try:
+            cell_count = int(cell_range.Rows.Count) * int(cell_range.Columns.Count)
+        except Exception:
+            cell_count = 1
+        if cell_count > self._MAX_EXCEL_CELLS:
+            return self._failure("range_too_large", "The requested range is too large.")
         values = self._plain(cell_range.Value)
-        if isinstance(values, list):
-            if len(values) > self._MAX_EXCEL_CELLS:
-                return self._failure("range_too_large", "The requested range is too large.")
         return self._success(
             "Read the requested Excel range.",
             stage="excel_range_read",
