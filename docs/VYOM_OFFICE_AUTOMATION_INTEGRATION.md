@@ -129,7 +129,7 @@ Microsoft UFO is MIT licensed. Vyom uses an independent provider implementation 
 - [x] Add the first optional Office COM provider.
 - [x] Register the provider through the existing capability executor.
 - [x] Add mocked Office provider tests.
-- [ ] Exact-SHA Windows GitHub Actions acceptance for this update.
+- [x] Exact-SHA Windows GitHub Actions acceptance for the provider/test commit `d7d2a6911fb78d6b0c2737a41529fea06b2c38c7` — [run 42455456449](https://github.com/snchat78-svg/Vyom/actions/runs/42455456449) passed 492 tests + 30 subtests, M10.2/M10.3 gates, EXE verification, CI-host smoke and artifact uploads.
 - [ ] Target-device Office acceptance using installed Word, Excel and PowerPoint.
 - [ ] Full M10.4 target-device preflight/manual evidence review.
 - [ ] M10.5 must not be declared started/completed until M10.4 gate passes.
