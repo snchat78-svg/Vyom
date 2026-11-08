@@ -89,9 +89,14 @@ class ModelGateway:
         # offline-capable fallback and never replaces the mission/executor
         # architecture.
         self.provider_mode = os.environ.get(
-            "VYOM_AI_PROVIDER", "auto"
+            "VYOM_AI_PROVIDER", "local_qwen"
         ).strip().lower() or "auto"
         self._explicit_endpoint = bool(explicit_api_url)
+        # Cloud/paid model calls are opt-in. A configured Gemini key must not
+        # silently cause a remote request in the default free/local profile.
+        self.allow_paid_api = os.environ.get(
+            "VYOM_ALLOW_PAID_API", "false"
+        ).strip().lower() in {"1", "true", "yes", "on"}
 
         # Preserve the existing official Gemini default when its key is
         # present and no custom endpoint was supplied.
@@ -116,6 +121,8 @@ class ModelGateway:
             return []
 
         mode = self.provider_mode
+        if not self.allow_paid_api:
+            mode = "local_qwen"
 
         def usable(candidate):
             provider = candidate.get("provider")
@@ -233,6 +240,7 @@ class ModelGateway:
             "configured": bool(candidates),
             "available": bool(candidates),
             "model": primary["model"] if primary else "",
+            "paid_api_allowed": bool(self.allow_paid_api),
             "fallbacks": [
                 {
                     "provider": item["provider"],
