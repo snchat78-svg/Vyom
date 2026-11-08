@@ -514,6 +514,10 @@ class OfficeCOMCapability:
         if not find_text or len(find_text) > 2000 or len(replace_text) > self._MAX_WORD_TEXT:
             return self._failure("invalid_word_replace", "Provide a search phrase and replacement within the supported limits.")
         document = self._word_document_for_edit()
+        before_text = str(document.Content.Text or "")
+        expected_text = before_text.replace(find_text, replace_text)
+        if find_text not in before_text:
+            return self._failure("word_replace_verification_failed", "The requested text was not found in Word.")
         finder = document.Content.Find
         found = bool(finder.Execute(
             FindText=find_text,
@@ -521,7 +525,7 @@ class OfficeCOMCapability:
             Replace=2,
         ))
         read_back = str(document.Content.Text or "")
-        if not found or find_text in read_back:
+        if not found or read_back != expected_text:
             return self._failure("word_replace_verification_failed", "Word could not verify the requested replacement.")
         return self._success(
             "Replaced the requested text in Word.",
