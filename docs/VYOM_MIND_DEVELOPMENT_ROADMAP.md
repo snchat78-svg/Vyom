@@ -273,3 +273,24 @@ No system can guarantee correct interpretation of every possible sentence or bad
 - This is not real Office acceptance: mocked COM tests do not establish that Office is installed/activated or that COM calls work on the user's physical PC.
 - **Anti-skip:** M10.4 remains the first incomplete phase. Finish supported target-device preflight and actual Windows/Office manual evidence first; only then advance to M10.5 Office/file-workflow expansion. Windows 8.0/version 6.2 remains outside the Python 3.11 package baseline; Windows 8.1/version 6.3 or newer is required for the current build. Full UFO² itself requires Windows 10+, and is not bundled.
 
+
+## M10.4 additive update — no-paid local AI and screen perception (2026-11-08)
+
+**Status:** code and focused tests added; exact-SHA CI pending; target-device acceptance remains blocked under M10.4.
+
+- Default AI mode is local Qwen. VYOM_ALLOW_PAID_API=false prevents Gemini/custom/cloud providers from being selected even when a Gemini key is present. QWEN_LOCAL_ENABLED=true is the free-mode default; missing local Ollama/model produces no cloud fallback.
+- Local Qwen URL validation now parses the URL and accepts only literal 127.0.0.1/::1 with the expected /v1/chat/completions path. Lookalike hostnames are rejected.
+- Added vision/screen_understanding.py: read-only analyze_screen capability; bounded Windows screen capture; pure-standard-library BMP-to-PNG conversion; temporary BMP cleanup; optional Ollama image inference restricted to literal loopback; UIA coherent-snapshot fallback.
+- Registered the capability through the existing CapabilityExecutor; action results remain observation data. Visual output cannot execute commands or bypass the ActionValidator, action-risk policy, UI grounding or postcondition verification.
+- Added tests/test_screen_understanding.py and expanded tests/test_local_qwen_provider.py.
+- Research references: Microsoft OmniParser v2 (heavy dependencies and per-model licences), Moondream (small local vision candidate), Qwen3-VL (more capable but still large), and OpenHands (future safe coding-agent workflow reference). See docs/VYOM_FREE_LOCAL_AI_AND_SCREEN_PERCEPTION.md.
+- Ollama's current Windows documentation requires Windows 10 22H2 or newer. The previously recorded Windows 8/8.1, 2 GB target must not be asked to install Ollama or download multi-GB models. Existing UI Automation is the no-paid low-resource fallback.
+
+## Ordered phases after M10.4 — do not start before its exit gate
+
+1. **M10.5 — File/folder and Office workflows:** bounded list/search/read/create/copy/move/rename, explicit confirmation for delete/overwrite, advanced Excel/Word/PowerPoint operations and verified cross-app document workflows.
+2. **M10.6 — Hybrid screen understanding:** benchmark coherent UIA snapshots against optional local visual models; add stale-window/ambiguous-target rejection and real-device visual grounding acceptance.
+3. **M10.7 — Free local intelligence:** improve local multilingual reasoning, noisy Hindi/Roman Hindi/Hinglish STT, resource profiling and deterministic fallback. Paid/cloud providers remain opt-in only.
+4. **M10.8 — Open-source research agent:** inspect public GitHub repositories, source, dependencies, licences, maintenance and security; compare with Vyom's capability contracts and generate cited research reports.
+5. **M10.9 — Safe coding agent:** use a separate branch/worktree, bounded repository scope, explicit diff, syntax/tests/build/security checks and approval before merge. Never execute model-produced scripts directly.
+6. **M10.10 — End-to-end desktop competence:** benchmark long tasks across Explorer, browser, Office and common apps with completion, clarification, unsafe-guess, verification, latency and RAM measurements.
