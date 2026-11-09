@@ -294,3 +294,16 @@ No system can guarantee correct interpretation of every possible sentence or bad
 4. **M10.8 — Open-source research agent:** inspect public GitHub repositories, source, dependencies, licences, maintenance and security; compare with Vyom's capability contracts and generate cited research reports.
 5. **M10.9 — Safe coding agent:** use a separate branch/worktree, bounded repository scope, explicit diff, syntax/tests/build/security checks and approval before merge. Never execute model-produced scripts directly.
 6. **M10.10 — End-to-end desktop competence:** benchmark long tasks across Explorer, browser, Office and common apps with completion, clarification, unsafe-guess, verification, latency and RAM measurements.
+
+
+## M10.4 additive improvement — diction-tolerant request framing (2026-11-09)
+
+**Status:** implementation and regression contract added; exact-SHA CI pending. M10.4 target-device acceptance remains blocked.
+
+- Added a narrow, Vyom-owned request-shell normalizer at the intent boundary. It removes supported conversational wrappers (for example, “could you please”, “Hey Vyom”, “mujhe”, “zara”, and “कृपया”) and polite suffixes before the existing open/close intent grammar runs.
+- Operation parsing remains separate from app/file identity. Targets such as my-project.v2 remain dynamic input; the new logic does not add app names or a large command-phrase lookup table.
+- Added tests/test_m10_4_semantic_diction_contract.py for English, Hindi, Roman Hindi and Hinglish request variants, target preservation, and negative cases where politeness or typed payload must not invent an action.
+- Corrected the runtime-env integration test to explicitly opt into paid-provider configuration. This tests backward-compatible configuration loading without changing the runtime's default VYOM_ALLOW_PAID_API=false policy.
+- This is a deterministic grammar improvement, not a claim that every possible paraphrase is understood. Broad open-vocabulary meaning still requires the later local-reasoning evaluation in M10.7; it must not depend on a cloud API. Ambiguous or unsupported intent must remain unresolved rather than trigger an unsafe guess.
+- No third-party agent/runtime or external project code was copied into this change. Vyom retains ownership of its Brain, planner, capability execution, safety gates and verification contracts.
+- **Anti-skip:** M10.4 remains the active phase; M10.5 does not start until the supported target-device preflight and real-device evidence are reviewed.

@@ -321,15 +321,56 @@ class IntentEngine:
 
         return None
 
-    def _strip_polite_suffix(self, target: str) -> str:
-        value = str(target or "").strip()
+    @staticmethod
+    def _strip_request_shell(text: Any) -> str:
+        """Remove a small, context-only politeness wrapper before intent parsing.
+
+        This is deliberately not a synonym dictionary or target vocabulary.
+        It only removes conversational framing at the utterance boundary;
+        operation meaning and runtime targets are still parsed by the existing
+        intent engine and discovered dynamically.
+        """
+        value = str(text or "").strip().lower()
+        value = re.sub(r"[?!.,;:]+$", "", value).strip()
+
+        # Wake-name/addressing may precede the actual request.
         value = re.sub(
-            r"\s+(?:कर दो|करदो|करो|कर|करें|करिये|करिए|दो|दे दो|देना|please|pls)$",
+            r"^(?:hey\s+)?vyom\b[\s,:-]*",
             "",
             value,
             flags=re.IGNORECASE,
+        ).strip()
+
+        prefixes = (
+            "could you please ", "can you please ", "would you please ",
+            "will you please ", "could you ", "can you ", "would you ",
+            "will you ", "i want you to ", "please ", "kindly ",
+            "मुझे ", "मेरे लिए ", "जरा ", "ज़रा ", "कृपया ",
+            "mujhe ", "mere liye ", "zara ", "jara ", "kripya ",
         )
-        return value.strip()
+        changed = True
+        while changed and value:
+            changed = False
+            for prefix in prefixes:
+                if value.startswith(prefix):
+                    value = value[len(prefix):].strip()
+                    changed = True
+                    break
+        return value
+
+    def _strip_polite_suffix(self, target: str) -> str:
+        value = str(target or "").strip()
+        suffix = re.compile(
+            r"\s+(?:कर दो|करदो|करो|कर|करें|करिये|करिए|दो|दे दो|देना|"
+            r"please|kindly|for me|for myself|now|na|zara|jara|ko|को|pls)$",
+            flags=re.IGNORECASE,
+        )
+        while value:
+            stripped = suffix.sub("", value).strip()
+            if stripped == value:
+                break
+            value = stripped
+        return value
 
     @staticmethod
     def _is_ui_control_target(target: Any) -> bool:
@@ -345,7 +386,7 @@ class IntentEngine:
         return any(term in tokens for term in control_terms) or "text box" in value or "check box" in value
 
     def _natural_family(self, original: str):
-        text = self._normalize(original)
+        text = self._strip_request_shell(self._normalize(original))
 
         # Open: action may appear before OR after the target.
         open_after = re.match(
