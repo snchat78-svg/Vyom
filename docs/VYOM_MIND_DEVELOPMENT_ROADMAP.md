@@ -314,3 +314,14 @@ No system can guarantee correct interpretation of every possible sentence or bad
 
 - The request-shell change and wake-name/greeting precedence fix passed exact-SHA CI run 42579639353 (512 tests + 47 subtests), together with M10.2/M10.3 gates, Windows EXE verification and M10.4 target-device artifact creation.
 - M10.4 remains open until the user's actual supported Windows device returns a valid preflight and manual acceptance evidence. This increment does not start M10.5.
+
+
+## M10.4 additive increment — complete action-risk descriptor review (2026-11-09)
+
+**Status:** implementation and regression tests committed; exact-SHA CI is pending.
+
+- `ActionRiskPolicy` now evaluates all independent action descriptors instead of allowing the primary `target` or `description` field to hide a separate `label` or `confirmation_reason`.
+- It checks step and metadata target labels/descriptions, and both step and metadata descriptions/confirmation reasons. Any high-impact signal keeps the plan in the existing explicit-confirmation path before MissionRuntime starts.
+- Free-form action arguments and typed user payloads remain excluded from risk scanning. This preserves the distinction between an instruction to delete a file and text the user merely wants Vyom to type or search.
+- Regression coverage includes hidden delete-account label, external send effect disclosed only in the confirmation reason, benign Save action, and the existing negative test for dangerous words inside typed text.
+- This increment strengthens an existing safety decision, rather than adding a second planner or action executor. The user's actual Windows preflight is still required to close M10.4; M10.5 remains gated.

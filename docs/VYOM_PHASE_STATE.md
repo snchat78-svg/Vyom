@@ -216,3 +216,11 @@ This is the authoritative phase register for continuing work across chats. Read 
 - **Next required action:** download the target-device package from the run's **Artifacts**, extract it, read \`README_FIRST.txt\`, run the preflight on the actual PC and provide \`M10_4_preflight.json\`. If supported, collect the real-device evidence file and audio/UI results.
 - **Mind independence requirement:** Vyom remains the owner of its Brain, meaning/intent, planning, capability registry, risk policy and verification. No third-party assistant runtime or cloud API was added by this increment. M10.7 remains the planned local-reasoning/voice evaluation for broader paraphrase and noisy Hindi/Roman-Hindi/Hinglish coverage; it must stay local-first and fail closed when no local model is configured.
 - **Limit:** this increment broadens a bounded deterministic request grammar; it does not guarantee every possible sentence or replace a general local language model. CI does not prove actual target-device microphone, speaker, screen, UIA or Office behavior.
+
+
+## M10.4 decision/action safety increment — 2026-11-09 (CI pending)
+
+- Added coverage for action-risk decision surfaces that previously could be missed when a benign primary target hid a destructive label or a high-impact confirmation reason.
+- The risk assessor now independently checks the explicit action target, label, structured target metadata, description and confirmation-reason fields. It still does **not** inspect free-form typed text/query/value payloads, so ordinary content such as a sentence saying "delete the draft" is not treated as a delete command.
+- Added regression coverage for a destructive label behind a generic Confirm target, an external send effect expressed only in the confirmation reason, and a benign Save action.
+- This is a conservative pre-dispatch safety improvement, not broad natural-language reasoning. M10.4 remains active and the real target-device acceptance gate remains blocked; M10.5 is not started.

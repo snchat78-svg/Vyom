@@ -113,13 +113,34 @@ class ActionRiskPolicy:
             cls._surface(metadata.get("effect")),
         ])
         operation_text = " ".join(value for value in operation_fields if value)
-        target_text = cls._surface(target)
-        description_text = cls._surface(step.get("description") or step.get("confirmation_reason"))
+        target_surfaces = []
+        for raw_target in (
+            target,
+            step.get("label"),
+            metadata.get("target"),
+            metadata.get("target_label"),
+            metadata.get("target_description"),
+        ):
+            surface = cls._surface(raw_target)
+            if surface and surface not in target_surfaces:
+                target_surfaces.append(surface)
+
+        description_surfaces = []
+        for raw_description in (
+            step.get("description"),
+            step.get("confirmation_reason"),
+            metadata.get("description"),
+            metadata.get("confirmation_reason"),
+        ):
+            surface = cls._surface(raw_description)
+            if surface and surface not in description_surfaces:
+                description_surfaces.append(surface)
+
         if cls._OPERATION_PATTERN.search(operation_text):
             reasons.append("potentially_irreversible_operation")
-        if cls._TARGET_PATTERN.search(target_text):
+        if any(cls._TARGET_PATTERN.search(surface) for surface in target_surfaces):
             reasons.append("high_impact_target")
-        if cls._OPERATION_PATTERN.search(description_text):
+        if any(cls._OPERATION_PATTERN.search(surface) for surface in description_surfaces):
             reasons.append("high_impact_effect_description")
 
         if not reasons:

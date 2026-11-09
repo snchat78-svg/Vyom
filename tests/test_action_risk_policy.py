@@ -115,6 +115,48 @@ class ActionRiskPolicyTests(unittest.TestCase):
 
         self.assertTrue(result["requires_confirmation"])
         self.assertEqual(result["step_ids"], ["account", "subscription", "order", "token", "public", "membership"])
+    def test_action_labels_and_confirmation_reasons_are_checked_independently(self):
+        result = ActionRiskPolicy.assess_plan([
+            {
+                "id": "labelled_delete",
+                "type": "action",
+                "action": "click_ui_element",
+                "target": "Confirm",
+                "label": "Delete account",
+                "description": "The dialog button is visible.",
+                "args": {},
+            },
+            {
+                "id": "reasoned_send",
+                "type": "action",
+                "action": "click_ui_element",
+                "target": "Confirm",
+                "description": "The confirmation dialog is open.",
+                "confirmation_reason": "This will send an invite to an external recipient.",
+                "args": {},
+            },
+            {
+                "id": "ordinary_save",
+                "type": "action",
+                "action": "click_ui_element",
+                "target": "Save",
+                "label": "Save",
+                "confirmation_reason": "Save the current draft.",
+                "args": {},
+            },
+        ])
+
+        self.assertTrue(result["requires_confirmation"])
+        self.assertEqual(result["step_ids"], ["labelled_delete", "reasoned_send"])
+        self.assertIn(
+            "high_impact_target",
+            result["findings"][0]["reasons"],
+        )
+        self.assertIn(
+            "high_impact_effect_description",
+            result["findings"][1]["reasons"],
+        )
+
     def test_schema_rejects_malformed_risk_contracts(self):
         with self.assertRaises(ActionSchemaError):
             ActionSchema(action="delete_file", capability="file_manager", risk_level="unknown")

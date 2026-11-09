@@ -158,3 +158,12 @@ This file is the hand-off record across conversations. The repository code and C
 - The paid-provider environment compatibility test now explicitly opts in only in the test's temporary env file; this does not change the production no-paid default.
 - Artifacts: target-device package 13656313986 (expires 2026-12-09), EXE 13656497909 (expires 2026-11-16), CI preflight 13657031407, M10.2 baseline 13656842068, M10.3 report 13656517888.
 - **M10.4 remains BLOCKED for real target-device acceptance.** Next action is run the preflight from the new package and submit \`M10_4_preflight.json\`; no M10.5 phase start until the real-device gate is reviewed.
+
+
+## M10.4 decision/action safety increment — 2026-11-09 (CI pending)
+
+- Changed `ai_core/action_risk_policy.py` to inspect independent target descriptors (`target`, `label`, metadata target/target_label/target_description) and independent effect descriptions (`description`, `confirmation_reason`, metadata equivalents).
+- Does not scan `args`, typed text, queries or payload values. Existing safety behavior remains: a word like "delete" inside text intended for typing is not itself a delete action.
+- Added `test_action_labels_and_confirmation_reasons_are_checked_independently` for masked delete/send side effects and a benign Save action. Existing typed-payload negative test remains part of the suite.
+- Exact code/test SHA and CI status will be recorded after the workflow for this commit completes. Until then, this increment is implementation-pending-verification, not a passed phase.
+- M10.4 target-device acceptance remains **BLOCKED** pending actual-PC `M10_4_preflight.json` and manual evidence. No M10.5 start.
