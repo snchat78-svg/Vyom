@@ -331,3 +331,11 @@ No system can guarantee correct interpretation of every possible sentence or bad
 
 - The initial regression run caught the distinction between "send invite" and "send an invite". The effect matcher now accepts optional articles (`a/an/the`) and "invitation" for supported send-effect nouns. The natural-language regression stays intact; no test expectation was relaxed.
 - Full exact-SHA CI must pass before treating the increment as verified.
+
+
+### M10.4 action-risk descriptor improvement — exact-SHA acceptance (2026-11-09)
+
+- Exact-SHA [run 42581734953](https://github.com/snchat78-svg/Vyom/actions/runs/42581734953) passed for `c34e339110c92cf08e46cd040ce8397a77084eab`: **513 tests + 47 subtests**; M10.2 benchmark validation, M10.3 22/22 threshold gate, syntax/import checks, clean build, Windows EXE build/verification, CI-host smoke and artifact uploads passed.
+- The first attempt caught "send invite" versus "send an invite"; the supported phrase matcher now handles optional articles and "invitation". The test was retained with natural phrasing.
+- Action risk analysis inspects independent target labels/metadata and effect/confirmation descriptions while keeping typed payloads out of command-risk interpretation.
+- This is CI-verified code, but M10.4 remains open pending actual-PC preflight and manual acceptance. M10.5 remains gated.

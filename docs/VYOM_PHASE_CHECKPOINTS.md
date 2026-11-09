@@ -173,3 +173,12 @@ This file is the hand-off record across conversations. The repository code and C
 
 - First run [42581529285](https://github.com/snchat78-svg/Vyom/actions/runs/42581529285) failed only the new natural-phrase regression (`send an invite`); 512 tests and 47 subtests passed. The code did not yet recognise the article between "send" and "invite".
 - Corrected the effect phrase pattern for optional `a/an/the` and "invitation" variants. The test remains natural-language wording. This follow-up requires a fresh exact-SHA full CI run.
+
+
+### M10.4 action-risk descriptor improvement — passed exact-SHA CI (2026-11-09)
+
+- Verified code/test SHA `c34e339110c92cf08e46cd040ce8397a77084eab`; exact-SHA [run 42581734953](https://github.com/snchat78-svg/Vyom/actions/runs/42581734953) succeeded.
+- Full suite **513 tests + 47 subtests**; M10.2 benchmark report passed; M10.3 synthetic threshold report **22/22**; syntax/import checks, clean build, Windows EXE build/verification, CI-host smoke and all artifact uploads passed.
+- First attempt [42581529285](https://github.com/snchat78-svg/Vyom/actions/runs/42581529285) exposed that "send invite" did not cover "send an invite". Corrected the matcher without weakening the natural-language regression; follow-up exact-SHA CI passed.
+- Artifacts: target-device package 13657003664 (expires 2026-12-09); EXE 13657775705 (expires 2026-11-16); CI preflight 13657950237; M10.2 baseline 13657876556; M10.3 report 13656749281.
+- **Next required action:** actual-PC preflight and manual acceptance evidence. CI-host smoke is not device acceptance. M10.4 remains active; no M10.5 start.

@@ -231,3 +231,14 @@ This is the authoritative phase register for continuing work across chats. Read 
 - The first exact-SHA run [42581529285](https://github.com/snchat78-svg/Vyom/actions/runs/42581529285) exposed a valid language gap: the existing effect pattern recognised "send invite" but not the natural phrasing "send an invite". The test suite reported 512 passed + 47 subtests and one new regression failure.
 - The follow-up expands only the send-effect phrase boundary to accept optional "a/an/the" and "invitation" forms. The regression remains phrased as natural language; it was not weakened.
 - Re-run exact-SHA CI before calling this increment verified. M10.4 actual-device gate remains blocked.
+
+
+### M10.4 action-risk descriptor improvement — exact-SHA CI passed (2026-11-09)
+
+- **Verified code/test SHA:** `c34e339110c92cf08e46cd040ce8397a77084eab`.
+- **Exact-SHA GitHub Actions:** [run 42581734953](https://github.com/snchat78-svg/Vyom/actions/runs/42581734953) — **success**.
+- **Full suite:** **513 tests passed + 47 subtests passed**. Python syntax, core/voice imports, clean build, Windows EXE build/verification, CI-host executable smoke preflight, M10.2 benchmark validation and M10.3 **22/22** synthetic threshold checks all passed. Artifacts uploaded successfully.
+- **Correction history:** first run [42581529285](https://github.com/snchat78-svg/Vyom/actions/runs/42581529285) passed 512 tests + 47 subtests but failed the new natural-language case "send an invite"; follow-up accepts optional articles and "invitation" wording. The regression was not weakened.
+- **Artifacts from successful run:** target-device package ID **13657003664** (expires 2026-12-09); `Vyom_EXE` ID **13657775705** (expires 2026-11-16); CI preflight ID **13657950237**; M10.2 baseline ID **13657876556**; M10.3 regression report ID **13656749281**.
+- Risk scanning checks independent target labels/descriptions and confirmation-reason fields. Free-form `args`/typed text/query payloads remain excluded.
+- **Still BLOCKED:** the successful GitHub-hosted CI is not proof of the user's actual PC. Run the newly refreshed target-device package and provide `M10_4_preflight.json` plus required manual evidence. M10.5 is not started.
