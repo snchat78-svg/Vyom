@@ -202,3 +202,17 @@ This is the authoritative phase register for continuing work across chats. Read 
 - 2026-10-29: Log regressions fixed on `c4434d45be1bcf472100fc7d2c7b1847c4e0e135`; exact-SHA [run 40817785734](https://github.com/snchat78-svg/Vyom/actions/runs/40817785734) passed 482 tests + 30 subtests, M10.2/M10.3 gates, EXE verification, CI-host preflight and artifacts. M10.4 remains blocked pending real target-device evidence.
 
 - 2026-10-29: Latest M10.4 code/test SHA `93a6be04973bff3854d4c7a6ed2e2b794e2764b2` passed exact-SHA [run 40818579534](https://github.com/snchat78-svg/Vyom/actions/runs/40818579534): **483 tests + 30 subtests**, M10.2 report validation, M10.3 22/22 synthetic checks, Windows EXE verification and refreshed target-device/preflight/report artifacts. M10.4 remains blocked until actual supported-PC evidence is reviewed.
+
+
+## Latest M10.4 continuation — 2026-11-09 (canonical handoff)
+
+- **Active phase:** M10.4 — Real Windows integration and release exit gate. The target-device gate remains **BLOCKED**; M10.5 has not started.
+- **Latest code/test SHA:** \`9dc2d538a3d4b481ae4903a2023454dce89c138c\`.
+- **Exact-SHA GitHub Actions:** [run 42579639353](https://github.com/snchat78-svg/Vyom/actions/runs/42579639353) — **success**.
+- **CI result:** **512 tests passed, 47 subtests passed**; tracked Python syntax, critical/core/voice imports, full suite, M10.2 baseline validation, M10.3 synthetic regression gate, clean build, Windows EXE build/verification, CI-host executable smoke preflight and artifact uploads all passed.
+- **M10.4 diction improvement:** the intent boundary now strips a bounded set of conversational wrappers and polite endings before the existing open/close grammar. Addressed commands such as “Hey Vyom, could you please launch Notepad?” no longer get swallowed by greeting recognition. The compound-goal guard runs before the single-action shortcut. Dynamic targets/extensions remain runtime data.
+- **CI regression caught and fixed:** the first implementation attempt let greeting detection capture wake-name-prefixed commands; the follow-up exact-SHA run includes the precedence fix. The runtime-env test now explicitly sets \`VYOM_ALLOW_PAID_API=true\` only inside that isolated compatibility test; production default remains no-paid.
+- **Artifacts from run 42579639353:** \`Vyom_M10_4_Target_Device_Package\` ID **13656313986** (expires 2026-12-09); \`Vyom_EXE\` ID **13656497909** (expires 2026-11-16); \`Vyom_M10_4_CI_Preflight\` ID **13657031407**; M10.2 baseline ID **13656842068**; M10.3 regression report ID **13656517888**.
+- **Next required action:** download the target-device package from the run's **Artifacts**, extract it, read \`README_FIRST.txt\`, run the preflight on the actual PC and provide \`M10_4_preflight.json\`. If supported, collect the real-device evidence file and audio/UI results.
+- **Mind independence requirement:** Vyom remains the owner of its Brain, meaning/intent, planning, capability registry, risk policy and verification. No third-party assistant runtime or cloud API was added by this increment. M10.7 remains the planned local-reasoning/voice evaluation for broader paraphrase and noisy Hindi/Roman-Hindi/Hinglish coverage; it must stay local-first and fail closed when no local model is configured.
+- **Limit:** this increment broadens a bounded deterministic request grammar; it does not guarantee every possible sentence or replace a general local language model. CI does not prove actual target-device microphone, speaker, screen, UIA or Office behavior.

@@ -148,3 +148,13 @@ This file is the hand-off record across conversations. The repository code and C
 - Current code/test SHA: `93a6be04973bff3854d4c7a6ed2e2b794e2764b2`; exact-SHA [run 40818579534](https://github.com/snchat78-svg/Vyom/actions/runs/40818579534) passed **483 tests + 30 subtests**, syntax/core/voice imports, full suite, clean build, M10.2 report validation, M10.3 22/22 thresholds, Windows EXE verification, CI-host smoke preflight and artifact upload.
 - Latest package `Vyom_M10_4_Target_Device_Package` ID `12873975747` expires 2026-11-28; EXE ID `12874020570` expires 2026-11-05; CI preflight ID `12873631976`.
 - Required next evidence: `M10_4_preflight.json` from the actual target PC. Python 3.11 package requires Windows 8.1/version 6.3 or newer; Windows 8.0/version 6.2 is unsupported. If supported, submit target-device evidence. CI success does not clear this blocker.
+
+
+## Latest verified M10.4 continuation — 2026-11-09
+
+- Exact code/test SHA: \`9dc2d538a3d4b481ae4903a2023454dce89c138c\`.
+- Exact-SHA [GitHub Actions run 42579639353](https://github.com/snchat78-svg/Vyom/actions/runs/42579639353) succeeded: **512 tests + 47 subtests**, M10.2 benchmark validation, M10.3 synthetic gate, Windows EXE build/verification, CI-host smoke and all target-device/report artifacts uploaded.
+- Implemented bounded request-shell normalization for supported English/Hindi/Roman-Hindi/Hinglish polite framing. Fixed wake-name-prefixed command precedence over greeting recognition while preserving compound-goal precedence.
+- The paid-provider environment compatibility test now explicitly opts in only in the test's temporary env file; this does not change the production no-paid default.
+- Artifacts: target-device package 13656313986 (expires 2026-12-09), EXE 13656497909 (expires 2026-11-16), CI preflight 13657031407, M10.2 baseline 13656842068, M10.3 report 13656517888.
+- **M10.4 remains BLOCKED for real target-device acceptance.** Next action is run the preflight from the new package and submit \`M10_4_preflight.json\`; no M10.5 phase start until the real-device gate is reviewed.

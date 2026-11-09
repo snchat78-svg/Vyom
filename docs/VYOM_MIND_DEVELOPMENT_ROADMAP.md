@@ -298,7 +298,7 @@ No system can guarantee correct interpretation of every possible sentence or bad
 
 ## M10.4 additive improvement — diction-tolerant request framing (2026-11-09)
 
-**Status:** implementation and regression contract added; exact-SHA CI pending. M10.4 target-device acceptance remains blocked.
+**Status:** implementation and regression contract complete; exact-SHA [CI run 42579639353](https://github.com/snchat78-svg/Vyom/actions/runs/42579639353) passed on `9dc2d538a3d4b481ae4903a2023454dce89c138c` with 512 tests + 47 subtests. M10.4 target-device acceptance remains blocked.
 
 - Added a narrow, Vyom-owned request-shell normalizer at the intent boundary. It removes supported conversational wrappers (for example, “could you please”, “Hey Vyom”, “mujhe”, “zara”, and “कृपया”) and polite suffixes before the existing open/close intent grammar runs.
 - A follow-up CI run exposed that greeting recognition could intercept a wake-name-prefixed command. Addressed single-action commands now get a guarded natural-intent check before greeting detection; the explicit compound-goal guard still runs first, so multi-step requests cannot be flattened.
@@ -308,3 +308,9 @@ No system can guarantee correct interpretation of every possible sentence or bad
 - This is a deterministic grammar improvement, not a claim that every possible paraphrase is understood. Broad open-vocabulary meaning still requires the later local-reasoning evaluation in M10.7; it must not depend on a cloud API. Ambiguous or unsupported intent must remain unresolved rather than trigger an unsafe guess.
 - No third-party agent/runtime or external project code was copied into this change. Vyom retains ownership of its Brain, planner, capability execution, safety gates and verification contracts.
 - **Anti-skip:** M10.4 remains the active phase; M10.5 does not start until the supported target-device preflight and real-device evidence are reviewed.
+
+
+### M10.4 diction increment — exact-SHA acceptance
+
+- The request-shell change and wake-name/greeting precedence fix passed exact-SHA CI run 42579639353 (512 tests + 47 subtests), together with M10.2/M10.3 gates, Windows EXE verification and M10.4 target-device artifact creation.
+- M10.4 remains open until the user's actual supported Windows device returns a valid preflight and manual acceptance evidence. This increment does not start M10.5.
