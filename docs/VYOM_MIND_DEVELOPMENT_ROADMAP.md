@@ -301,6 +301,7 @@ No system can guarantee correct interpretation of every possible sentence or bad
 **Status:** implementation and regression contract added; exact-SHA CI pending. M10.4 target-device acceptance remains blocked.
 
 - Added a narrow, Vyom-owned request-shell normalizer at the intent boundary. It removes supported conversational wrappers (for example, “could you please”, “Hey Vyom”, “mujhe”, “zara”, and “कृपया”) and polite suffixes before the existing open/close intent grammar runs.
+- A follow-up CI run exposed that greeting recognition could intercept a wake-name-prefixed command. Addressed single-action commands now get a guarded natural-intent check before greeting detection; the explicit compound-goal guard still runs first, so multi-step requests cannot be flattened.
 - Operation parsing remains separate from app/file identity. Targets such as my-project.v2 remain dynamic input; the new logic does not add app names or a large command-phrase lookup table.
 - Added tests/test_m10_4_semantic_diction_contract.py for English, Hindi, Roman Hindi and Hinglish request variants, target preservation, and negative cases where politeness or typed payload must not invent an action.
 - Corrected the runtime-env integration test to explicitly opt into paid-provider configuration. This tests backward-compatible configuration loading without changing the runtime's default VYOM_ALLOW_PAID_API=false policy.

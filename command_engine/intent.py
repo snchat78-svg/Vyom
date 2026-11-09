@@ -457,6 +457,29 @@ class IntentEngine:
         if selection is not None:
             return {"intent": "selection", "target": selection, "selection": selection, "voice": voice_meta}
 
+        # A wake-name greeting must not hide a command addressed to Vyom.
+        # Keep the compound-goal guard first so a multi-step request cannot be
+        # collapsed into this single-action fast path.
+        if (
+            self._strip_request_shell(text) != text
+            and not self.goal_router.has_compound_structure(text)
+        ):
+            addressed_natural = self._natural_family(text)
+            if addressed_natural:
+                family, target = addressed_natural
+                if family == "open" and self._is_ui_control_target(target):
+                    return {
+                        "intent": "unknown",
+                        "target": original,
+                        "voice": voice_meta,
+                        "semantic_handoff_reason": "ui_control_target",
+                    }
+                return {
+                    "intent": "open" if family == "open" else "close_app",
+                    "target": target,
+                    "voice": voice_meta,
+                }
+
         conversation = self._conversation(text)
         if conversation:
             return {
