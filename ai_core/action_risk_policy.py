@@ -24,7 +24,7 @@ class ActionRiskPolicy:
         r"\b(?:delete|erase|wipe|format|uninstall|overwrite|truncate|destroy|purge|drop|remove|"
         r"reset|submit|publish|purchase|buy|pay|payment|make payment|charge card|transfer|withdraw|revoke|"
         r"grant access|revoke access|change password|close account|account closure|delete account|disable account|factory reset|format disk|format drive|"
-        r"send email|send message|send document|send file|send request|send order|send notification|send invite|invite user|"
+        r"send (?:an? |the )?(?:email|message|document|file|request|order|notification|invite|invitation)|invite user|"
         r"share publicly|make public|publish publicly|post publicly|unpublish|cancel subscription|cancel order|place order|confirm order|revoke token|disconnect integration|delete user|block user|ban user|unsubscribe|issue refund|refund|hatao|hatana|hata do|mitao|mitana|mita do|"
         r"bhejo|bhejna|bhej do|jama karo|kharido|khareedo|paise transfer|paise bhejo|bhugtan|bhugtan karo|"
         r"डिलीट|हटाओ|हटाना|हटा दो|हटाएं|हटाएँ|मिटाओ|मिटाना|मिटा दो|भेजो|भेजना|भेज दो|"

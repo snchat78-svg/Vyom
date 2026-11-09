@@ -325,3 +325,9 @@ No system can guarantee correct interpretation of every possible sentence or bad
 - Free-form action arguments and typed user payloads remain excluded from risk scanning. This preserves the distinction between an instruction to delete a file and text the user merely wants Vyom to type or search.
 - Regression coverage includes hidden delete-account label, external send effect disclosed only in the confirmation reason, benign Save action, and the existing negative test for dangerous words inside typed text.
 - This increment strengthens an existing safety decision, rather than adding a second planner or action executor. The user's actual Windows preflight is still required to close M10.4; M10.5 remains gated.
+
+
+### M10.4 safety-increment correction — 2026-11-09
+
+- The initial regression run caught the distinction between "send invite" and "send an invite". The effect matcher now accepts optional articles (`a/an/the`) and "invitation" for supported send-effect nouns. The natural-language regression stays intact; no test expectation was relaxed.
+- Full exact-SHA CI must pass before treating the increment as verified.

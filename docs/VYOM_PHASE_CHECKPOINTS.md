@@ -167,3 +167,9 @@ This file is the hand-off record across conversations. The repository code and C
 - Added `test_action_labels_and_confirmation_reasons_are_checked_independently` for masked delete/send side effects and a benign Save action. Existing typed-payload negative test remains part of the suite.
 - Exact code/test SHA and CI status will be recorded after the workflow for this commit completes. Until then, this increment is implementation-pending-verification, not a passed phase.
 - M10.4 target-device acceptance remains **BLOCKED** pending actual-PC `M10_4_preflight.json` and manual evidence. No M10.5 start.
+
+
+### M10.4 safety-increment CI correction — 2026-11-09
+
+- First run [42581529285](https://github.com/snchat78-svg/Vyom/actions/runs/42581529285) failed only the new natural-phrase regression (`send an invite`); 512 tests and 47 subtests passed. The code did not yet recognise the article between "send" and "invite".
+- Corrected the effect phrase pattern for optional `a/an/the` and "invitation" variants. The test remains natural-language wording. This follow-up requires a fresh exact-SHA full CI run.

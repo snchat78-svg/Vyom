@@ -224,3 +224,10 @@ This is the authoritative phase register for continuing work across chats. Read 
 - The risk assessor now independently checks the explicit action target, label, structured target metadata, description and confirmation-reason fields. It still does **not** inspect free-form typed text/query/value payloads, so ordinary content such as a sentence saying "delete the draft" is not treated as a delete command.
 - Added regression coverage for a destructive label behind a generic Confirm target, an external send effect expressed only in the confirmation reason, and a benign Save action.
 - This is a conservative pre-dispatch safety improvement, not broad natural-language reasoning. M10.4 remains active and the real target-device acceptance gate remains blocked; M10.5 is not started.
+
+
+### M10.4 safety-increment CI correction — 2026-11-09 (verification pending)
+
+- The first exact-SHA run [42581529285](https://github.com/snchat78-svg/Vyom/actions/runs/42581529285) exposed a valid language gap: the existing effect pattern recognised "send invite" but not the natural phrasing "send an invite". The test suite reported 512 passed + 47 subtests and one new regression failure.
+- The follow-up expands only the send-effect phrase boundary to accept optional "a/an/the" and "invitation" forms. The regression remains phrased as natural language; it was not weakened.
+- Re-run exact-SHA CI before calling this increment verified. M10.4 actual-device gate remains blocked.
