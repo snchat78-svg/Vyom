@@ -10,6 +10,7 @@ Purpose:
 This module only interprets commands. It never executes them.
 """
 
+import difflib
 import re
 from typing import Any, Dict
 
@@ -33,7 +34,9 @@ class IntentEngine:
         "पाँचवा": "5", "छह": "6", "छः": "6", "सात": "7", "आठ": "8",
         "नौ": "9", "दस": "10",
         # Romanized Hindi number words commonly produced by speech recognition.
-        "ek": "1", "one": "1", "do": "2", "teen": "3", "char": "4", "chaar": "4",
+        "ek": "1", "one": "1", "van": "1", "wan": "1", "won": "1", "wun": "1",
+        "do": "2", "too": "2", "tu": "2", "to": "2", "teen": "3", "tree": "3",
+        "char": "4", "chaar": "4",
         "paanch": "5", "panch": "5", "che": "6", "chhe": "6", "chhah": "6",
         "saat": "7", "aath": "8", "nau": "9", "das": "10", "dus": "10",
         "pahla": "1", "pehla": "1", "pehli": "1", "pehle": "1",
@@ -53,6 +56,13 @@ class IntentEngine:
         "राम राम": "greeting", "good morning": "greeting", "good evening": "greeting",
         "good afternoon": "greeting", "शुभ प्रभात": "greeting",
         "how are you": "status", "how are u": "status", "how are things": "status",
+        "kya kar rahe ho": "activity", "kya kar rahe hain": "activity",
+        "tumhara nam kya hai": "identity", "tumhara naam kya hai": "identity",
+        "aapka nam kya hai": "identity", "aapka naam kya hai": "identity",
+        "mera nam kya hai": "user_name", "mera naam kya hai": "user_name",
+        "hindi men bat karo": "language_preference", "hindi mein baat karo": "language_preference",
+        "hindi me baat karo": "language_preference", "hindi men baat karo": "language_preference",
+        "हिंदी में बात करो": "language_preference", "हिन्दी में बात करो": "language_preference",
         "कैसे हो": "status", "कैसा चल रहा है": "status", "क्या हाल है": "status",
         "what can you do": "capabilities", "what can you do for me": "capabilities",
         "तुम क्या कर सकते हो": "capabilities", "आप क्या कर सकते हैं": "capabilities",
@@ -73,6 +83,24 @@ class IntentEngine:
         value = str(text or "").strip().lower()
         return re.sub(r"\s+", " ", value)
 
+    @staticmethod
+    def _is_incomplete_location_fragment(text: str) -> bool:
+        value = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        tokens = value.split()
+        if len(tokens) < 2 or len(tokens) > 4:
+            return False
+        if tokens[-1] not in {
+            "in", "men", "mein", "me", "में", "का", "की", "के", "par", "पर",
+            "about", "of", "ke",
+        }:
+            return False
+        action_words = {
+            "open", "launch", "start", "run", "close", "stop", "search", "find",
+            "click", "type", "write", "send", "select", "choose", "khol", "kholo",
+            "karo", "करो", "खोलो", "बंद", "लिखो", "भेजो",
+        }
+        return not any(token in action_words for token in tokens)
+
     def _conversation(self, text: str):
         if text in self.CONVERSATION_PHRASES:
             return self.CONVERSATION_PHRASES[text]
@@ -92,11 +120,62 @@ class IntentEngine:
             (r"^(?:who are you|what are you).*", "identity"),
             (r"^(?:tum|aap)\s+(?:kaun ho|kaun hain).*", "identity"),
             (r"^(?:तुम कौन हो|आप कौन हैं).*", "identity"),
+            (r"^(?:tumhara|aapka|apka)\\s+(?:nam|naam)\\s+kya hai$", "identity"),
+            (r"^(?:mera|meri)\s+(?:nam|naam)\s+kya hai$", "user_name"),
+            (r"^(?:hindi|हिंदी|हिन्दी)(?:\s+(?:mein|me|men|में))?\s+(?:baat|bat)\s+(?:karo|kijiye|kiji|करो|करें)$", "language_preference"),
+            (r"^(?:(?:tum|aap)\s+)?kya kar rahe (?:ho|hain)$", "activity"),
         ]
         for pattern, kind in patterns:
             if re.match(pattern, text, flags=re.IGNORECASE):
                 return kind
         return None
+
+    @staticmethod
+    def _is_information_question_text(text: Any) -> bool:
+        """Recognize factual questions despite common English/Hinglish STT errors."""
+        value = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if not value:
+            return False
+        tokens = re.findall(r"[a-z]+|[\u0900-\u097f]+", value)
+        if not tokens:
+            return False
+        action_prefixes = {
+            "open", "launch", "start", "run", "close", "stop", "type", "write",
+            "send", "click", "press", "select", "choose", "search", "find",
+            "create", "make", "put", "enter", "khol", "kholo", "likho", "bhejo",
+            "खोलो", "खोलना", "लिखो", "भेजो", "बंद",
+        }
+        if tokens[0] in action_prefixes:
+            return False
+        english_wh = {"what", "who", "why", "when", "where", "how", "which", "whose", "whom"}
+        dev_wh = {
+            "व्हाट", "वाट", "वॉट", "ह्वाट", "व्हेयर", "वेयर", "व्हेन", "वेन",
+            "व्हाय", "वाय", "हाउ", "हू", "व्हिच",
+        }
+        first = tokens[0]
+        if first in dev_wh:
+            return True
+        if first in english_wh or first in {"vhat", "wat", "wot", "whut", "wher", "wen", "wai", "wich"}:
+            return True
+        candidate = difflib.get_close_matches(first, sorted(english_wh), n=1, cutoff=0.72)
+        if candidate and abs(len(first) - len(candidate[0])) <= 2:
+            return True
+        if value.startswith((
+            "tell me about ", "tell me what ", "explain ", "define ",
+            "describe ", "give me information about ",
+        )):
+            return True
+        roman_hindi_questions = {
+            "kya", "kaun", "kyu", "kyun", "kyon", "kab", "kahan", "kahaan",
+            "kaise", "kitna", "kitni", "kitne", "kitney", "kitana", "kitane",
+            "kitani", "kitanaa", "kitanee", "kitnay", "kis", "kise", "kiska",
+            "kiski", "kiske", "kisne", "kisko",
+        }
+        native_hindi_questions = {
+            "क्या", "कौन", "क्यों", "कब", "कहाँ", "कहां", "कैसे", "कितना",
+            "कितनी", "कितने", "किसने", "किसका", "किसकी", "किसे",
+        }
+        return any(token in roman_hindi_questions or token in native_hindi_questions for token in tokens[1:])
 
     def _selection_value(self, value: str):
         candidate = self._normalize(value).strip()
@@ -161,10 +240,15 @@ class IntentEngine:
             if direct is not None:
                 return direct
 
-            # Spoken number followed by extra action words.
+            # Explicit "number/option N" must still select when STT appends
+            # trailing words (for example "number 1 vala not kaise kholen").
+            numeric_prefix = re.match(r"^(\d{1,2})(?:\s+.*)?$", candidate)
+            if numeric_prefix:
+                return numeric_prefix.group(1)
+
             first_token = candidate.split(" ", 1)[0] if candidate else ""
             direct = self._selection_value(first_token)
-            if direct is not None and len(candidate.split()) <= 3:
+            if direct is not None and len(candidate.split()) <= 6:
                 return direct
 
         # Bare numeric selection followed by a generic action:
@@ -237,18 +321,72 @@ class IntentEngine:
 
         return None
 
-    def _strip_polite_suffix(self, target: str) -> str:
-        value = str(target or "").strip()
+    @staticmethod
+    def _strip_request_shell(text: Any) -> str:
+        """Remove a small, context-only politeness wrapper before intent parsing.
+
+        This is deliberately not a synonym dictionary or target vocabulary.
+        It only removes conversational framing at the utterance boundary;
+        operation meaning and runtime targets are still parsed by the existing
+        intent engine and discovered dynamically.
+        """
+        value = str(text or "").strip().lower()
+        value = re.sub(r"[?!.,;:]+$", "", value).strip()
+
+        # Wake-name/addressing may precede the actual request.
         value = re.sub(
-            r"\s+(?:कर दो|करदो|करो|कर|करें|करिये|करिए|दो|दे दो|देना|please|pls)$",
+            r"^(?:hey\s+)?vyom\b[\s,:-]*",
             "",
             value,
             flags=re.IGNORECASE,
+        ).strip()
+
+        prefixes = (
+            "could you please ", "can you please ", "would you please ",
+            "will you please ", "could you ", "can you ", "would you ",
+            "will you ", "i want you to ", "please ", "kindly ",
+            "मुझे ", "मेरे लिए ", "जरा ", "ज़रा ", "कृपया ",
+            "mujhe ", "mere liye ", "zara ", "jara ", "kripya ",
         )
-        return value.strip()
+        changed = True
+        while changed and value:
+            changed = False
+            for prefix in prefixes:
+                if value.startswith(prefix):
+                    value = value[len(prefix):].strip()
+                    changed = True
+                    break
+        return value
+
+    def _strip_polite_suffix(self, target: str) -> str:
+        value = str(target or "").strip()
+        suffix = re.compile(
+            r"\s+(?:कर दो|करदो|करो|कर|करें|करिये|करिए|दो|दे दो|देना|"
+            r"please|kindly|for me|for myself|now|na|zara|jara|ko|को|pls)$",
+            flags=re.IGNORECASE,
+        )
+        while value:
+            stripped = suffix.sub("", value).strip()
+            if stripped == value:
+                break
+            value = stripped
+        return value
+
+    @staticmethod
+    def _is_ui_control_target(target: Any) -> bool:
+        value = str(target or "").strip().lower()
+        # Generic UI nouns only; app/file names remain runtime data.
+        control_terms = {
+            "button", "batan", "बटन", "box", "बॉक्स", "field", "feld",
+            "क्षेत्र", "textbox", "tab", "टैब", "menu", "मेन्यू",
+            "link", "लिंक", "icon", "aikon", "आइकन", "checkbox",
+            "dropdown", "drop-down", "toggle", "slider",
+        }
+        tokens = set(re.findall(r"\w+", value, flags=re.UNICODE))
+        return any(term in tokens for term in control_terms) or "text box" in value or "check box" in value
 
     def _natural_family(self, original: str):
-        text = self._normalize(original)
+        text = self._strip_request_shell(self._normalize(original))
 
         # Open: action may appear before OR after the target.
         open_after = re.match(
@@ -319,12 +457,45 @@ class IntentEngine:
         if selection is not None:
             return {"intent": "selection", "target": selection, "selection": selection, "voice": voice_meta}
 
+        # A wake-name greeting must not hide a command addressed to Vyom.
+        # Keep the compound-goal guard first so a multi-step request cannot be
+        # collapsed into this single-action fast path.
+        if (
+            self._strip_request_shell(text) != text
+            and not self.goal_router.has_compound_structure(text)
+        ):
+            addressed_natural = self._natural_family(text)
+            if addressed_natural:
+                family, target = addressed_natural
+                if family == "open" and self._is_ui_control_target(target):
+                    return {
+                        "intent": "unknown",
+                        "target": original,
+                        "voice": voice_meta,
+                        "semantic_handoff_reason": "ui_control_target",
+                    }
+                return {
+                    "intent": "open" if family == "open" else "close_app",
+                    "target": target,
+                    "voice": voice_meta,
+                }
+
         conversation = self._conversation(text)
         if conversation:
             return {
                 "intent": "conversation",
                 "target": conversation,
                 "conversation_type": conversation,
+                "voice": voice_meta,
+            }
+
+        # STT may return only the location/topic prefix of a longer question.
+        # Ask for the rest rather than routing this fragment to a capability.
+        if self._is_incomplete_location_fragment(text):
+            return {
+                "intent": "conversation",
+                "target": "clarification",
+                "conversation_type": "clarification",
                 "voice": voice_meta,
             }
 
@@ -350,6 +521,17 @@ class IntentEngine:
             return {
                 "intent": "search_file",
                 "target": self._strip_polite_suffix(file_search_match.group(1)),
+                "voice": voice_meta,
+            }
+
+        # STT can produce "vhat is kaipital off indiya" or spell English
+        # WH words in Devanagari. Route information questions directly to the
+        # response layer so slow desktop planning is never needed to answer.
+        if self._is_information_question_text(text):
+            return {
+                "intent": "conversation",
+                "target": "information_question",
+                "conversation_type": "information_question",
                 "voice": voice_meta,
             }
 
@@ -387,6 +569,16 @@ class IntentEngine:
         natural = self._natural_family(normalized_input)
         if natural:
             family, target = natural
+            if family == "open" and self._is_ui_control_target(target):
+                # "Power button kholo" is a UI-element request, not a request
+                # to launch an application named "Power button". Let the
+                # semantic brain ground it through Windows UI Automation.
+                return {
+                    "intent": "unknown",
+                    "target": original,
+                    "voice": voice_meta,
+                    "semantic_handoff_reason": "ui_control_target",
+                }
             return {
                 "intent": "open" if family == "open" else "close_app",
                 "target": target,

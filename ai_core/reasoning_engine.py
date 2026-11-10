@@ -333,13 +333,10 @@ class ReasoningEngine:
             available = False
 
         if (
-            not available
-            or (
-                not force
-                and len(suggested_intents) == 1
-                and len(sub_goals) <= 1
-                and previous_result is None
-            )
+            not force
+            and len(suggested_intents) == 1
+            and len(sub_goals) <= 1
+            and previous_result is None
         ):
             return {
                 "suggested_intents": suggested_intents,
@@ -677,7 +674,7 @@ class ReasoningEngine:
         # present.
         deep_conversation = (
             isinstance(deep_route, str)
-            and deep_route.strip().lower() == "conversation"
+            and deep_route.strip().lower() in {"conversation", "clarification"}
         )
         if deep_conversation:
             model_ordered_plan = []
@@ -804,7 +801,19 @@ class ReasoningEngine:
             "previous_result": previous_result,
             "compiled_goal": compiled,
             "deep_reasoning": deep_data,
-            "deep_reasoning_source": "model" if deep_data is not None else None,
+            "response": (
+                deep_data.get("response", "")
+                if isinstance(deep_data, dict)
+                else ""
+            ),
+            "deep_reasoning_source": (
+                "local_semantic_brain"
+                if isinstance(deep_data, dict)
+                and deep_data.get("source") == "local_semantic_brain"
+                else "model"
+                if deep_data is not None
+                else None
+            ),
             "deep_reasoning_language": language,
             "generic_action_plan": generic_action_plan,
             "generic_actions": generic_actions,
@@ -843,6 +852,26 @@ class ReasoningEngine:
             route = {
                 "route": "conversation",
                 "reason": "The user's language expresses an information question."
+            }
+            self.last_route = route
+            return route
+
+        # Terminal semantic decisions outrank every executable candidate.
+        # Do this before considering model or contextual plans, otherwise a
+        # stale/parallel planner result could reintroduce an action after the
+        # local semantic brain explicitly asked the user to clarify.
+        if isinstance(deep, dict) and str(deep.get("route") or "").strip().lower() in {
+            "conversation", "clarification",
+        }:
+            deep_route = str(deep.get("route") or "").strip().lower()
+            route = {
+                "route": "conversation",
+                "reason": deep.get(
+                    "reason",
+                    "The task requires clarification."
+                    if deep_route == "clarification"
+                    else "The task requires conversation."
+                ),
             }
             self.last_route = route
             return route
@@ -981,14 +1010,6 @@ class ReasoningEngine:
             self.last_route = route
             return route
 
-        if isinstance(deep, dict) and deep.get("route") == "conversation":
-            route = {
-                "route": "conversation",
-                "reason": deep.get("reason", "The task requires conversation.")
-            }
-            self.last_route = route
-            return route
-
         if isinstance(deep, dict) and deep.get("route") == "capability":
             route = {
                 "route": "capability",
@@ -1036,6 +1057,13 @@ class ReasoningEngine:
             if isinstance(route, dict)
             else "stop"
         )
+
+        if route_name in {"conversation", "clarification", "stop", "exit_session"}:
+            # A terminal route must never inherit a contextual/model plan.
+            # This guard is independent of decide_route so alternate callers
+            # cannot accidentally turn a clarification back into execution.
+            self.last_plan = []
+            return []
 
         goal = analysis.get("goal", "")
         suggested = analysis.get("suggested_intents", [])

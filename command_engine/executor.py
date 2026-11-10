@@ -17,7 +17,10 @@ from ai_core.brain import Brain
 from ai_core.ui_autonomous_agent import UIAutonomousAgent
 from command_engine.intent import IntentEngine
 from ai_core.goal_router import GoalRouter
+import hashlib
 import re
+import time
+from typing import Any, Dict
 
 from tools.tool_manager import ToolManager
 from ai_core.response_engine import ResponseEngine
@@ -50,6 +53,36 @@ autonomous_agent = UIAutonomousAgent(
 )
 
 response_engine = ResponseEngine()
+
+
+def _trace_sink_update(trace_sink, **values):
+    """Write compact telemetry to the active conversation turn, when supplied."""
+    if isinstance(trace_sink, dict):
+        trace_sink.update(values)
+
+
+def _trace_intent(trace_sink, intent):
+    if not isinstance(trace_sink, dict) or not isinstance(intent, dict):
+        return
+    target = str(intent.get("target") or "").strip()
+    hypotheses = intent.get("hypotheses")
+    if not isinstance(hypotheses, list):
+        hypotheses = intent.get("alternatives")
+    confidence = intent.get("confidence")
+    compact = {
+        "type": str(intent.get("intent") or "unknown")[:80],
+        "target_present": bool(target),
+        "selection_present": bool(str(intent.get("selection") or "").strip()),
+        "hypothesis_count": min(16, len(hypotheses)) if isinstance(hypotheses, list) else 0,
+    }
+    if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+        try:
+            value = float(confidence)
+            if 0.0 <= value <= 1.0 and value == value and value not in (float("inf"), float("-inf")):
+                compact["confidence"] = round(value, 4)
+        except (TypeError, ValueError, OverflowError):
+            pass
+    trace_sink["intent"] = compact
 
 
 # =============================================================
@@ -180,6 +213,178 @@ def _failure_response(command, raw_result, stage="failed"):
     )
 
 
+def _recovery_confirmation_response(command, recovery, metadata=None):
+    recovery = recovery if isinstance(recovery, dict) else {}
+    kind = str(recovery.get("kind") or "unclear")
+    source_result = recovery.get("source_result")
+    voice_metadata = metadata
+    if voice_metadata is None and isinstance(source_result, dict):
+        voice_metadata = (
+            {"voice": source_result.get("voice")}
+            if isinstance(source_result.get("voice"), dict) else None
+        )
+    language = response_engine.detect_language(command, metadata=voice_metadata)
+    if response_engine._explicit_english_request(command):
+        language = "english"
+
+    prompts = {
+        "english": (
+            "I couldn't verify whether the action took effect, so I have not repeated it. "
+            "Check the current window and reply with one clear choice: "
+            "'already happened' (stop without replay), "
+            "'did not happen; retry' (take a fresh UI observation, then retry and verify), "
+            "or 'cancel recovery' (stop without retry). A plain yes/no is not enough."
+        ),
+        "hindi": (
+            "मैं यह सत्यापित नहीं कर पाया कि action हुआ या नहीं, इसलिए उसे दोबारा नहीं किया है। "
+            "वर्तमान window जाँचकर इनमें से एक स्पष्ट जवाब दें: "
+            "'हो गया' (दोबारा नहीं करूँगा), 'नहीं हुआ, दोबारा करो' (नई UI observation लेकर retry और verification करूँगा), "
+            "या 'रहने दो' (बिना retry mission रोक दूँगा)। केवल हाँ/नहीं पर्याप्त नहीं है।"
+        ),
+        "hinglish": (
+            "Main verify nahi kar paya ki action hua ya nahi, isliye usse repeat nahi kiya. "
+            "Current window check karke clear reply dein: 'ho gaya' (repeat nahi hoga), "
+            "'nahi hua, dobara karo' (fresh UI observation ke baad retry + verify), "
+            "ya 'rehne do' (retry ke bina mission stop). Sirf yes/no kaafi nahi hai."
+        ),
+    }
+    if kind == "restart_retry_unavailable":
+        category = str(
+            recovery.get("recovery_lock_category") or ""
+        )
+        if category == "recovery_journal_unreadable":
+            messages = {
+                "english": (
+                    "Vyom found a recovery marker it could not safely read, so it has paused new actions. "
+                    "Check the current window. Reply 'already happened' only if you independently confirmed it, "
+                    "or 'cancel recovery' to stop without replay. Automatic retry is disabled."
+                ),
+                "hindi": (
+                    "Vyom को recovery marker सुरक्षित रूप से पढ़ने में समस्या मिली है, इसलिए नए actions रोक दिए हैं। "
+                    "वर्तमान window जाँचें। केवल स्वयं पुष्टि करने पर 'हो गया' कहें, या बिना दोबारा चलाए रोकने के लिए "
+                    "'रहने दो' कहें। Automatic retry बंद है।"
+                ),
+                "hinglish": (
+                    "Vyom recovery marker ko safely read nahi kar paya, isliye naye actions pause hain. "
+                    "Current window check karein. Khud confirm kiya ho tabhi 'ho gaya' bolein, ya bina replay ke "
+                    "rokne ke liye 'rehne do' bolein. Automatic retry disabled hai."
+                ),
+            }
+        else:
+            messages = {
+                "english": (
+                    "A recovery marker from the previous Vyom session was found, but the original mission plan "
+                    "was intentionally not stored. Vyom cannot safely retry it after restart. Check the current "
+                    "window, then reply 'already happened' only if confirmed, or 'cancel recovery' to stop without replay."
+                ),
+                "hindi": (
+                    "पिछले Vyom session का recovery marker मिला है, लेकिन सुरक्षा के लिए पुराना mission plan सेव नहीं किया गया था। "
+                    "Restart के बाद Vyom इसे सुरक्षित रूप से retry नहीं कर सकता। Current window जाँचें; पुष्टि होने पर ही "
+                    "'हो गया' कहें, या बिना replay रोकने के लिए 'रहने दो' कहें।"
+                ),
+                "hinglish": (
+                    "Pichhle Vyom session ka recovery marker mila, lekin safety ke liye original mission plan save nahi tha. "
+                    "Restart ke baad Vyom isse safely retry nahi kar sakta. Current window check karein; confirm ho tabhi "
+                    "'ho gaya' bolein, ya bina replay rokne ke liye 'rehne do' bolein."
+                ),
+            }
+        response = _structured_response(
+            messages[language],
+            success=False,
+            stage="recovery_confirmation_required",
+            status="needs_confirmation",
+            result={"requires_user_input": True, "retry_available": False},
+        )
+        response["requires_user_input"] = True
+        response["recovery_options"] = ["already_applied", "cancel"]
+        response["error_category"] = "recovery_restored_after_restart"
+        return response
+
+    if kind in {"unclear", "observation_unavailable"}:
+        message = prompts[language]
+        if kind == "observation_unavailable":
+            extra = {
+                "english": " The live UI state is unavailable or stale, so no retry was sent.",
+                "hindi": " Live UI state उपलब्ध नहीं थी या पुरानी थी, इसलिए कोई retry नहीं किया गया।",
+                "hinglish": " Live UI state available nahi thi ya stale thi, isliye retry nahi kiya.",
+            }
+            message += extra[language]
+        elif recovery.get("retry_hint"):
+            extra = {
+                "english": " Please use one of the explicit replies above.",
+                "hindi": " कृपया ऊपर दिए गए स्पष्ट जवाबों में से एक दें।",
+                "hinglish": " Upar diye gaye clear replies mein se ek dein.",
+            }
+            message += extra[language]
+        response = _structured_response(
+            message, success=False, stage="recovery_confirmation_required",
+            status="needs_confirmation", result={"requires_user_input": True},
+        )
+        response["requires_user_input"] = True
+        response["recovery_options"] = ["already_applied", "not_applied_retry", "cancel"]
+        response["error_category"] = "uncertain_action_outcome"
+        return response
+
+    if kind == "already_applied":
+        messages = {
+            "english": "Thanks for confirming. I will not repeat that action. The previous mission is stopped; this is user-confirmed, not machine-verified.",
+            "hindi": "पुष्टि के लिए धन्यवाद। मैं उस action को दोबारा नहीं करूँगा। पुराना mission रोक दिया है; यह आपकी पुष्टि है, system द्वारा verified result नहीं।",
+            "hinglish": "Confirm karne ke liye thanks. Main action repeat nahi karunga. Purana mission stop hai; ye aapki confirmation hai, system-verified result nahi.",
+        }
+        return _structured_response(
+            messages[language], success=False, stage="recovery_resolved_applied",
+            status="failed", result={"resolution": "user_confirmed_applied"},
+        )
+
+    if kind == "cancelled":
+        messages = {
+            "english": "Recovery cancelled. The previous mission is stopped and the uncertain action was not repeated.",
+            "hindi": "Recovery रद्द कर दी गई है। पुराना mission रोक दिया गया है और उस अनिश्चित action को दोबारा नहीं किया।",
+            "hinglish": "Recovery cancel kar di. Purana mission stop hai aur uncertain action repeat nahi kiya.",
+        }
+        return _structured_response(
+            messages[language], success=False, stage="recovery_cancelled",
+            status="cancelled", result={"resolution": "cancelled_without_replay"},
+        )
+
+    if kind == "retry_result":
+        execution = recovery.get("execution_result")
+        execution = execution if isinstance(execution, dict) else {}
+        if execution.get("stage") == "recovery_confirmation_required":
+            nested = _recovery_confirmation_response(command, {
+                "kind": "observation_unavailable"
+                if execution.get("failure_policy", {}).get("category") == "recovery_observation_unavailable"
+                else "unclear",
+                "source_result": execution,
+            }, metadata)
+            return nested
+        if recovery.get("success") is True:
+            messages = {
+                "english": "You confirmed the action had not happened. I took a fresh UI observation, retried, and the mission completed with verification.",
+                "hindi": "आपने पुष्टि की कि action नहीं हुआ था। नई UI observation लेकर retry किया और mission verification के साथ पूरा हुआ।",
+                "hinglish": "Aapne confirm kiya ki action nahi hua tha. Fresh UI observation ke baad retry kiya aur mission verification ke saath complete hua.",
+            }
+            return _structured_response(
+                messages[language], success=True, stage="recovery_retry_completed",
+                status="success", result={"verified": True, "resolution": "confirmed_not_applied_then_retried"},
+            )
+        messages = {
+            "english": "The confirmed retry did not complete the mission. Vyom stopped safely; check the current window before deciding the next step.",
+            "hindi": "पुष्टि के बाद किया गया retry mission पूरा नहीं कर पाया। Vyom सुरक्षित रूप से रुक गया है; आगे के कदम से पहले current window जाँचें।",
+            "hinglish": "Confirm kiye gaye retry se mission complete nahi hua. Vyom safely ruk gaya hai; agla step lene se pehle current window check karein.",
+        }
+        return _structured_response(
+            messages[language], success=False, stage="recovery_retry_failed",
+            status="failed", result={"verified": False, "resolution": "confirmed_replay_failed"},
+        )
+
+    return _structured_response(
+        "Recovery state could not be resolved.", success=False,
+        stage="recovery_confirmation_required", status="needs_confirmation",
+        result={"requires_user_input": True},
+    )
+
+
 def _natural_response(
     command,
     result,
@@ -187,6 +392,18 @@ def _natural_response(
 ):
 
     try:
+
+        if isinstance(result, dict) and result.get("stage") == "recovery_confirmation_required":
+            return _recovery_confirmation_response(
+                command,
+                {
+                    "kind": "observation_unavailable"
+                    if result.get("failure_policy", {}).get("category") == "recovery_observation_unavailable"
+                    else "unclear",
+                    "source_result": result,
+                },
+                metadata={"voice": intent.get("voice", {})} if isinstance(intent, dict) and isinstance(intent.get("voice"), dict) else None,
+            )
 
         options = None
 
@@ -234,6 +451,23 @@ def _natural_response(
             )
             payload["message"] = str(message or "")
             payload["response"] = str(message or "")
+
+            # A spoken turn can complete successfully while factual retrieval
+            # still fails to establish an answer. Keep those outcomes distinct
+            # so logs/telemetry do not mark an honest unknown as a correct fact.
+            knowledge_outcome = getattr(response_engine, "last_knowledge_outcome", None)
+            if isinstance(knowledge_outcome, dict):
+                payload["knowledge_outcome"] = dict(knowledge_outcome)
+                answer_status = str(knowledge_outcome.get("answer_status") or "").strip().lower()
+                if answer_status == "unknown":
+                    payload["success"] = False
+                    payload["status"] = "unknown"
+                    payload["stage"] = "knowledge_unknown"
+                elif answer_status == "conflicting_sources":
+                    payload["success"] = False
+                    payload["status"] = "conflicting_sources"
+                    payload["stage"] = "knowledge_conflict"
+
             return normalize_result(
                 payload,
                 default_stage=payload["stage"],
@@ -455,9 +689,10 @@ def _result_to_message(
 # EXECUTE
 # =============================================================
 
-def execute(
+def _execute_internal(
     command,
     metadata=None,
+    trace_sink=None,
 ):
 
     # =========================================================
@@ -465,6 +700,7 @@ def execute(
     # =========================================================
 
     if command is None:
+        _trace_sink_update(trace_sink, routing_path="input_validation")
 
         return _structured_response(
             "Please tell me what you want me to do.",
@@ -478,6 +714,7 @@ def execute(
     ).strip()
 
     if not command:
+        _trace_sink_update(trace_sink, routing_path="input_validation")
 
         return (
             "Please tell me what you want me to do."
@@ -493,6 +730,7 @@ def execute(
         "shutdown vyom",
         "close vyom"
     ):
+        _trace_sink_update(trace_sink, routing_path="exit_session")
 
         autonomous_agent.reset()
 
@@ -502,6 +740,18 @@ def execute(
             stage="exit_session",
             status="exit_session",
         )
+
+    # Resolve any uncertain prior action before normal intent/goal routing.
+    recovery_handler = getattr(
+        autonomous_agent,
+        "handle_recovery_confirmation",
+        None,
+    )
+    if callable(recovery_handler):
+        recovery = recovery_handler(command)
+        if recovery is not None:
+            _trace_sink_update(trace_sink, routing_path="recovery_confirmation")
+            return _recovery_confirmation_response(command, recovery, metadata)
 
     # =========================================================
     # GOAL / COMMAND ROUTING
@@ -542,6 +792,7 @@ def execute(
             "target": command
         }
 
+    _trace_intent(trace_sink, intent)
     log("[PIPELINE] INPUT -> INTENT: %s -> %s" % (command.encode("unicode_escape", errors="backslashreplace").decode("ascii"), str(intent.get("intent", "unknown"))))
 
     # =========================================================
@@ -590,9 +841,18 @@ def execute(
             "goal": False,
         }
 
+    _trace_sink_update(
+        trace_sink,
+        route={
+            "name": str(route_preview.get("route") or "unknown")[:80],
+            "reason": str(route_preview.get("reason") or "")[:120],
+            "goal": bool(route_preview.get("goal")),
+        },
+    )
     log("[PIPELINE] ROUTE PREVIEW: %s reason=%s" % (str(route_preview.get("route", "unknown")), str(route_preview.get("reason", ""))))
 
     if route_preview.get("route") == "goal":
+        _trace_sink_update(trace_sink, routing_path="autonomous_goal")
 
         try:
 
@@ -636,6 +896,8 @@ def execute(
     # =========================================================
 
     if intent_type == "unknown":
+        _trace_sink_update(trace_sink, routing_path="semantic_goal")
+
         try:
             # Preserve the parser's unknown classification as metadata only.
             # AutonomousAgent/semantic reasoning must decide the actual
@@ -770,6 +1032,7 @@ def execute(
     # =========================================================
 
     if intent_type == "conversation":
+        _trace_sink_update(trace_sink, routing_path="conversation")
 
         return _natural_response(
             command,
@@ -885,6 +1148,7 @@ def execute(
     }
 
     if intent_type in fast_intents:
+        _trace_sink_update(trace_sink, routing_path="deterministic_fast_lane")
 
         target = str(
             intent.get(
@@ -1021,9 +1285,28 @@ def execute(
                     raw_result = None
 
             if raw_result is None:
-                raw_result = tool_manager.execute(
-                    intent
-                )
+                if intent_type == "open" and isinstance(tool_manager, ToolManager):
+                    log(
+                        "[EXEC] STRUCTURED APP OPEN START: %s"
+                        % str(intent.get("target") or "").encode(
+                            "unicode_escape", errors="backslashreplace"
+                        ).decode("ascii")
+                    )
+                    raw_result = tool_manager.execute(
+                        intent,
+                        structured=True,
+                    )
+                    log(
+                        "[EXEC] STRUCTURED APP OPEN END: success=%s stage=%s"
+                        % (
+                            str(raw_result.get("success", False))
+                            if isinstance(raw_result, dict) else "unknown",
+                            str(raw_result.get("stage", "legacy"))
+                            if isinstance(raw_result, dict) else "legacy",
+                        )
+                    )
+                else:
+                    raw_result = tool_manager.execute(intent)
 
             # -------------------------------------------------
             # Sync selection state immediately.
@@ -1096,3 +1379,96 @@ def execute(
         result,
         intent
     )
+
+
+def _trace_observation_evidence(started_at: float, trace_id: Any = None) -> Dict[str, Any]:
+    """Summarize only observations recorded during the current command turn."""
+    world_state = getattr(autonomous_agent, "world_state", None)
+    history = getattr(world_state, "observation_history", None)
+    if not isinstance(history, list):
+        return {
+            "available": False,
+            "status": "observation_source_unavailable",
+            "event_count": 0,
+            "events": [],
+            "trace_id": str(trace_id or "")[:64] or None,
+        }
+
+    events = []
+    event_count = 0
+    for item in history[-50:]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            timestamp = float(item.get("timestamp"))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if timestamp != timestamp or timestamp in (float("inf"), float("-inf")):
+            continue
+        if timestamp < started_at:
+            continue
+
+        event_count += 1
+        event = {
+            "timestamp": round(timestamp, 3),
+            "phase": str(item.get("phase") or "unknown")[:80],
+            "world_snapshot_available": isinstance(item.get("world_state"), dict),
+        }
+        step_type = item.get("step_type")
+        if isinstance(step_type, str):
+            event["step_type"] = step_type[:64]
+
+        result = item.get("result")
+        if isinstance(result, dict):
+            if isinstance(result.get("success"), bool):
+                event["result_success"] = result["success"]
+            for key in ("status", "stage"):
+                value = result.get(key)
+                if isinstance(value, str) and value:
+                    event[key] = value[:80]
+
+        verification = item.get("verification")
+        if isinstance(verification, dict):
+            verified = verification.get("verified")
+            if isinstance(verified, bool):
+                event["verification_status"] = "verified" if verified else "failed"
+            else:
+                state = str(verification.get("state") or "").strip().lower()
+                if state in {"verified", "passed", "success", "observed"}:
+                    event["verification_status"] = "verified"
+                elif state in {"failed", "verification_error", "unverified", "mismatch", "execution_failed"}:
+                    event["verification_status"] = "failed"
+                else:
+                    event["verification_status"] = "not_reported"
+            for key in ("state", "verification_level"):
+                value = verification.get(key)
+                if isinstance(value, str) and value:
+                    event[key] = value[:80]
+        else:
+            event["verification_status"] = "not_reported"
+
+        events.append(event)
+
+    events = events[-12:]
+    return {
+        "available": True,
+        "status": "captured" if event_count else "no_new_observations",
+        "event_count": event_count,
+        "events": events,
+        "trace_id": str(trace_id or "")[:64] or None,
+    }
+
+
+def execute(command, metadata=None, trace_sink=None):
+    """Instrument the existing executor without changing its routing behaviour."""
+    if not isinstance(trace_sink, dict):
+        return _execute_internal(command, metadata=metadata, trace_sink=trace_sink)
+
+    started_at = time.time()
+    try:
+        return _execute_internal(command, metadata=metadata, trace_sink=trace_sink)
+    finally:
+        trace_sink["observation_evidence"] = _trace_observation_evidence(
+            started_at,
+            trace_id=trace_sink.get("trace_id"),
+        )

@@ -1,0 +1,270 @@
+import unittest
+
+from ai_core.semantic_brain import LocalSemanticBrain
+from tools.tool_manager import ToolManager
+from windows_agent.ui_verifier import UIVerificationEngine
+from windows_agent.ui_automation import WindowsUICapability
+from ai_core.web_knowledge import WebKnowledge
+
+
+class _WindowManager:
+    def __init__(self, window):
+        self.window = window
+    def get_foreground(self):
+        return dict(self.window)
+
+
+class _FakeResponse:
+    def __init__(self, value):
+        self.value = value.encode("utf-8")
+    def read(self):
+        return self.value
+    def __enter__(self):
+        return self
+    def __exit__(self, *_args):
+        return False
+
+
+class VyomBrainRegressionTests(unittest.TestCase):
+
+    def test_noisy_command_ending_is_recovered_before_semantic_compilation(self):
+        result = LocalSemanticBrain().reason("notepad kolo", context={})
+        self.assertEqual(result["plan"][0]["action"], "open_application")
+        self.assertEqual(result["plan"][0]["target"], "notepad")
+        self.assertEqual(result["raw_transcript"], "notepad kolo")
+        self.assertTrue(result["transcript_recovery"]["changed"])
+        self.assertEqual(result["transcript_recovery"]["corrections"][0]["kind"], "operation_marker")
+
+    def test_noisy_leading_operation_is_recovered_without_app_aliases(self):
+        result = LocalSemanticBrain().reason("opne notepad", context={})
+        self.assertEqual(result["plan"][0]["action"], "open_application")
+        self.assertEqual(result["plan"][0]["target"], "notepad")
+        self.assertEqual(result["raw_transcript"], "opne notepad")
+
+    def test_runtime_target_typo_is_recovered_from_a_clear_dynamic_candidate(self):
+        result = LocalSemanticBrain().reason(
+            "notapaid kholo",
+            context={"runtime_candidates": ["Notepad"]},
+        )
+        self.assertEqual(result["plan"][0]["target"], "Notepad")
+        self.assertTrue(any(
+            item["kind"] == "runtime_target"
+            for item in result["transcript_recovery"]["corrections"]
+        ))
+
+    def test_ambiguous_runtime_target_requires_clarification_before_dispatch(self):
+        result = LocalSemanticBrain().reason(
+            "notapaid kholo",
+            context={"runtime_candidates": ["Notepad", "Notepad++"]},
+        )
+        self.assertEqual(result["route"], "clarification")
+        self.assertEqual(result["plan"], [])
+        self.assertTrue(result["meaning"]["requires_clarification"])
+        candidates = result["meaning"]["entities"]["target_candidates"]
+        self.assertGreaterEqual(len(candidates), 2)
+        self.assertIn("Notepad", [item["target"] for item in candidates])
+        self.assertIn("Notepad++", [item["target"] for item in candidates])
+        self.assertIn("Notepad", result["message"])
+        self.assertIn("Notepad++", result["message"])
+        self.assertFalse(any(
+            item["kind"] == "runtime_target"
+            for item in result["transcript_recovery"]["corrections"]
+        ))
+
+    def test_transcript_recovery_does_not_rewrite_middle_payload(self):
+        result = LocalSemanticBrain().reason("type my naem", context={"current_app": "Notepad"})
+        self.assertEqual(result["plan"][0]["args"]["text"], "my naem")
+        self.assertEqual(result["raw_transcript"], "type my naem")
+
+    def test_explicit_multiword_application_search_is_compiled_generically(self):
+        result = LocalSemanticBrain().reason("gugal krom men yutyub sarch karo", context={})
+        self.assertEqual(result["route"], "mission")
+        self.assertEqual(result["plan"][0]["action"], "open_application")
+        self.assertEqual(result["plan"][0]["target"], "gugal krom")
+        self.assertEqual([step["action"] for step in result["plan"][-3:]], ["hotkey", "type_text", "keypress"])
+        self.assertEqual(result["plan"][-2]["args"]["text"], "yutyub")
+
+    def test_compound_arithmetic_has_expected_result_postcondition(self):
+        result = LocalSemanticBrain().reason("Calculator kholo aur usme 25 + 25 add karo", context={})
+        self.assertEqual(result["route"], "mission")
+        self.assertEqual(result["semantic_interpretation"][0]["expression"], "25+25")
+        self.assertEqual(result["semantic_interpretation"][0]["expected_result"], "50")
+        verification = result["plan"][-1]["metadata"]["verification"]
+        self.assertEqual(verification["mode"], "all")
+        self.assertEqual(verification["checks"], [{"kind": "contains_visible_text", "value": "50"}])
+
+    def test_type_text_can_verify_a_changed_non_editable_ui_surface(self):
+        engine = UIVerificationEngine()
+        action = {"action": "type_text", "target": "focused_element", "args": {"text": "25+25"}}
+        before = {"focused_element": {"exists": False}, "ui_tree_signature": [{"name": "Display is 0", "control_type": "Text"}]}
+        after = {"focused_element": {"exists": False}, "ui_tree_signature": [{"name": "Display is 25+25", "control_type": "Text"}]}
+        result = engine.verify(action, before, after, {"success": True})
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["mode"], "any")
+
+    def test_expected_result_verification_requires_visible_text(self):
+        engine = UIVerificationEngine()
+        action = {"action": "keypress", "target": "enter", "metadata": {"verification": {
+            "mode": "all", "checks": [{"kind": "contains_visible_text", "value": "50"}]}}}
+        before = {"ui_tree_signature": [{"name": "Display is 25+25"}]}
+        after = {"ui_tree_signature": [{"name": "Display is 50"}]}
+        self.assertTrue(engine.verify(action, before, after, {"success": True})["verified"])
+        self.assertFalse(engine.verify(action, before, {"ui_tree_signature": [{"name": "Display is 25+25"}]}, {"success": True})["verified"])
+
+    def test_opening_the_foreground_application_reuses_it(self):
+        manager = ToolManager.__new__(ToolManager)
+        manager.window_manager = _WindowManager({"title": "Calculator", "hwnd": 42})
+        manager._open_target_legacy = lambda _target: self.fail("Active application must not launch again.")
+        result = manager._open_target("Calculator", structured=True)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["stage"], "verified")
+        self.assertEqual(result["verification"]["method"], "existing_foreground_match")
+        self.assertTrue(result["result"]["reused_existing_window"])
+
+    def test_noisy_app_target_matches_a_title_segment_without_an_alias_table(self):
+        manager = ToolManager.__new__(ToolManager)
+        self.assertTrue(manager._foreground_matches_target("gugal krom", {"title": "New Tab - Google Chrome"}))
+
+    def test_generic_capability_reuses_the_already_active_window(self):
+        manager = WindowsUICapability.__new__(WindowsUICapability)
+        manager.window_manager = _WindowManager({"title": "Calculator", "hwnd": 42})
+        class Launcher:
+            def open(self, _target):
+                raise AssertionError("An already active app must not be launched again.")
+        manager.app_launcher = Launcher()
+        result = manager._open_application({"target": "Calculator"})
+        self.assertTrue(result["success"])
+        self.assertEqual(result["verification"]["method"], "existing_foreground_match")
+
+    def test_generic_capability_activates_a_matching_running_window(self):
+        class RunningWindows(_WindowManager):
+            def __init__(self):
+                super().__init__({"title": "Notepad", "hwnd": 10})
+                self.windows = [
+                    {"title": "Notepad", "hwnd": 10},
+                    {"title": "New Tab - Google Chrome", "hwnd": 20},
+                ]
+                self.activated = []
+            def list_windows(self, max_results=200):
+                return list(self.windows[:max_results])
+            def activate(self, hwnd):
+                self.activated.append(hwnd)
+                self.window = next(item for item in self.windows if item["hwnd"] == hwnd)
+                return {"success": True}
+        wm = RunningWindows()
+        manager = WindowsUICapability.__new__(WindowsUICapability)
+        manager.window_manager = wm
+        class Launcher:
+            def open(self, _target):
+                raise AssertionError("Existing browser window should be reused.")
+        manager.app_launcher = Launcher()
+        result = manager._open_application({"target": "gugal krom"})
+        self.assertTrue(result["success"])
+        self.assertEqual(wm.activated, [20])
+        self.assertEqual(result["verification"]["method"], "existing_window_activated")
+
+    def test_generic_capability_does_not_accept_an_unrelated_foreground_change(self):
+        class ChangingWindows(_WindowManager):
+            def __init__(self):
+                super().__init__({"title": "Notepad", "hwnd": 10})
+                self.reads = 0
+            def get_foreground(self):
+                self.reads += 1
+                if self.reads == 1:
+                    return {"title": "Notepad", "hwnd": 10}
+                return {"title": "Unrelated Window", "hwnd": 20}
+            def list_windows(self, max_results=200):
+                return []
+        manager = WindowsUICapability.__new__(WindowsUICapability)
+        manager.window_manager = ChangingWindows()
+        class Launcher:
+            def open(self, _target):
+                return {"success": True, "message": "Launch requested.", "results": []}
+        manager.app_launcher = Launcher()
+        result = manager._open_application({"target": "gugal krom"})
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "launch_not_verified")
+
+    def test_webpage_extraction_is_bounded_and_cites_the_source(self):
+        paragraph = (
+            "The report explains the published results and methodology in detail. "
+            "Its central finding is that the measured value was 42 units under the "
+            "documented test conditions. The accompanying section describes the "
+            "scope, limitations, and date of collection for readers."
+        )
+        def opener(request, timeout=0):
+            self.assertLessEqual(timeout, 2.0)
+            return _FakeResponse("<html><head><title>Official Test Report</title>"
+                "<meta name='description' content='A public report summary.'>"
+                "</head><body><nav>navigation boilerplate</nav><h1>Results</h1><p>" +
+                paragraph + "</p><script>ignore this string</script></body></html>")
+        result = WebKnowledge(opener=opener)._extract_webpage("https://example.com/report", "en")
+        self.assertTrue(result["success"])
+        self.assertIn("measured value was 42 units", result["answer"])
+        self.assertIn("Official Test Report", result["answer"])
+        self.assertEqual(result["source"]["url"], "https://example.com/report")
+        self.assertFalse(WebKnowledge._is_public_web_url("http://127.0.0.1/private"))
+
+    def test_webpage_extraction_does_not_follow_local_urls(self):
+        calls = []
+        def opener(request, timeout=0):
+            calls.append(request.full_url)
+            return _FakeResponse("<html><body><p>This should never be read.</p></body></html>")
+        client = WebKnowledge(opener=opener)
+        self.assertIsNone(client._extract_webpage("http://localhost/private", "en"))
+        self.assertEqual(calls, [])
+
+
+    def test_m2_meaning_frame_keeps_user_payload_and_separates_it_from_intent(self):
+        result = LocalSemanticBrain().reason(
+            "type my naem",
+            context={"current_app": "Notepad"},
+        )
+        frame = result["meaning"]
+        self.assertEqual(frame["schema_version"], "m2.1")
+        self.assertEqual(frame["intent"]["kind"], "computer_action")
+        self.assertIn("type_text", frame["intent"]["operations"])
+        self.assertIn("Notepad", frame["entities"]["targets"])
+        self.assertIn("my naem", [item["value"] for item in frame["payloads"]])
+        self.assertEqual(result["raw_transcript"], "type my naem")
+        self.assertEqual(result["plan"][0]["args"]["text"], "my naem")
+
+    def test_m2_frame_extracts_compound_task_postconditions_and_references(self):
+        result = LocalSemanticBrain().reason(
+            "Calculator kholo aur usme 25 + 25 add karo",
+            context={},
+        )
+        frame = result["meaning"]
+        self.assertEqual(frame["intent"]["kind"], "computer_action")
+        self.assertIn("Calculator", frame["entities"]["targets"])
+        self.assertIn("usme", [item.lower() for item in frame["references"]])
+        self.assertIn("25+25", [item["value"] for item in frame["payloads"]])
+        self.assertTrue(any(
+            check.get("kind") == "contains_visible_text" and check.get("value") == "50"
+            for check in frame["constraints"]["verification_checks"]
+        ))
+
+    def test_m2_clear_runtime_candidate_remains_selected_without_aliases(self):
+        result = LocalSemanticBrain().reason(
+            "notapaid kholo",
+            context={"runtime_candidates": ["Notepad"]},
+        )
+        frame = result["meaning"]
+        self.assertEqual(result["route"], "capability")
+        self.assertEqual(frame["entities"]["targets"], ["Notepad"])
+        self.assertFalse(frame["requires_clarification"])
+        self.assertEqual(frame["hypotheses"][0]["status"], "selected")
+
+    def test_m2_information_question_is_a_question_intent_not_a_desktop_action(self):
+        result = LocalSemanticBrain().reason(
+            "What is photosynthesis?",
+            context={},
+        )
+        self.assertEqual(result["route"], "conversation")
+        self.assertEqual(result["meaning"]["intent"]["kind"], "answer_question")
+        self.assertEqual(result["meaning"]["desired_result"],
+                         "Answer the user's question using available, supportable knowledge.")
+
+
+if __name__ == "__main__":
+    unittest.main()

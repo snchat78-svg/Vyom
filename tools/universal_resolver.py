@@ -3,6 +3,7 @@
 # Preserves the original resolver contract and Windows launch methods.
 
 import os
+import re
 import shutil
 import subprocess
 import difflib
@@ -155,6 +156,9 @@ class UniversalResolver:
             return []
 
         exact, partial = [], []
+        # A short spoken fragment such as "kal" is not a reliable substring
+        # query across thousands of personal files; exact names still match.
+        allow_partial = len(re.sub(r"[^a-z0-9\u0900-\u097f]", "", target_name)) >= 4
 
         for base_path in self.common_paths:
             if not os.path.exists(base_path):
@@ -166,7 +170,7 @@ class UniversalResolver:
                         path = os.path.join(root, directory)
                         if lower == original:
                             self._add_unique(exact, path)
-                        elif target_name and target_name in lower:
+                        elif allow_partial and target_name and target_name in lower:
                             self._add_unique(partial, path)
 
                     for file in files:
@@ -175,7 +179,7 @@ class UniversalResolver:
                         path = os.path.join(root, file)
                         if lower == original or filename == target_name:
                             self._add_unique(exact, path)
-                        elif target_name and target_name in filename:
+                        elif allow_partial and target_name and target_name in filename:
                             self._add_unique(partial, path)
 
                     if len(exact) + len(partial) >= self.max_results:
@@ -189,6 +193,9 @@ class UniversalResolver:
         """Find close matches in known locations while preserving duplicates."""
         query = self.clean_target(target)
         if not query:
+            return []
+        compact_query = re.sub(r"[^a-z0-9\u0900-\u097f]", "", query.lower())
+        if len(compact_query) < 4:
             return []
 
         paths = []
@@ -614,6 +621,20 @@ exit 1
             return True, "Opened successfully: " + path
         except Exception as e:
             return False, "Error opening '{}': {}".format(path, e)
+
+    def find_file_or_folder(self, target):
+        """Find an exact path or plausible user-folder item, without app/fuzzy scans.
+
+        Used only after the app launcher failed: do not turn an app's noisy name
+        into a phonetic match for arbitrary JPG/MP3/code files.
+        """
+        target = self.clean_target(target)
+        if not target:
+            return []
+        exact = self.find_exact_path(target)
+        if exact:
+            return [exact]
+        return self.search_common_locations(target)[:self.max_results]
 
     def find(self, target):
         target = self.clean_target(target)

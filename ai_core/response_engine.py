@@ -19,19 +19,27 @@ Security:
     This module does not create, modify, or execute code.
 """
 
+import os
 import re
+import time
 from typing import Any, Dict, Optional
 
 from ai_core.model_gateway import ModelGateway
+from ai_core.web_knowledge import WebKnowledge
 from ai_core.logger import log
 
 
 class ResponseEngine:
 
-    def __init__(self, model_gateway=None):
+    def __init__(self, model_gateway=None, knowledge_lookup=None):
         self.last_language = "hindi"
+        self.last_knowledge_outcome = None
         self._reply_count = 0
         self.model_gateway = model_gateway or ModelGateway()
+        self.knowledge_lookup = knowledge_lookup or WebKnowledge()
+        self.allow_remote_responses = str(
+            os.getenv("VYOM_REMOTE_RESPONSES", "false")
+        ).strip().lower() in {"1", "true", "yes", "on"}
 
     # =========================================================
     # LANGUAGE
@@ -56,9 +64,20 @@ class ResponseEngine:
         has_devanagari = bool(re.search(r"[\u0900-\u097F]", value))
         latin_words = re.findall(r"\b[a-zA-Z]+\b", value)
 
+        roman_hindi_markers = {
+            "kya", "kaun", "kyu", "kyun", "kab", "kahan", "kaise",
+            "kitna", "kitni", "kitne", "hai", "hain", "ho", "tha", "thi",
+            "the", "mujhe", "aap", "tum", "mera", "meri", "mere", "mein",
+            "namaste", "dhanyavaad", "shukriya", "kholo", "khol", "karo",
+            "likho", "batao", "bataiye", "band", "achha", "accha", "theek",
+            "bhaiya", "bhai", "kyon", "haan", "nahi", "nahin",
+        }
+        latin_tokens = {token.lower() for token in latin_words}
+        has_roman_hindi = bool(latin_tokens & roman_hindi_markers)
+
         if has_devanagari and latin_words:
             language = "hinglish"
-        elif has_devanagari:
+        elif has_devanagari or has_roman_hindi:
             language = "hindi"
         else:
             language = "english"
@@ -131,7 +150,9 @@ class ResponseEngine:
         options,
         language: Optional[str] = None
     ) -> str:
-        language = language or self.detect_language(command)
+        language = language or (
+            "english" if self._explicit_english_request(command) else "hindi"
+        )
         names = [self._item_name(item) for item in (options or [])]
         names = [name for name in names if name]
 
@@ -334,6 +355,26 @@ class ResponseEngine:
                 "hinglish": "Main badhiya hoon aur kaam ke liye ready hoon. Aap bataiye, kya karna hai?",
                 "english": "I'm doing well and I'm ready to help. What shall we do?",
             },
+            "activity": {
+                "hindi": "मैं आपके सवाल समझने और उपलब्ध वेबसाइटों से जानकारी खोजने में आपकी मदद कर रहा हूँ।",
+                "hinglish": "Main aapke sawal samajhne aur available websites se jankari dhoondhne mein madad kar raha hoon.",
+                "english": "I'm helping you understand questions and look up information on available websites.",
+            },
+            "language_preference": {
+                "hindi": "ठीक है। अब मैं आपसे हिन्दी में बात करूँगा।",
+                "hinglish": "Theek hai. Ab main aapse Hindi mein baat karunga.",
+                "english": "Okay. I'll speak with you in Hindi.",
+            },
+            "clarification": {
+                "hindi": "आपका सवाल अधूरा सुनाई दिया। कृपया पूरा सवाल एक बार फिर बताइए।",
+                "hinglish": "Aapka sawal adhura sunaai diya. Kripya poora sawal dobara bataiye.",
+                "english": "I only heard part of your question. Please repeat the complete question.",
+            },
+            "user_name": {
+                "hindi": "मुझे इस सत्र की बातचीत में आपका नाम पुष्टि के साथ नहीं मिला। आप अपना नाम बता दें, तो मैं आगे के संदर्भ में उसका उपयोग करूँगा।",
+                "hinglish": "Mujhe is session ki baat-cheet mein aapka naam pakke taur par nahi mila. Aap naam bata dein to main aage use karunga.",
+                "english": "I don't have your name confirmed in this session. Tell me your name and I can use it in later context.",
+            },
             "capabilities": {
                 "hindi": "आप बस अपना काम बताइए। मैं उपलब्ध tools और capabilities में से खुद सही तरीका चुनने की कोशिश करूँगा।",
                 "hinglish": "Aap bas apna kaam bataiye. Main available tools aur capabilities mein se khud sahi tareeka choose karne ki koshish karunga.",
@@ -368,6 +409,65 @@ class ResponseEngine:
     # MAIN FORMATTER
     # =========================================================
 
+    @staticmethod
+    def _question_text(command: str, intent: Optional[Dict[str, Any]]) -> str:
+        if isinstance(intent, dict):
+            voice = intent.get("voice")
+            if isinstance(voice, dict):
+                raw = str(voice.get("raw_text") or "").strip()
+                dev_english_question = bool(re.match(
+                    r"^\s*(?:व्हाट|वाट|वॉट|ह्वाट|व्हेयर|वेयर|व्हेन|व्हाय|हाउ|हू|व्हिच)(?:\s|$)",
+                    raw,
+                    flags=re.IGNORECASE,
+                ))
+                command_text = str(command or "").strip()
+                # Preserve the Romanized English question when Hindi-script
+                # STT output is only a phonetic rendering of English.
+                if dev_english_question and re.search(r"[A-Za-z]", command_text):
+                    return command_text
+                if raw:
+                    return raw
+        return str(command or "").strip()
+
+    @staticmethod
+    def _is_information_question(text: str) -> bool:
+        value = str(text or "").strip().lower()
+        if not value:
+            return False
+        if re.search(r"[?？]", value):
+            return True
+        if re.search(
+            r"^(?:please\s+)?(?:tell me(?: about)?|explain|define|describe|"
+            r"give me (?:some )?information about)\b|"
+            r"\b(?:batao|bataiye|samjhao|samjhaiye|explain|define|describe)\s*(?:karo|kar do)?$|"
+            r"(?:बताओ|बताइए|समझाओ|समझाइए|समझा दो|के बारे में बताओ|के बारे में बताइए)$",
+            value,
+            flags=re.IGNORECASE,
+        ):
+            return True
+        if re.match(
+            r"^\s*(?:व्हाट|वाट|वॉट|ह्वाट|व्हेयर|वेयर|व्हेन|वेन|व्हाय|वाय|हाउ|हू|व्हिच)(?:\s|$)",
+            value,
+            flags=re.IGNORECASE,
+        ):
+            return True
+        question_words = (
+            r"\b(?:what|who|why|when|where|how|which|whose|whom|vhat|wat|wot|whut|"
+            r"wher|wen|wai|wich|kya|kaun|kyu|kyun|kab|kahan|kaise|kitna|kitni|kitne|kitney|"
+            r"kitana|kitane|kitani|kitanaa|kitanee|kitnay|kis|kise|kiska|kiski|kiske|kisne|kisko)\b|"
+            r"(?:क्या|कौन|क्यों|कब|कहाँ|कहां|कैसे|कितना|कितनी|कितने|"
+            r"किसने|किसका|किसकी|किसे)"
+        )
+        return bool(re.search(question_words, value, flags=re.IGNORECASE))
+
+    @staticmethod
+    def _explicit_english_request(text: str) -> bool:
+        value = str(text or "").lower()
+        return bool(re.search(
+            r"\b(?:in english|english mein|english me|angrezi mein|angrezi me|"
+            r"answer in english|reply in english)\b", value
+        ))
+
     def format(
         self,
         command: str,
@@ -376,11 +476,203 @@ class ResponseEngine:
         selection_options=None,
         context: Optional[Dict[str, Any]] = None,
     ) -> str:
-        # A configured model gets the final conversational turn so Vyom can
+        # This per-turn marker lets the executor distinguish a completed
+        # conversation turn from a factual answer that retrieval could not verify.
+        self.last_knowledge_outcome = None
+        # Factual questions use website retrieval rather than a conversational
+        # model. Hindi is the default response language, even when the user
+        # speaks Roman Hindi or asks the question in English.
+        question_text = self._question_text(command, intent)
+        intent_type_for_lookup = (
+            str(intent.get("intent") or "").strip().lower()
+            if isinstance(intent, dict) else ""
+        )
+        result_stage_for_lookup = (
+            str(result.get("stage") or "").strip().lower()
+            if isinstance(result, dict) else ""
+        )
+        conversation_type = (
+            str(intent.get("conversation_type") or "").strip().lower()
+            if isinstance(intent, dict) else ""
+        )
+        local_chat_types = {
+            "greeting", "status", "identity", "thanks", "acknowledge", "help", "capabilities",
+            "language_preference", "activity", "user_name", "clarification",
+        }
+        is_conversation_turn = (
+            intent_type_for_lookup == "conversation"
+            or result_stage_for_lookup == "conversation"
+        )
+        if (
+            is_conversation_turn
+            and self._is_information_question(question_text)
+            and conversation_type not in local_chat_types
+        ):
+            preferred_language = (
+                "en" if self._explicit_english_request(command)
+                or self._explicit_english_request(question_text) else "hi"
+            )
+            safe_question = question_text.encode(
+                "unicode_escape", errors="backslashreplace"
+            ).decode("ascii")
+            log("[KNOWLEDGE] LOOKUP START: language=%s question=%s" % (
+                preferred_language, safe_question[:240]
+            ))
+            lookup_started = time.monotonic()
+            try:
+                lookup = self.knowledge_lookup.answer(
+                    question_text,
+                    preferred_language=preferred_language,
+                )
+            except Exception as error:
+                # Avoid logging raw URL/query/transport exception contents.
+                log("[KNOWLEDGE] Web lookup failed: error_type=%s" % type(error).__name__)
+                lookup = {
+                    "success": False, "answer": "", "answer_status": "unknown",
+                    "reason": "lookup_exception",
+                }
+            lookup = lookup if isinstance(lookup, dict) else {}
+            elapsed_ms = int(max(0.0, time.monotonic() - lookup_started) * 1000)
+            end_status = str(lookup.get("answer_status") or (
+                "sourced_excerpt" if lookup.get("success") and str(lookup.get("answer") or "").strip()
+                else "unknown"
+            )).strip().lower()
+            end_reason = str(lookup.get("reason") or "no_reason")[:100]
+            log("[KNOWLEDGE] LOOKUP END: elapsed_ms=%d status=%s reason=%s" % (
+                elapsed_ms, end_status, end_reason
+            ))
+            answer_status = str(lookup.get("answer_status") or "").strip().lower()
+            sources = lookup.get("sources")
+            sources = sources if isinstance(sources, list) else []
+            evidence = lookup.get("evidence")
+            evidence = evidence if isinstance(evidence, dict) else {}
+            quality = evidence.get("source_quality")
+            weak_quality = isinstance(quality, dict) and (
+                str(quality.get("status") or "").lower() in {"weak", "insufficient", "low"}
+                or quality.get("sufficient") is False
+            )
+            # Set this before every early return, including source conflicts.
+            self.last_knowledge_outcome = {
+                "answer_status": answer_status or "unknown",
+                "reason": str(lookup.get("reason") or "")[:120],
+                "source_count": len(sources),
+                "provider_diagnostics": (
+                    list(evidence.get("provider_diagnostics", []))[:8]
+                    if isinstance(evidence.get("provider_diagnostics"), list) else []
+                ),
+            }
+
+            def citation_suffix(source_items=None):
+                citations = []
+                seen = set()
+                source_items = sources if source_items is None else source_items
+                for item in source_items[:3]:
+                    if not isinstance(item, dict):
+                        continue
+                    title = str(item.get("title") or item.get("site") or "").strip()
+                    url = str(item.get("url") or "").strip()
+                    label = (title + " (" + url + ")") if title and url else (url or title)
+                    label = label[:420]
+                    if label and label not in seen:
+                        seen.add(label)
+                        citations.append(label)
+                return (" | Sources: " + "; ".join(citations)) if citations else ""
+
+            def attach_missing_citations(answer_text):
+                answer_text = str(answer_text or "").strip()
+                missing = [
+                    item for item in sources[:3]
+                    if isinstance(item, dict)
+                    and str(item.get("url") or "").strip()
+                    and str(item.get("url") or "").strip() not in answer_text
+                ]
+                return answer_text + citation_suffix(missing)
+
+            # Status takes precedence over a provider's success flag or answer
+            # text. This prevents an inconsistent adapter from promoting a
+            # conflicted/unknown claim simply because it returned success=True.
+            if answer_status == "conflicting_sources":
+                log("[KNOWLEDGE] UNRESOLVED CONFLICT: %s" % str(lookup.get("reason") or "source_disagreement"))
+                if preferred_language == "en":
+                    message = (
+                        "The available sources disagree on this answer, so I can't "
+                        "reliably choose one as correct. The claim remains unresolved."
+                    )
+                else:
+                    message = (
+                        "उपलब्ध स्रोत इस उत्तर पर एक-दूसरे से असहमत हैं, इसलिए मैं किसी "
+                        "एक को सही घोषित नहीं कर सकता। यह तथ्य अभी अनिर्णीत है।"
+                    )
+                return message + citation_suffix()
+
+            has_answer = bool(str(lookup.get("answer") or "").strip())
+            lookup_succeeded = bool(lookup.get("success")) and has_answer
+            if not answer_status:
+                answer_status = "sourced_excerpt" if lookup_succeeded else "unknown"
+            self.last_knowledge_outcome["answer_status"] = answer_status
+            if answer_status == "unknown" or not lookup_succeeded:
+                log("[KNOWLEDGE] NO SOURCE: %s | status=%s" % (
+                    str(lookup.get("reason") or "empty_result"), answer_status or "unspecified"
+                ))
+                if sources or weak_quality:
+                    if preferred_language == "en":
+                        message = (
+                            "I found some material, but it isn't strong enough to support "
+                            "a reliable answer. I won't guess; please check a more authoritative source."
+                        )
+                    else:
+                        message = (
+                            "कुछ सामग्री मिली है, लेकिन भरोसेमंद उत्तर देने के लिए प्रमाण पर्याप्त "
+                            "मज़बूत नहीं हैं। मैं अनुमान नहीं लगाऊँगा; कृपया किसी अधिक आधिकारिक स्रोत से जाँचें।"
+                        )
+                    return message + citation_suffix()
+
+                if preferred_language == "en":
+                    return "I couldn't find a reliable answer on the available websites. Please check your internet connection and try again."
+                return (
+                    "मुझे इस प्रश्न का भरोसेमंद उत्तर अभी वेबसाइटों से नहीं मिला। "
+                    "इंटरनेट उपलब्ध होने पर दोबारा खोजें। मैं बिना स्रोत के तथ्य गढ़कर जवाब नहीं दूँगा।"
+                )
+
+            # Keep sourced excerpts distinct from generated inference. The
+            # knowledge adapter controls epistemic metadata; the response layer
+            # labels an inference instead of silently upgrading it to a sourced fact.
+            source = lookup.get("source") if isinstance(lookup.get("source"), dict) else {}
+            log("[KNOWLEDGE] SOURCE: %s | %s" % (
+                str(source.get("title") or source.get("site") or "unknown"),
+                str(source.get("url") or ""),
+            ))
+            answer_text = str(lookup["answer"]).strip()
+            is_inferred = (
+                answer_status in {"inferred", "inference"}
+                or evidence.get("inference_used") is True
+            )
+            if is_inferred:
+                if preferred_language == "en":
+                    answer_text = "This is an inference, not a directly sourced or verified fact. " + answer_text
+                else:
+                    answer_text = "यह अनुमान है, सीधे स्रोत से पुष्ट या सत्यापित तथ्य नहीं। " + answer_text
+            elif answer_status == "known":
+                if preferred_language == "en":
+                    answer_text = (
+                        "The configured knowledge source classifies this as known information; "
+                        "that label is not independent verification. " + answer_text
+                    )
+                else:
+                    answer_text = (
+                        "कॉन्फ़िगर किया गया knowledge source इसे ज्ञात जानकारी मानता है; "
+                        "यह लेबल स्वतंत्र सत्यापन नहीं है। " + answer_text
+                    )
+            return attach_missing_citations(answer_text)
+
+        # Remote response generation is opt-in. Deterministic local responses
+        # and website-backed factual retrieval work without any AI provider.
+        # A configured model gets the final conversational turn only when the
+        # user has explicitly enabled VYOM_REMOTE_RESPONSES.
         # respond naturally like an assistant instead of exposing executor
         # wording. The deterministic formatter remains the safe fallback.
         try:
-            model_available = bool(self.model_gateway.is_available())
+            model_available = self.allow_remote_responses and bool(self.model_gateway.is_available())
             log("[AI] RESPONSE MODEL AVAILABLE: %s" % model_available)
 
             # Do not spend a second model request on deterministic computer
@@ -396,9 +688,21 @@ class ResponseEngine:
                 if isinstance(result, dict)
                 else ""
             )
+            local_clarification = False
+            if result_stage == "conversation" and isinstance(result, dict):
+                analysis = result.get("analysis")
+                deep = analysis.get("deep_reasoning") if isinstance(analysis, dict) else None
+                local_clarification = (
+                    isinstance(deep, dict)
+                    and str(deep.get("semantic_route") or "").strip().lower() == "clarification"
+                )
+
             needs_model_response = (
-                intent_type == "conversation"
-                or result_stage == "conversation"
+                not local_clarification
+                and (
+                    intent_type == "conversation"
+                    or result_stage == "conversation"
+                )
             )
 
             if model_available and not selection_options and needs_model_response:
@@ -440,6 +744,8 @@ class ResponseEngine:
             command,
             intent if isinstance(intent, dict) else None,
         )
+        if not self._explicit_english_request(command):
+            language = "hindi"
 
         if isinstance(intent, dict) and intent.get("intent") == "conversation":
             return self.conversation_response(

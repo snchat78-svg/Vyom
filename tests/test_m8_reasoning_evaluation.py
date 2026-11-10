@@ -1,0 +1,229 @@
+"""M8 acceptance tests for epistemic outcomes and reasoning-provider fallback."""
+
+from ai_core.response_engine import ResponseEngine
+
+
+class OfflineModelGateway:
+    def __init__(self):
+        self.calls = 0
+
+    def is_available(self):
+        return False
+
+    def chat(self, *args, **kwargs):
+        self.calls += 1
+        raise AssertionError("Unavailable provider must not be called")
+
+
+class StubKnowledge:
+    def __init__(self, result=None, error=None):
+        self.result = result or {"success": False, "answer": "", "answer_status": "unknown"}
+        self.error = error
+        self.calls = 0
+
+    def answer(self, question, preferred_language="hi"):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.result
+
+
+def _format(engine, command, intent=None):
+    return engine.format(
+        command=command,
+        result={"success": True, "stage": "conversation"},
+        intent=intent or {"intent": "unknown", "target": command},
+    )
+
+
+def test_m8_conflicting_sources_are_explicitly_left_unresolved_in_hindi():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "The answer is definitely unsupported value 123.",
+        "answer_status": "conflicting_sources",
+        "sources": [
+            {"title": "Source A", "url": "https://source-a.example.org/fact"},
+            {"title": "Source B", "url": "https://source-b.example.org/fact"},
+        ],
+        "evidence": {"source_count": 2},
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "भारत की राजधानी क्या है?")
+
+    assert "असहमत" in answer
+    assert "अनिर्णीत" in answer
+    assert gateway.calls == 0
+
+
+def test_m8_conflicting_sources_are_explicitly_left_unresolved_in_english():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "Definitely use unsupported value 999.",
+        "answer_status": "conflicting_sources",
+        "sources": [
+            {"title": "Source A", "url": "https://source-a.example.org/fact"},
+            {"title": "Source B", "url": "https://source-b.example.org/fact"},
+        ],
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "what is the disputed answer? answer in english")
+
+    assert "sources disagree" in answer
+    assert "unresolved" in answer
+    assert "Definitely use unsupported value 999" not in answer
+    assert "https://source-a.example.org/fact" in answer
+    assert gateway.calls == 0
+
+
+def test_m8_weak_retrieved_evidence_is_not_presented_as_a_fact():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "Unsupported claim 999 is certainly true.",
+        "answer_status": "unknown",
+        "reason": "weak_source_quality",
+        "sources": [{"title": "Weak source", "url": "https://example.org/item"}],
+        "evidence": {"source_count": 1, "source_quality": {"status": "weak"}},
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "what is the answer? answer in english")
+
+    assert "isn't strong enough" in answer
+    assert "won't guess" in answer
+    assert "Unsupported claim 999" not in answer
+    assert "https://example.org/item" in answer
+    assert gateway.calls == 0
+
+
+def test_m8_provider_outage_keeps_deterministic_conversation_fallback():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge()
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(
+        engine,
+        "how are you?",
+        {"intent": "conversation", "conversation_type": "status"},
+    )
+
+    assert answer
+    assert "बढ़िया" in answer
+    assert gateway.calls == 0
+
+
+def test_m8_knowledge_provider_exception_returns_safe_unknown_answer():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge(error=RuntimeError("simulated provider outage"))
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "what is photosynthesis? answer in english")
+
+    assert "reliable answer" in answer
+    assert "invent" not in answer.lower()
+    assert gateway.calls == 0
+
+
+
+def test_m8_successful_sourced_answer_keeps_explicit_url_citation():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "New Delhi is the capital of India.",
+        "answer_status": "sourced_excerpt",
+        "source": {"title": "Source A", "url": "https://source-a.example.org/capital"},
+        "sources": [{"title": "Source A", "url": "https://source-a.example.org/capital"}],
+        "evidence": {"source_count": 1, "inference_used": False},
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "what is the capital of India? answer in english")
+
+    assert "New Delhi is the capital of India." in answer
+    assert "https://source-a.example.org/capital" in answer
+    assert gateway.calls == 0
+
+
+def test_m8_inferred_answer_is_explicitly_qualified_and_cited():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "The cause may be a configuration mismatch.",
+        "answer_status": "inferred",
+        "sources": [{"title": "Diagnostic notes", "url": "https://example.org/diagnostic"}],
+        "evidence": {"source_count": 1, "inference_used": True},
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "why did this happen? answer in english")
+
+    assert answer.startswith("This is an inference, not a directly sourced or verified fact.")
+    assert "https://example.org/diagnostic" in answer
+    assert gateway.calls == 0
+
+
+def test_m8_provider_reported_known_information_is_not_mislabeled_as_verified():
+    gateway = OfflineModelGateway()
+    knowledge = StubKnowledge({
+        "success": True,
+        "answer": "A known reference value is 9.8 m/s².",
+        "answer_status": "known",
+        "sources": [{"title": "Reference source", "url": "https://example.org/reference"}],
+        "evidence": {"source_count": 1, "inference_used": False},
+    })
+    engine = ResponseEngine(model_gateway=gateway, knowledge_lookup=knowledge)
+
+    answer = _format(engine, "what is the reference value? answer in english")
+
+    assert "classifies this as known information" in answer
+    assert "not independent verification" in answer
+    assert "https://example.org/reference" in answer
+    assert gateway.calls == 0
+
+
+def test_response_engine_records_conflict_status_before_conflict_early_return():
+    knowledge = StubKnowledge({
+        "success": False,
+        "answer": "",
+        "answer_status": "conflicting_sources",
+        "sources": [{"title": "A", "url": "https://a.example.org"},
+                    {"title": "B", "url": "https://b.example.org"}],
+        "evidence": {"source_count": 2},
+    })
+    engine = ResponseEngine(model_gateway=OfflineModelGateway(), knowledge_lookup=knowledge)
+
+    answer = engine.format(
+        command="what is the disputed fact? answer in english",
+        result={"success": True, "stage": "conversation"},
+        intent={"intent": "conversation", "conversation_type": "unknown"},
+    )
+
+    assert "sources disagree" in answer
+    assert engine.last_knowledge_outcome["answer_status"] == "conflicting_sources"
+    assert engine.last_knowledge_outcome["source_count"] == 2
+
+
+def test_response_engine_records_unknown_status_for_no_source_fallback():
+    knowledge = StubKnowledge({
+        "success": False,
+        "answer": "",
+        "answer_status": "unknown",
+        "reason": "no_source_or_network_unavailable",
+        "sources": [],
+        "evidence": {"source_count": 0},
+    })
+    engine = ResponseEngine(model_gateway=OfflineModelGateway(), knowledge_lookup=knowledge)
+
+    answer = engine.format(
+        command="what is the capital of India? answer in english",
+        result={"success": True, "stage": "conversation"},
+        intent={"intent": "conversation", "conversation_type": "unknown"},
+    )
+
+    assert "couldn't find a reliable answer" in answer
+    assert engine.last_knowledge_outcome["answer_status"] == "unknown"
+    assert engine.last_knowledge_outcome["source_count"] == 0

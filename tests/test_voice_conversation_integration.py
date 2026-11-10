@@ -97,6 +97,23 @@ def test_conversation_outcomes_use_executor_structure_not_response_wording():
     assert result["success"] is False
 
 
+def test_failed_tts_still_prints_answer_to_console():
+    manager = FakeConversationManager()
+    controller = VoiceController(FakeSpeechToText(), FakeTextToSpeech(), manager)
+    printed = []
+    controller._safe_print = lambda message: printed.append(str(message))
+    controller._speak_response = lambda _message: {
+        "success": False,
+        "message": "Hindi TTS voice is not installed.",
+    }
+
+    result = controller._execute_voice_command("bharat ki rajadhani kya hai")
+
+    assert result["success"] is True
+    assert any("Done" in line for line in printed)
+    assert any("Hindi TTS voice is not installed" in line for line in printed)
+
+
 def test_voice_controller_injection_routes_through_conversation_manager():
     manager = FakeConversationManager()
     tts = FakeTextToSpeech()
@@ -169,6 +186,14 @@ def test_exit_stops_voice_only_after_prior_command_executes():
     assert "ठीक है। मैं सुनना बंद कर रहा हूँ।" in tts.spoken
 
 
+def test_intent_engine_recognizes_hindi_preference_and_self_questions():
+    engine = IntentEngine()
+    assert engine.detect("hindi men bat karo")["conversation_type"] == "language_preference"
+    assert engine.detect("tumhara nam kya hai")["conversation_type"] == "identity"
+    assert engine.detect("mera nam kya hai")["conversation_type"] == "user_name"
+    assert engine.detect("kya kar rahe ho")["conversation_type"] == "activity"
+
+
 def test_intent_engine_recognizes_romanized_hindi_conversation():
     engine = IntentEngine()
     assert engine.detect("namaste bhaiya kaise ho")["intent"] == "conversation"
@@ -228,3 +253,151 @@ def test_executor_unknown_goal_uses_existing_autonomous_agent(monkeypatch):
     executor.execute("prepare my monthly report")
 
     assert calls == [("prepare my monthly report", {"intent": "unknown", "target": "prepare my monthly report"})]
+
+def test_active_command_capture_is_bounded_for_noisy_microphone():
+    stt = ScriptedSpeechToText(["open Notepad"])
+    controller = VoiceController(stt, FakeTextToSpeech(), FakeConversationManager())
+    controller.running = True
+
+    command = controller._listen_active_command()
+
+    assert command == "open Notepad"
+    assert stt.listen_calls[0]["phrase_time_limit"] == 15
+
+
+def test_console_display_romanizes_hindi_instead_of_writing_devanagari(monkeypatch):
+    import sys
+
+    class ASCIIOnlyStream:
+        encoding = "utf-8"
+
+        def __init__(self):
+            self.parts = []
+
+        def write(self, value):
+            assert value.isascii(), "legacy console output must remain ASCII-safe"
+            self.parts.append(value)
+
+        def flush(self):
+            return None
+
+    stream = ASCIIOnlyStream()
+    monkeypatch.setattr(sys, "stdout", stream)
+
+    VoiceController._safe_print("Vyom : हाँ, बताइए।")
+
+    assert stream.parts
+    assert "Vyom :" in stream.parts[0]
+
+
+def test_selection_parser_recovers_common_roman_hindi_stt_number_errors():
+    parser = executor.intent_engine
+    cases = {
+        "number van": "1",
+        "number wan": "1",
+        "number won": "1",
+        "number one": "1",
+        "number 1 vala not kaise kholen": "1",
+        "option one open": "1",
+        "number do kholo": "2",
+        "number tree": "3",
+    }
+    for spoken_text, expected in cases.items():
+        assert parser._detect_selection(spoken_text) == expected
+
+
+def test_selection_parser_does_not_treat_arbitrary_number_mentions_as_choices():
+    parser = executor.intent_engine
+    assert parser._detect_selection("please explain number theory") is None
+    assert parser._detect_selection("what is the number of districts in Rajasthan") is None
+
+
+def test_factual_unknown_is_not_reported_as_a_successful_answer():
+    class Context:
+        @staticmethod
+        def snapshot():
+            return {}
+
+    class Agent:
+        context = Context()
+
+    class ToolBoundary:
+        selection_manager = None
+
+    class ResponseBoundary:
+        last_knowledge_outcome = {
+            "answer_status": "unknown",
+            "reason": "no_source_or_network_unavailable",
+            "source_count": 0,
+        }
+
+        @staticmethod
+        def format(**_kwargs):
+            return "Mujhe bharosemand source nahi mila."
+
+    original_agent = executor.autonomous_agent
+    original_tools = executor.tool_manager
+    original_response = executor.response_engine
+    try:
+        executor.autonomous_agent = Agent()
+        executor.tool_manager = ToolBoundary()
+        executor.response_engine = ResponseBoundary()
+        result = executor._natural_response(
+            "bharat ki rajadhani kya hai",
+            {"success": True, "status": "success", "stage": "conversation", "message": ""},
+            {"intent": "conversation"},
+        )
+    finally:
+        executor.autonomous_agent = original_agent
+        executor.tool_manager = original_tools
+        executor.response_engine = original_response
+
+    assert result["success"] is False
+    assert result["status"] == "unknown"
+    assert result["stage"] == "knowledge_unknown"
+    assert result["knowledge_outcome"]["source_count"] == 0
+
+
+def test_conflicting_source_outcome_is_not_reported_as_a_successful_answer():
+    class Context:
+        @staticmethod
+        def snapshot():
+            return {}
+
+    class Agent:
+        context = Context()
+
+    class ToolBoundary:
+        selection_manager = None
+
+    class ResponseBoundary:
+        last_knowledge_outcome = {
+            "answer_status": "conflicting_sources",
+            "reason": "source_disagreement",
+            "source_count": 2,
+        }
+
+        @staticmethod
+        def format(**_kwargs):
+            return "Sources disagree; unresolved."
+
+    original_agent = executor.autonomous_agent
+    original_tools = executor.tool_manager
+    original_response = executor.response_engine
+    try:
+        executor.autonomous_agent = Agent()
+        executor.tool_manager = ToolBoundary()
+        executor.response_engine = ResponseBoundary()
+        result = executor._natural_response(
+            "what is the disputed fact?",
+            {"success": True, "status": "success", "stage": "conversation", "message": ""},
+            {"intent": "conversation"},
+        )
+    finally:
+        executor.autonomous_agent = original_agent
+        executor.tool_manager = original_tools
+        executor.response_engine = original_response
+
+    assert result["success"] is False
+    assert result["status"] == "conflicting_sources"
+    assert result["stage"] == "knowledge_conflict"

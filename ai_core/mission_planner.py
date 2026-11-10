@@ -36,6 +36,7 @@ class MissionPlanner:
         self.last_plan: List[
             Dict[str, Any]
         ] = []
+        self.last_error = ""
 
     # =========================================================
     # NORMALIZE INTENT
@@ -254,6 +255,48 @@ class MissionPlanner:
 
         return item
 
+
+    def _validate_plan_graph(self, plan: List[Dict[str, Any]]) -> Optional[str]:
+        """Validate the complete mixed legacy/generic plan before execution."""
+        if len(plan) > self.max_steps:
+            return f"Mission exceeds the {self.max_steps}-step safety limit."
+        positions: Dict[str, int] = {}
+        for index, step in enumerate(plan):
+            step_id = str(step.get("id") or "").strip()
+            if not step_id:
+                return f"Mission step {index + 1} has no id."
+            if step_id in positions:
+                return f"Mission contains duplicate step id '{step_id}'."
+            positions[step_id] = index
+        graph_steps: List[Dict[str, Any]] = []
+        for index, step in enumerate(plan, start=1):
+            dependencies = step.get("depends_on", [])
+            if not isinstance(dependencies, list):
+                return f"Mission step {index} has an invalid dependency list."
+            seen = set()
+            for value in dependencies:
+                dependency = str(value or "").strip()
+                if not dependency:
+                    return f"Mission step {index} contains an empty dependency."
+                if dependency in seen:
+                    return f"Mission step {index} repeats dependency '{dependency}'."
+                seen.add(dependency)
+                if dependency not in positions:
+                    return f"Mission step {index} depends on unknown id '{dependency}'."
+                if dependency == step.get("id"):
+                    return f"Mission step {index} cannot depend on itself."
+            graph_steps.append({"id": str(step.get("id")), "depends_on": [str(v) for v in dependencies]})
+        cycle = self.action_validator._find_cycle(graph_steps)
+        if cycle:
+            return "Mission dependency cycle: " + " -> ".join(cycle)
+        return None
+
+    def _reject_plan(self, message: str) -> List[Dict[str, Any]]:
+        """Fail closed: a malformed compound goal must never become partial work."""
+        self.last_error = str(message or "Mission plan was rejected.")
+        self.last_plan = []
+        return []
+
     # =========================================================
     # PLAN
     # =========================================================
@@ -298,97 +341,62 @@ class MissionPlanner:
         ] = []
 
         previous_id = None
+        self.last_error = ""
+        self.last_plan = []
 
         # -----------------------------------------------------
         # 1. USE REASONING PLAN
         # -----------------------------------------------------
-
-        reasoning_plan = analysis.get(
-            "plan"
-        )
-
-        if isinstance(
-            reasoning_plan,
-            list
-        ):
-
-            for raw in reasoning_plan:
-
-                if len(plan) >= self.max_steps:
-                    break
-
-                normalized = self._normalize_step(
-                    raw,
-                    len(plan) + 1,
-                    goal,
-                    previous_id
+        # Supplied plans are atomic: never drop or truncate an invalid step.
+        # -----------------------------------------------------
+        reasoning_plan = analysis.get("plan")
+        if isinstance(reasoning_plan, list) and reasoning_plan:
+            if len(reasoning_plan) > self.max_steps:
+                return self._reject_plan(
+                    f"Reasoning plan has {len(reasoning_plan)} steps; safety limit is {self.max_steps}."
                 )
-
-                if normalized:
-                    plan.append(
-                        normalized
+            for raw in reasoning_plan:
+                normalized = self._normalize_step(raw, len(plan) + 1, goal, previous_id)
+                if not normalized:
+                    return self._reject_plan(
+                        f"Reasoning plan step {len(plan) + 1} is invalid; refusing to execute a partial plan."
                     )
-
-                    previous_id = normalized[
-                        "id"
-                    ]
+                plan.append(normalized)
+                previous_id = normalized["id"]
+            graph_error = self._validate_plan_graph(plan)
+            if graph_error:
+                return self._reject_plan(graph_error)
 
         # -----------------------------------------------------
         # 2. FALLBACK TO COMPILED INTENTS
         # -----------------------------------------------------
-
         if not plan:
-
-            intents = (
-                compiled_goal.get(
-                    "suggested_intents",
-                    []
-                )
-            )
-
-            if isinstance(
-                intents,
-                list
-            ):
-
+            intents = compiled_goal.get("suggested_intents", [])
+            if isinstance(intents, list) and intents:
+                if len(intents) > self.max_steps:
+                    return self._reject_plan(
+                        f"Compiled goal has {len(intents)} steps; safety limit is {self.max_steps}."
+                    )
                 for intent in intents:
-
-                    if len(plan) >= self.max_steps:
-                        break
-
-                    normalized_intent = (
-                        self._normalize_intent(
-                            intent
-                        )
-                    )
-
+                    normalized_intent = self._normalize_intent(intent)
                     if not normalized_intent:
-                        continue
-
-                    step_id = (
-                        f"action_{len(plan) + 1}"
-                    )
-
-                    item = {
+                        return self._reject_plan(
+                            "Compiled goal contains an invalid intent; refusing to execute a partial plan."
+                        )
+                    step_id = f"action_{len(plan) + 1}"
+                    plan.append({
                         "step": len(plan) + 1,
                         "id": step_id,
-                        "type": (
-                            "execute_existing_intent"
-                        ),
+                        "type": "execute_existing_intent",
                         "goal": goal,
                         "intent": normalized_intent,
-                        "depends_on": (
-                            [previous_id]
-                            if previous_id
-                            else []
-                        ),
-                        "status": "pending"
-                    }
-
-                    plan.append(item)
-
+                        "depends_on": [previous_id] if previous_id else [],
+                        "status": "pending",
+                    })
                     previous_id = step_id
 
+        # -----------------------------------------------------
+        # 3. CAPABILITY FALLBACK
         # -----------------------------------------------------
         # 3. CAPABILITY FALLBACK
         # -----------------------------------------------------
@@ -411,16 +419,16 @@ class MissionPlanner:
                 )
 
                 if isinstance(generic_actions, list) and generic_actions:
-                    for raw_action in generic_actions:
-                        if len(plan) >= self.max_steps:
-                            break
-
-                        action = self._normalize_action(
-                            raw_action,
-                            len(plan) + 1
+                    if len(generic_actions) > self.max_steps:
+                        return self._reject_plan(
+                            f"Generic plan has {len(generic_actions)} steps; safety limit is {self.max_steps}."
                         )
+                    for raw_action in generic_actions:
+                        action = self._normalize_action(raw_action, len(plan) + 1)
                         if not action:
-                            continue
+                            return self._reject_plan(
+                                f"Generic plan step {len(plan) + 1} is invalid; refusing to execute a partial plan."
+                            )
 
                         action_id = str(
                             action.get("id")
@@ -480,8 +488,10 @@ class MissionPlanner:
                     "status": "pending"
                 }]
 
+        graph_error = self._validate_plan_graph(plan) if plan else None
+        if graph_error:
+            return self._reject_plan(graph_error)
         self.last_plan = plan
-
         return plan
 
     # =========================================================
@@ -491,3 +501,4 @@ class MissionPlanner:
     def reset(self):
 
         self.last_plan = []
+        self.last_error = ""

@@ -85,6 +85,10 @@ class ActionSchema:
     step_id: str = ""
     description: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+    risk_level: str = "normal"
+    requires_confirmation: bool = False
+    confirmation_reason: str = ""
+    reversible: Optional[bool] = None
 
     def __post_init__(self):
         object.__setattr__(self, "action", validate_identifier(self.action, "action"))
@@ -97,6 +101,20 @@ class ActionSchema:
         object.__setattr__(self, "step_id", str(self.step_id or "").strip())
         object.__setattr__(self, "description", str(self.description or "").strip())
         object.__setattr__(self, "metadata", copy.deepcopy(_json_safe(self.metadata, "metadata")))
+
+        risk_level = str(self.risk_level or "normal").strip().lower()
+        allowed_risk_levels = {"low", "normal", "medium", "high", "critical", "irreversible"}
+        if risk_level not in allowed_risk_levels:
+            raise ActionSchemaError(
+                "'risk_level' must be one of: low, normal, medium, high, critical, irreversible."
+            )
+        object.__setattr__(self, "risk_level", risk_level)
+
+        if not isinstance(self.requires_confirmation, bool):
+            raise ActionSchemaError("'requires_confirmation' must be a boolean.")
+        if self.reversible is not None and not isinstance(self.reversible, bool):
+            raise ActionSchemaError("'reversible' must be a boolean when supplied.")
+        object.__setattr__(self, "confirmation_reason", str(self.confirmation_reason or "").strip())
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any], index: int = 1) -> "ActionSchema":
@@ -114,10 +132,14 @@ class ActionSchema:
             step_id=raw.get("id", raw.get("step_id", f"action_{index}")),
             description=raw.get("description", ""),
             metadata=raw.get("metadata", {}) if raw.get("metadata") is not None else {},
+            risk_level=raw.get("risk_level", "normal"),
+            requires_confirmation=raw.get("requires_confirmation", False),
+            confirmation_reason=raw.get("confirmation_reason", ""),
+            reversible=raw.get("reversible"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "action": self.action,
             "capability": self.capability,
             "target": self.target,
@@ -129,3 +151,14 @@ class ActionSchema:
             "description": self.description,
             "metadata": copy.deepcopy(self.metadata),
         }
+        # Preserve historical output for default-risk actions; emit only
+        # non-default risk fields so legacy plan comparisons remain stable.
+        if self.risk_level != "normal":
+            result["risk_level"] = self.risk_level
+        if self.requires_confirmation:
+            result["requires_confirmation"] = True
+        if self.confirmation_reason:
+            result["confirmation_reason"] = self.confirmation_reason
+        if self.reversible is not None:
+            result["reversible"] = self.reversible
+        return result

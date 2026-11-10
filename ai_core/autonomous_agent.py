@@ -71,11 +71,18 @@ Important:
     - Compound missions are controlled by MissionRuntime.
 """
 
+import copy
+import math
+import re
+import time
 from typing import Any, Dict, Optional, List
 
 from ai_core.brain import Brain
 from ai_core.reasoning_engine import ReasoningEngine
 from ai_core.goal_compiler import GoalCompiler
+from ai_core.action_failure_policy import ActionFailurePolicy
+from ai_core.action_risk_policy import ActionRiskPolicy
+from ai_core.memory_learning_policy import attach_approved_memory_hints
 from ai_core.mission_planner import MissionPlanner
 from ai_core.mission_runtime import MissionRuntime
 
@@ -170,6 +177,9 @@ class AutonomousAgent:
 
         self.context = SessionMemory()
 
+        # Set by the app entry point; the policy projects safe preferences only.
+        self.user_memory_store = None
+
         # =========================================================
         # SAFETY
         # =========================================================
@@ -201,6 +211,10 @@ class AutonomousAgent:
             str,
             Any
         ] = {}
+
+        # A hard-to-reverse plan is held in-session until an explicit answer.
+        # The plan is never started in MissionRuntime before confirmation.
+        self.pending_action_confirmation: Optional[Dict[str, Any]] = None
 
     # =============================================================
     # RESULT CHECK
@@ -269,6 +283,18 @@ class AutonomousAgent:
 
         return True
 
+    def _context_with_approved_memory_hints(self, context):
+        """Attach only allow-listed preference hints; a store failure grants none."""
+        store = getattr(self, "user_memory_store", None)
+        records = []
+        if store is not None:
+            try:
+                records = store.load_usable()
+            except Exception:
+                # Memory is optional. An unreadable store cannot influence reasoning.
+                records = []
+        return attach_approved_memory_hints(context, records)
+
     # =============================================================
     # GOAL COMPILATION
     # =============================================================
@@ -281,7 +307,7 @@ class AutonomousAgent:
 
         try:
 
-            context_snapshot = (
+            context_snapshot = self._context_with_approved_memory_hints(
                 self.context.snapshot()
             )
 
@@ -891,9 +917,8 @@ class AutonomousAgent:
         # UPDATE CURRENT CONTEXT
         # =========================================================
 
-        self._update_context_from_intent(
-            current_intent
-        )
+        if successful:
+            self._update_context_from_intent(current_intent)
 
         # =========================================================
         # HISTORY
@@ -1023,7 +1048,75 @@ class AutonomousAgent:
             "step": self.step_count
         }
 
-    def _observe_cycle(self, *, phase: str, step: Optional[Dict[str, Any]] = None, result: Any = None, verification: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    @staticmethod
+    def _is_fresh_world_observation(
+        snapshot: Any,
+        *,
+        now: Optional[float] = None,
+        max_age_seconds: float = 10.0,
+        future_tolerance_seconds: float = 2.0,
+        require_live_ui: bool = False,
+    ) -> bool:
+        """Validate snapshot freshness, optionally requiring usable live UI evidence."""
+        if not isinstance(snapshot, dict) or snapshot.get("observation_error"):
+            return False
+
+        captured_at = snapshot.get("timestamp")
+        if isinstance(captured_at, bool) or not isinstance(captured_at, (int, float)):
+            return False
+
+        current = time.time() if now is None else float(now)
+        captured_at = float(captured_at)
+        if not math.isfinite(current) or not math.isfinite(captured_at):
+            return False
+
+        age = current - captured_at
+        if age < -future_tolerance_seconds or age > max_age_seconds:
+            return False
+
+        # A fresh outer snapshot must not disguise old or internally mixed UI
+        # evidence. A foreground switch during capture makes the observation
+        # unsafe for re-planning even when both timestamps are recent.
+        # UI providers from older versions may omit their own timestamp, so
+        # validate it when present instead of rejecting the compatibility case.
+        ui = snapshot.get("ui")
+        # Re-planning desktop actions requires a live UI observation, not just
+        # a fresh wrapper timestamp or cached process/session context. Keep the
+        # default permissive for summary-only legacy callers; the re-plan gate
+        # opts into this stricter contract explicitly.
+        if require_live_ui and (
+            not isinstance(ui, dict) or ui.get("available") is not True
+        ):
+            return False
+        if isinstance(ui, dict) and ui.get("coherent") is False:
+            return False
+        if isinstance(ui, dict) and ui.get("available") is True:
+            ui_timestamp = ui.get("timestamp")
+            # The strict mission re-plan path requires evidence that this UI
+            # was actually observed recently; "available" alone is not enough.
+            if require_live_ui and ui_timestamp is None:
+                return False
+            if ui_timestamp is not None:
+                if isinstance(ui_timestamp, bool) or not isinstance(ui_timestamp, (int, float)):
+                    return False
+                ui_timestamp = float(ui_timestamp)
+                if not math.isfinite(ui_timestamp):
+                    return False
+                ui_age = current - ui_timestamp
+                if ui_age < -future_tolerance_seconds or ui_age > max_age_seconds:
+                    return False
+
+        return True
+
+    def _observe_cycle(
+        self,
+        *,
+        phase: str,
+        step: Optional[Dict[str, Any]] = None,
+        result: Any = None,
+        verification: Optional[Dict[str, Any]] = None,
+        include_clipboard: bool = False,
+    ) -> Dict[str, Any]:
         """Capture a fresh, serializable world/context observation.
 
         Observation is deliberately provider-agnostic. UI/file/process details
@@ -1035,7 +1128,7 @@ class AutonomousAgent:
                 self.context.snapshot(),
                 mission_state=self.mission_runtime.snapshot(),
                 include_ui=True,
-                include_clipboard=True,
+                include_clipboard=include_clipboard,
             )
         except Exception as error:
             snapshot = {
@@ -1044,6 +1137,11 @@ class AutonomousAgent:
             }
 
         observation = {
+            "timestamp": (
+                snapshot.get("timestamp", time.time())
+                if isinstance(snapshot, dict)
+                else time.time()
+            ),
             "phase": str(phase or ""),
             "step_id": (step or {}).get("id") if isinstance(step, dict) else None,
             "step_type": (step or {}).get("type") if isinstance(step, dict) else None,
@@ -1054,10 +1152,373 @@ class AutonomousAgent:
 
         try:
             self.world_state.record_observation(observation)
+            if isinstance(snapshot, dict):
+                # Include the observation just recorded. History entries are
+                # compact summaries, so this cannot create recursive snapshots.
+                snapshot["observation_history"] = [
+                    dict(item) for item in self.world_state.observation_history
+                ]
+                self.world_state.last_snapshot = snapshot
         except Exception:
             # Observation persistence must never break execution.
             pass
         return observation
+
+    @staticmethod
+    def _recovery_observation_summary(observation: Any) -> Dict[str, Any]:
+        """Return a small, non-content-bearing summary of a recovery observation."""
+        world = observation.get("world_state") if isinstance(observation, dict) else None
+        world = world if isinstance(world, dict) else {}
+        fresh = AutonomousAgent._is_fresh_world_observation(world)
+
+        def entity_summary(value: Any) -> Dict[str, Any]:
+            if not isinstance(value, dict):
+                return {}
+            return {
+                key: str(value[key])[:120]
+                for key in ("name", "title", "control_type", "automation_id")
+                if isinstance(value.get(key), str) and value.get(key)
+            }
+
+        ui = world.get("ui") if isinstance(world.get("ui"), dict) else {}
+        return {
+            "phase": str(observation.get("phase") or "after_failure"),
+            "timestamp": world.get("timestamp"),
+            "fresh": fresh,
+            "observation_error": str(world.get("observation_error") or "")[:240],
+            "ui_available": ui.get("available") is True,
+            "retry_ready": bool(fresh and ui.get("available") is True),
+            "current_window": entity_summary(world.get("current_window")),
+            "focused_control": entity_summary(world.get("focused_control")),
+        }
+
+    def _record_step_failure(
+        self,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+        *,
+        retry_observation_fresh: bool = False,
+    ):
+        """Record a failure; a pre-dispatch retry requires a fresh recovery snapshot."""
+        policy = ActionFailurePolicy.classify(result, step)
+        policy = dict(policy)
+        policy["schema_version"] = "m6.1"
+
+        # Classification alone is not enough: an observation must be captured
+        # after the failure and validated before a retry can be scheduled.
+        if policy.get("retry_same_action") is True and retry_observation_fresh is not True:
+            policy.update({
+                "category": "recovery_observation_unavailable",
+                "response_stage": "recovery_observation_unavailable",
+                "user_message": (
+                    "The action was rejected before dispatch, but Vyom could not "
+                    "confirm a fresh computer state. It stopped without retrying."
+                ),
+                "retry_same_action": False,
+                "stop_mission": True,
+                "reobserve_before_retry": False,
+            })
+
+        if isinstance(result, dict):
+            result["failure_policy"] = policy
+
+        nested_result = result.get("result") if isinstance(result, dict) else None
+        if nested_result is None:
+            nested_result = result
+        verification = result.get("verification") if isinstance(result, dict) else None
+        if not isinstance(verification, dict) and isinstance(nested_result, dict):
+            verification = nested_result.get("verification")
+        reason = (
+            str(result.get("stage") or "execution_failed")
+            if isinstance(result, dict)
+            else "execution_failed"
+        )
+
+        retry_available = self.mission_runtime.mark_failed(
+            step_id=str(step.get("id") or ""),
+            result=nested_result,
+            reason=reason,
+            verification=verification if isinstance(verification, dict) else {},
+            retryable=policy.get("retry_same_action") is True,
+            failure_policy=policy,
+            stop_mission=policy.get("stop_mission") is True,
+        )
+        if self.task_history and isinstance(self.task_history[-1], dict):
+            self.task_history[-1]["failure_policy"] = policy
+        return bool(retry_available and policy.get("retry_same_action") is True), policy
+
+    def _failure_policy_response(
+        self,
+        goal: str,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+        policy: Dict[str, Any],
+        recovery_observation: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Stop safely and require an explicit response for uncertain side effects."""
+        self.active = False
+        self.context.mark_failed()
+        uncertain = str(policy.get("category") or "").strip().lower() in {
+            "outcome_uncertain", "unknown_outcome"
+        }
+        return {
+            "success": False,
+            "status": "needs_confirmation" if uncertain else "failed",
+            "stage": "recovery_confirmation_required" if uncertain else str(
+                policy.get("response_stage") or "outcome_unverified"
+            ),
+            "message": str(policy.get("user_message") or "The action could not be safely recovered."),
+            "requires_user_input": uncertain,
+            "recovery_options": (
+                ["already_applied", "not_applied_retry", "cancel"]
+                if uncertain else []
+            ),
+            "failure_policy": dict(policy),
+            "recovery_observation": recovery_observation or {},
+            "result": result.get("result") if isinstance(result, dict) else result,
+            "step": step,
+            "goal": goal,
+            "history": self.task_history,
+            "mission": self.mission_runtime.snapshot(),
+            "context": self.context.snapshot(),
+        }
+
+    def _unverified_completion_response(
+        self,
+        goal: str,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Require recovery confirmation if executor success failed its postcondition gate."""
+        observation = self._observe_cycle(
+            phase="after_failure",
+            step=step,
+            result=result.get("result") if isinstance(result, dict) else result,
+            verification=result.get("verification") if isinstance(result, dict) else {},
+        )
+        summary = self._recovery_observation_summary(observation)
+        policy = {
+            "schema_version": "m6.4",
+            "category": "outcome_uncertain",
+            "response_stage": "recovery_confirmation_required",
+            "retry_same_action": False,
+            "stop_mission": True,
+            "requires_user_input": True,
+            "reobserve_before_retry": False,
+            "user_message": (
+                "The executor reported success, but Vyom could not verify the "
+                "action's postcondition. It stopped without repeating the action."
+            ),
+        }
+        failed_result = {
+            "success": False,
+            "stage": "verification_failed",
+            "message": policy["user_message"],
+            "result": result.get("result") if isinstance(result, dict) else result,
+            "verification": result.get("verification") if isinstance(result, dict) else {},
+        }
+        return self._failure_policy_response(
+            goal=goal,
+            step=step,
+            result=failed_result,
+            policy=policy,
+            recovery_observation=summary,
+        )
+
+    @staticmethod
+    def _recovery_confirmation_kind(text: Any) -> str:
+        """Require an explicit statement about the uncertain outcome; bare yes/no is not enough."""
+        value = str(text or "").strip().lower()
+        value = " ".join(value.replace("’", "'").split())
+        if not value:
+            return "unclear"
+
+        cancel_phrases = (
+            "cancel recovery", "cancel this", "don't retry", "do not retry",
+            "stop mission", "stop here", "leave it", "forget it", "cancel",
+            "rehne do", "mat karo", "rok do", "ruko", "रहने दो", "मत करो",
+            "रोक दो", "रुक जाओ", "रद्द करो",
+        )
+        if any(phrase in value for phrase in cancel_phrases):
+            return "cancelled"
+
+        no_effect_phrases = (
+            "did not happen", "didn't happen", "not happened",
+            "was not sent", "wasn't sent", "not sent", "did not send",
+            "didn't send", "not submitted", "did not submit",
+            "didn't submit", "did not take effect", "not applied",
+            "nahi hua", "nahin hua", "nahi gaya", "nahin gaya",
+            "send nahi hua", "bheja nahi gaya", "submit nahi hua",
+            "नहीं हुआ", "नही हुआ", "नहीं गया", "नहीं भेजा", "भेजा नहीं",
+            "सबमिट नहीं हुआ",
+        )
+        retry_phrases = (
+            "retry", "try again", "again", "dobara", "fir se", "phir se",
+            "ek baar aur", "फिर से", "दोबारा", "पुनः", "पुनः प्रयास",
+        )
+        if (
+            any(phrase in value for phrase in no_effect_phrases)
+            and any(phrase in value for phrase in retry_phrases)
+        ):
+            return "retry"
+
+        already_applied_phrases = (
+            "already happened", "it happened", "already sent", "sent already",
+            "it was sent", "it worked", "already done", "it is done",
+            "it has been done", "ho gaya", "ho chuka", "ho chuki",
+            "bhej diya", "send ho gaya", "submit ho gaya", "kar diya tha",
+            "complete ho gaya", "pehle hi ho gaya",
+            "हो गया", "हो चुका", "हो चुकी", "भेज दिया", "पहले ही हो गया",
+            "पहले ही भेज दिया", "सबमिट हो गया", "काम हो गया",
+        )
+        if any(phrase in value for phrase in already_applied_phrases):
+            return "already_applied"
+
+        return "unclear"
+
+    def handle_recovery_confirmation(self, message: Any) -> Optional[Dict[str, Any]]:
+        """Handle replies while a replay lock is active, before normal command routing."""
+        lock = self.mission_runtime.snapshot().get("replay_lock")
+        if not isinstance(lock, dict) or lock.get("active") is not True:
+            return None
+
+        kind = self._recovery_confirmation_kind(message)
+        if kind == "already_applied":
+            resolved = self.mission_runtime.resolve_uncertain_outcome("already_applied")
+            self.active = False
+            self.context.mark_failed()
+            return {
+                "handled": True,
+                "kind": "already_applied" if resolved else "unclear",
+                "stage": "recovery_resolved_applied" if resolved else "recovery_confirmation_required",
+                "success": False,
+            }
+
+        if kind == "cancelled":
+            resolved = self.mission_runtime.resolve_uncertain_outcome("cancelled")
+            self.active = False
+            self.context.mark_failed()
+            return {
+                "handled": True,
+                "kind": "cancelled" if resolved else "unclear",
+                "stage": "recovery_cancelled" if resolved else "recovery_confirmation_required",
+                "success": False,
+            }
+
+        if lock.get("runtime_record_available") is False:
+            return {
+                "handled": True,
+                "kind": "restart_retry_unavailable",
+                "stage": "recovery_confirmation_required",
+                "success": False,
+                "recovery_lock_category": lock.get("category"),
+                "retry_hint": (
+                    "The recovery marker was restored after restart, but the original "
+                    "mission plan was not stored. Retry is disabled; inspect the current "
+                    "state and confirm already happened or cancel recovery."
+                ),
+            }
+
+        if kind != "retry":
+            return {
+                "handled": True,
+                "kind": "unclear",
+                "stage": "recovery_confirmation_required",
+                "success": False,
+                "retry_hint": "A plain yes/no is not explicit enough.",
+            }
+
+        step = self.mission_runtime.get_step(str(lock.get("step_id") or ""))
+        observation = self._observe_cycle(
+            phase="recovery_confirmation",
+            step=step,
+            result=None,
+        )
+        summary = self._recovery_observation_summary(observation)
+        if summary.get("retry_ready") is not True:
+            return {
+                "handled": True,
+                "kind": "observation_unavailable",
+                "stage": "recovery_confirmation_required",
+                "success": False,
+                "recovery_observation": summary,
+            }
+
+        if not self.mission_runtime.unblock(allow_replay_after_confirmation=True):
+            return {
+                "handled": True,
+                "kind": "observation_unavailable",
+                "stage": "recovery_confirmation_required",
+                "success": False,
+                "recovery_observation": summary,
+            }
+
+        self.active = True
+        resumed = self._continue_replanned_mission(
+            goal=self.current_goal or self.mission_runtime.goal,
+            intent=None,
+            analysis={},
+            compilation=self.current_compilation,
+            route={"route": "mission"},
+        )
+        return {
+            "handled": True,
+            "kind": "retry_result",
+            "stage": (
+                "recovery_retry_completed"
+                if isinstance(resumed, dict) and resumed.get("success") is True
+                else resumed.get("stage", "recovery_retry_failed")
+                if isinstance(resumed, dict)
+                else "recovery_retry_failed"
+            ),
+            "success": bool(isinstance(resumed, dict) and resumed.get("success") is True),
+            "execution_result": resumed if isinstance(resumed, dict) else {},
+            "recovery_observation": summary,
+        }
+
+    @staticmethod
+    def _pre_dispatch_confirmation_choice(reply: str) -> str:
+        value = str(reply or "").strip().lower()
+        value = re.sub(r"[.,!?;:،؟।]+", " ", value)
+        value = " ".join(value.split())
+        confirm_phrases = {
+            "yes", "yes confirm", "confirm", "confirm action",
+            "proceed", "proceed with action", "go ahead", "do it",
+            "haan", "han", "haan confirm", "haan confirm karo", "haan karo",
+            "ha", "ha karo", "kar do", "aage badho",
+            "हाँ", "हां", "हाँ पुष्टि करें", "पुष्टि करो", "आगे बढ़ो", "कर दो",
+        }
+        cancel_phrases = {
+            "no", "cancel", "cancel action", "stop", "cancel karo",
+            "radd", "radd karo", "nahi", "nahin", "mat karo",
+            "नहीं", "नही", "रद्द", "रद्द करो", "मत करो", "रोक दो", "कैंसल",
+        }
+        if value in confirm_phrases:
+            return "confirm"
+        if value in cancel_phrases:
+            return "cancel"
+        return ""
+
+    @staticmethod
+    def _action_confirmation_response(pending: Dict[str, Any]) -> Dict[str, Any]:
+        risk = pending.get("risk_assessment")
+        risk = risk if isinstance(risk, dict) else {}
+        return {
+            "success": False,
+            "status": "needs_confirmation",
+            "stage": "action_confirmation_required",
+            "message": str(pending.get("prompt") or (
+                "A potentially irreversible action is waiting for explicit confirmation. "
+                "Reply 'confirm action' or 'cancel action'."
+            )),
+            "requires_user_input": True,
+            "risk_assessment": {
+                "risk_level": risk.get("risk_level", "high"),
+                "summary": str(risk.get("summary") or "high-impact operation"),
+                "step_ids": list(risk.get("step_ids") or []),
+            },
+            "goal": str(pending.get("goal") or ""),
+        }
 
     # =============================================================
     # RUN MISSION THROUGH RUNTIME
@@ -1080,7 +1541,8 @@ class AutonomousAgent:
         ],
         route: Optional[
             Dict[str, Any]
-        ]
+        ],
+        pre_dispatch_confirmed: bool = False,
     ) -> Dict[str, Any]:
 
         if not plan:
@@ -1102,6 +1564,55 @@ class AutonomousAgent:
                 "goal_compilation": compilation,
                 "context": self.context.snapshot()
             }
+
+        if not pre_dispatch_confirmed:
+            risk_assessment = ActionRiskPolicy.assess_plan(plan)
+            if risk_assessment.get("requires_confirmation") is True:
+                try:
+                    held_plan = copy.deepcopy(plan)
+                except Exception:
+                    self.active = False
+                    return {
+                        "success": False,
+                        "status": "needs_confirmation",
+                        "stage": "action_confirmation_required",
+                        "message": (
+                            "A high-impact step was detected, but its plan could not be "
+                            "safely held. No step was executed; please restate the task."
+                        ),
+                        "requires_user_input": True,
+                        "risk_assessment": {
+                            "risk_level": risk_assessment.get("risk_level", "high"),
+                            "summary": risk_assessment.get("summary", ""),
+                        },
+                    }
+
+                summary = str(risk_assessment.get("summary") or "a potentially irreversible action")
+                prompt = (
+                    "इस mission में ऐसा step है जिसे वापस लेना कठिन या विनाशकारी हो सकता है: "
+                    f"{summary}। अभी कोई action execute नहीं हुआ है। "
+                    "आगे बढ़ने के लिए 'confirm action' लिखें; रोकने के लिए 'cancel action' लिखें।"
+                )
+                pending = {
+                    "goal": str(goal or ""),
+                    "plan": held_plan,
+                    "intent": copy.deepcopy(intent) if isinstance(intent, dict) else None,
+                    "analysis": analysis,
+                    "compilation": compilation,
+                    "route": route,
+                    "risk_assessment": risk_assessment,
+                    "prompt": prompt,
+                }
+                self.pending_action_confirmation = pending
+                self.active = False
+                self.task_history.append({
+                    "stage": "action_confirmation_required",
+                    "goal": str(goal or ""),
+                    "risk_level": risk_assessment.get("risk_level", "high"),
+                    "step_ids": list(risk_assessment.get("step_ids") or []),
+                    "executed": False,
+                })
+                return self._action_confirmation_response(pending)
 
         # =========================================================
         # START MISSION RUNTIME
@@ -1336,7 +1847,7 @@ class AutonomousAgent:
                 False
             ):
 
-                self.mission_runtime.mark_completed(
+                completion_accepted = self.mission_runtime.mark_completed(
                     step_id=step_id,
                     result=result.get(
                         "result"
@@ -1345,6 +1856,12 @@ class AutonomousAgent:
                         "verification"
                     )
                 )
+                if not completion_accepted:
+                    return self._unverified_completion_response(
+                        goal=goal,
+                        step=step,
+                        result=result,
+                    )
 
                 continue
 
@@ -1352,21 +1869,29 @@ class AutonomousAgent:
             # STEP FAILURE / VERIFICATION FAILURE
             # -----------------------------------------------------
 
-            retry_available = (
-                self.mission_runtime.mark_failed(
-                    step_id=step_id,
-                    result=result.get(
-                        "result"
-                    ),
-                    reason=result.get(
-                        "stage",
-                        "execution_failed"
-                    ),
-                    verification=result.get(
-                        "verification"
-                    )
-                )
+            # M6.1: capture and validate a new state after every failed step.
+            # Never schedule a retry based on the pre-action or after-action snapshot.
+            recovery_observation = self._observe_cycle(
+                phase="after_failure",
+                step=step,
+                result=result.get("result") if isinstance(result, dict) else result,
+                verification=result.get("verification") if isinstance(result, dict) else {},
             )
+            recovery_summary = self._recovery_observation_summary(recovery_observation)
+            retry_available, failure_policy = self._record_step_failure(
+                step,
+                result,
+                retry_observation_fresh=recovery_summary.get("retry_ready") is True,
+            )
+
+            if failure_policy.get("stop_mission"):
+                return self._failure_policy_response(
+                    goal=goal,
+                    step=step,
+                    result=result,
+                    policy=failure_policy,
+                    recovery_observation=recovery_summary,
+                )
 
             # -----------------------------------------------------
             # Bounded retry
@@ -1416,25 +1941,29 @@ class AutonomousAgent:
                 # re-reasoning. The new plan must be grounded in the state
                 # that exists after the failed/retried execution, not the
                 # stale state from the original plan.
-                self._observe_cycle(
+                replan_observation = self._observe_cycle(
                     phase="before_replan",
                     result=self.context.last_result,
                 )
-
                 refreshed_state = (
-                    self.world_state.snapshot(
-                        self.context.snapshot(),
-                        mission_state=self.mission_runtime.snapshot(),
-                        include_ui=True,
-                        include_clipboard=True,
-                    )
+                    replan_observation.get("world_state")
+                    if isinstance(replan_observation, dict)
+                    else None
                 )
+                if not self._is_fresh_world_observation(
+                    refreshed_state,
+                    require_live_ui=True,
+                ):
+                    raise RuntimeError(
+                        "A fresh world-state/UI observation is unavailable or stale; "
+                        "re-planning stopped safely."
+                    )
 
                 re_reasoning = (
                     self.reasoning_engine.reason(
                         self.current_goal,
                         intent,
-                        context=refreshed_state,
+                        context=self._context_with_approved_memory_hints(refreshed_state),
                         previous_result=(
                             self.context.last_result
                         )
@@ -1825,7 +2354,7 @@ class AutonomousAgent:
                 False
             ):
 
-                self.mission_runtime.mark_completed(
+                completion_accepted = self.mission_runtime.mark_completed(
                     step_id=step_id,
                     result=result.get(
                         "result"
@@ -1834,6 +2363,12 @@ class AutonomousAgent:
                         "verification"
                     )
                 )
+                if not completion_accepted:
+                    return self._unverified_completion_response(
+                        goal=goal,
+                        step=step,
+                        result=result,
+                    )
 
                 continue
 
@@ -1848,26 +2383,30 @@ class AutonomousAgent:
             #     retry_available = (...)
             # =====================================================
 
-            retry_available = (
-                self.mission_runtime.mark_failed(
-                    step_id=step_id,
-                    result=result.get(
-                        "result"
-                    ),
-                    reason=result.get(
-                        "stage",
-                        "execution_failed"
-                    ),
-                    verification=result.get(
-                        "verification"
-                    )
-                )
+            # M6.3: continuation uses the same fresh-observation and replay-lock
+            # policy as the initial mission loop.
+            recovery_observation = self._observe_cycle(
+                phase="after_failure",
+                step=step,
+                result=result.get("result") if isinstance(result, dict) else result,
+                verification=result.get("verification") if isinstance(result, dict) else {},
             )
-
+            recovery_summary = self._recovery_observation_summary(recovery_observation)
+            retry_available, failure_policy = self._record_step_failure(
+                step,
+                result,
+                retry_observation_fresh=recovery_summary.get("retry_ready") is True,
+            )
+            if failure_policy.get("stop_mission"):
+                return self._failure_policy_response(
+                    goal=goal,
+                    step=step,
+                    result=result,
+                    policy=failure_policy,
+                    recovery_observation=recovery_summary,
+                )
             if retry_available:
-
                 continue
-
             break
 
         runtime = (
@@ -1936,6 +2475,49 @@ class AutonomousAgent:
         goal = str(
             goal or ""
         ).strip()
+
+        replay_lock = self.mission_runtime.snapshot().get("replay_lock")
+        if isinstance(replay_lock, dict) and replay_lock.get("active") is True:
+            return {
+                "success": False,
+                "status": "needs_confirmation",
+                "stage": "recovery_confirmation_required",
+                "message": (
+                    "A previous action may already have taken effect. "
+                    "Reply 'already happened', 'did not happen; retry', or 'cancel recovery'."
+                ),
+                "requires_user_input": True,
+            }
+
+        if isinstance(self.pending_action_confirmation, dict):
+            pending = self.pending_action_confirmation
+            choice = self._pre_dispatch_confirmation_choice(goal)
+            if choice == "confirm":
+                self.pending_action_confirmation = None
+                self.current_goal = str(pending.get("goal") or "")
+                self.step_count = 0
+                self.active = True
+                return self._run_mission(
+                    goal=self.current_goal,
+                    plan=pending["plan"],
+                    intent=pending.get("intent"),
+                    analysis=pending.get("analysis"),
+                    compilation=pending.get("compilation"),
+                    route=pending.get("route"),
+                    pre_dispatch_confirmed=True,
+                )
+            if choice == "cancel":
+                self.pending_action_confirmation = None
+                self.active = False
+                return {
+                    "success": True,
+                    "status": "cancelled",
+                    "stage": "action_confirmation_cancelled",
+                    "message": "Cancelled. No action was executed.",
+                    "goal": str(pending.get("goal") or ""),
+                    "requires_user_input": False,
+                }
+            return self._action_confirmation_response(pending)
 
         if not goal:
 
@@ -2006,9 +2588,8 @@ class AutonomousAgent:
             else compiled_intent
         )
 
-        self._update_context_from_intent(
-            effective_intent
-        )
+        # Do not pre-populate app/file context from a proposed intent.
+        # _execute_step updates it only after observed verification succeeds.
 
         # =========================================================
         # SIMPLE FAST LANE
@@ -2164,9 +2745,11 @@ class AutonomousAgent:
                     self.context.snapshot(),
                     mission_state=self.mission_runtime.snapshot(),
                     include_ui=True,
-                    include_clipboard=True,
+                    include_clipboard=False,
                 )
             )
+
+            state_snapshot = self._context_with_approved_memory_hints(state_snapshot)
 
             reasoning = (
                 self.reasoning_engine.reason(

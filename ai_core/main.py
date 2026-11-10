@@ -113,7 +113,18 @@ def main():
     _configure_console()
 
     from command_engine.parser import CommandParser
-    from command_engine.executor import execute
+    from ai_core.conversation_manager import ConversationManager
+    from ai_core.memory_consent import MemoryConsentManager, handle_memory_command
+    from ai_core.user_memory_store import UserMemoryStore
+    import command_engine.executor as command_executor
+
+    # The durable journal stores only a hashed recovery fingerprint and status,
+    # never the action payload or mission plan. A restored marker blocks actions
+    # until the user explicitly resolves the uncertain outcome.
+    command_executor.autonomous_agent.mission_runtime.configure_default_recovery_journal()
+    recovered_lock = command_executor.autonomous_agent.mission_runtime.snapshot().get("replay_lock") or {}
+    if recovered_lock.get("active") is True:
+        _safe_print("Vyom : A previous action outcome is uncertain. Resolve recovery before starting a new task.")
 
     from voice.voice_controller import VoiceController
 
@@ -122,8 +133,15 @@ def main():
     # ============================================================
 
     parser = CommandParser()
-
-    voice_controller = VoiceController()
+    # Text and voice share one turn manager, history, trace contract and executor.
+    conversation_manager = ConversationManager()
+    # Consent is session-only until the separately gated persistent-storage phase.
+    memory_consent_manager = MemoryConsentManager()
+    memory_store = UserMemoryStore(consent_manager=memory_consent_manager)
+    # Reasoning may receive allow-listed presentation hints only; the store
+    # never grants action permissions or bypasses the existing safety gates.
+    command_executor.autonomous_agent.user_memory_store = memory_store
+    voice_controller = VoiceController(conversation_manager=conversation_manager)
 
     # ============================================================
     # STARTUP
@@ -184,6 +202,16 @@ def main():
 
             _safe_print("Vyom : Goodbye")
             break
+
+        # ========================================================
+        # EXPLICIT MEMORY CONSENT (TYPED TEXT ONLY)
+        # ========================================================
+
+        memory_response = handle_memory_command(command, memory_consent_manager, memory_store)
+        if memory_response is not None:
+            _safe_print("Vyom : " + memory_response)
+            _safe_print("")
+            continue
 
         # ========================================================
         # VOICE MODE
@@ -267,7 +295,7 @@ def main():
                 command
             )
 
-            response = execute(
+            response = conversation_manager.process_text(
                 parsed
             )
 

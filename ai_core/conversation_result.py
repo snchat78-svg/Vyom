@@ -20,6 +20,7 @@ class ConversationStatus(Enum):
     SUCCESS = "success"
     NEEDS_SELECTION = "needs_selection"
     NEEDS_CLARIFICATION = "needs_clarification"
+    NEEDS_CONFIRMATION = "needs_confirmation"
     REFUSED = "refused"
     FAILED = "failed"
     CANCELLED = "cancelled"

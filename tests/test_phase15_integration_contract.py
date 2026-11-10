@@ -26,7 +26,7 @@ class Phase15IntegrationContractTests(unittest.TestCase):
     def test_runtime_env_can_supply_ai_configuration(self):
         old_values = {
             key: os.environ.get(key)
-            for key in ("VYOM_ENV_FILE", "GEMINI_API_KEY", "GEMINI_MODEL")
+            for key in ("VYOM_ENV_FILE", "GEMINI_API_KEY", "GEMINI_MODEL", "VYOM_ALLOW_PAID_API", "VYOM_AI_PROVIDER")
         }
         try:
             with tempfile.TemporaryDirectory() as directory:
@@ -34,12 +34,15 @@ class Phase15IntegrationContractTests(unittest.TestCase):
                 with open(path, "w", encoding="utf-8") as handle:
                     handle.write("GEMINI_API_KEY=test-key\n")
                     handle.write("GEMINI_MODEL=test-model\n")
+                    handle.write("VYOM_ALLOW_PAID_API=true\n")
+                    handle.write("VYOM_AI_PROVIDER=auto\n")
                 for key in old_values:
                     os.environ.pop(key, None)
                 os.environ["VYOM_ENV_FILE"] = path
                 gateway = ModelGateway(api_url="http://localhost:1234/v1/chat/completions")
                 self.assertEqual(gateway.api_key, "test-key")
                 self.assertEqual(gateway.model, "test-model")
+                self.assertTrue(gateway.allow_paid_api)
                 self.assertTrue(gateway.is_available())
         finally:
             for key, value in old_values.items():

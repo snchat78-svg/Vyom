@@ -17,7 +17,7 @@ from ai_core.conversation_manager import ConversationManager
 
 
 class VoiceController:
-    BUILD_ID = "VYOM_VOICE_HANDOFF_V17_FINAL"
+    BUILD_ID = "VYOM_VOICE_HANDOFF_V20_SAFE_OUTPUT_WAKE_PRECISION"
 
     def __init__(self, stt=None, tts=None, conversation_manager=None):
         self.speech_to_text = stt or SpeechToText(
@@ -33,6 +33,7 @@ class VoiceController:
         self.last_listen_status = ""
         self.last_raw_text = ""
         self.last_voice_language = ""
+        self.last_voice_metadata = {}
 
         self.wake_words = (
             "hey vyom", "हे व्योम", "हे वियोम", "vyom ji", "व्योम जी",
@@ -48,6 +49,21 @@ class VoiceController:
             stream = getattr(sys, "stdout", None)
             if stream is None:
                 return
+            # Old Windows/PyInstaller consoles can hang or garble on a
+            # Unicode write even when their wrapper claims UTF-8. Romanize
+            # only the displayed copy; TTS still receives the real Hindi text.
+            if re.search(r"[\u0900-\u097F]", text):
+                try:
+                    display = normalize_voice_text(text)
+                    # Romanizer preserves Devanagari danda punctuation; map
+                    # those sentence marks to ASCII before checking leftovers.
+                    display = display.replace("।", ".").replace("॥", ".")
+                    if display and not re.search(r"[\u0900-\u097F]", display):
+                        text = display
+                    else:
+                        text = text.encode("unicode_escape", errors="backslashreplace").decode("ascii")
+                except Exception:
+                    text = text.encode("unicode_escape", errors="backslashreplace").decode("ascii")
             encoding = getattr(stream, "encoding", None) or "utf-8"
             try:
                 text.encode(encoding)
@@ -118,7 +134,7 @@ class VoiceController:
                 if ratio > score:
                     score = ratio
                     best = self._normalize(wake_word)
-            if score >= 0.72:
+            if score >= 0.86:
                 return best
         return None
 
@@ -157,14 +173,13 @@ class VoiceController:
             self.state = "executing"
             self._log("STATE -> EXECUTING")
             voice_metadata = None
-            if self.last_raw_text or self.last_voice_language:
-                voice_metadata = {
-                    "voice": {
-                        "raw_text": self.last_raw_text,
-                        "recognized_language": self.last_voice_language,
-                        "roman_text": command,
-                    }
-                }
+            last_voice_metadata = getattr(self, "last_voice_metadata", {})
+            if last_voice_metadata or getattr(self, "last_raw_text", "") or getattr(self, "last_voice_language", ""):
+                voice_trace = dict(last_voice_metadata or {})
+                voice_trace.setdefault("raw_text", self.last_raw_text)
+                voice_trace.setdefault("recognized_language", self.last_voice_language)
+                voice_trace["roman_text"] = command
+                voice_metadata = {"voice": voice_trace}
             if voice_metadata is not None:
                 try:
                     result = self.conversation_manager.process_voice(
@@ -225,6 +240,24 @@ class VoiceController:
         self.last_listen_status = str(result.get("status", ""))
         self.last_raw_text = str(result.get("raw_text") or "").strip()
         self.last_voice_language = str(result.get("language") or "").strip()
+        # Keep the metadata from this utterance only. Do not let confidence or
+        # corrections from a previous command leak into the next voice turn.
+        self.last_voice_metadata = {
+            "raw_text": self.last_raw_text,
+            "recognized_language": self.last_voice_language,
+            "roman_text": roman_text,
+            "stt_status": self.last_listen_status,
+        }
+        if isinstance(result.get("command_confidence"), (int, float)):
+            self.last_voice_metadata["command_confidence"] = result.get("command_confidence")
+        corrections = result.get("command_corrections")
+        self.last_voice_metadata["command_corrections"] = (
+            list(corrections[:16]) if isinstance(corrections, list) else []
+        )
+        alternatives = result.get("alternatives")
+        self.last_voice_metadata["transcription_alternatives_count"] = (
+            min(len(alternatives), 16) if isinstance(alternatives, list) else 0
+        )
         self._log("STT listen_once returned: status=%s success=%s text_length=%d" % (
             self.last_listen_status, bool(result.get("success")), len(str(result.get("text", "") or ""))
         ))
@@ -278,7 +311,7 @@ class VoiceController:
                     self._normalize(text).replace(" ", ""),
                     self._normalize(wake_word).replace(" ", "")
                 ).ratio()
-                if score >= 0.72:
+                if score >= 0.86:
                     command = ""
                     self._log("Wake-only utterance consumed after fuzzy match (%.2f)." % score)
             except Exception:
@@ -299,7 +332,9 @@ class VoiceController:
             result = self.listen_once(
                 announce=False,
                 timeout=8,
-                phrase_time_limit=None,
+                # Bound capture even if the microphone hears continuous room
+                # noise. This keeps the active loop from waiting indefinitely.
+                phrase_time_limit=15,
                 wake_mode=False,
             )
         except Exception as error:
@@ -398,13 +433,91 @@ class VoiceController:
 
         safe_command = command.encode("unicode_escape", errors="backslashreplace").decode("ascii")
         self._log("DISPATCHING VOICE COMMAND: " + safe_command)
-        result = self.process_text(command)
-        response = str(result.get("message", "") or "").strip()
-        if response:
-            self._speak_response(response)
-        else:
-            self._safe_print("Vyom : Command completed.")
-        return result
+        result = None
+        try:
+            result = self.process_text(command)
+            self._log("EXECUTOR RETURNED TO VOICE CONTROLLER.")
+
+            if not isinstance(result, dict):
+                result = {
+                    "success": True,
+                    "status": "success",
+                    "stage": "legacy_completed",
+                    "message": str(result or ""),
+                    "result": result,
+                }
+
+            # Read both fields because older executor adapters may expose only
+            # one of them. Do not let an empty response strand the voice loop.
+            response = str(
+                result.get("response")
+                or result.get("message")
+                or result.get("text")
+                or ""
+            ).strip()
+            success = bool(result.get("success", False))
+            self._log(
+                "RESPONSE PREPARED: success=%s stage=%s chars=%d"
+                % (
+                    success,
+                    str(result.get("stage") or result.get("status") or "unknown"),
+                    len(response),
+                )
+            )
+
+            if not response:
+                # Empty UI/tool messages should never silently terminate a
+                # turn. Report uncertainty rather than manufacturing success.
+                response = (
+                    "मुझे इस काम का स्पष्ट परिणाम नहीं मिला। "
+                    "कृपया स्क्रीन देखकर पुष्टि करें या निर्देश दोबारा बताइए।"
+                )
+                result["message"] = response
+                result["response"] = response
+                result["success"] = False
+                result["status"] = "failed"
+                result["stage"] = "empty_response_guard"
+
+            self._log("RESPONSE CONSOLE DISPLAY BEGIN (ASCII-SAFE).")
+            self._safe_print("Vyom : " + response)
+            self._log("RESPONSE CONSOLE DISPLAY COMPLETE; HANDING OFF TO TTS.")
+            try:
+                speech_result = self._speak_response(response)
+            except Exception as error:
+                speech_result = {
+                    "success": False,
+                    "message": "Voice response handoff failed: " + str(error),
+                }
+                self._log("TTS HANDOFF EXCEPTION: " + str(error))
+
+            if not isinstance(speech_result, dict) or not speech_result.get("success", False):
+                reason = (
+                    str(speech_result.get("message") or "").strip()
+                    if isinstance(speech_result, dict) else ""
+                )
+                if reason:
+                    self._safe_print("Vyom TTS : " + reason)
+            self._log("VOICE TURN RESPONSE HANDOFF COMPLETE.")
+            return result
+
+        except Exception as error:
+            self._log("POST-EXECUTION RESPONSE ERROR: " + str(error))
+            message = (
+                "काम करते समय उत्तर तैयार करने में समस्या हुई। "
+                "मैं सुनना जारी रखूँगा; कृपया निर्देश दोबारा बताइए।"
+            )
+            self._safe_print("Vyom : " + message)
+            try:
+                self._speak_response(message)
+            except Exception:
+                pass
+            return {
+                "success": False,
+                "status": "failed",
+                "stage": "voice_response_error",
+                "message": message,
+                "error": str(error),
+            }
 
     def _stop_audio_sessions(self):
         stop_stt = getattr(self.speech_to_text, "stop_session", None)

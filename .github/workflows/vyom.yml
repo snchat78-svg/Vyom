@@ -8,13 +8,21 @@ on:
     branches:
       - updated
 
+# Only the newest commit on the branch needs a build. This prevents a
+# sequence of targeted architecture fixes from leaving several stale EXEs
+# running simultaneously.
+concurrency:
+  group: vyom-\${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
     env:
       VYOM_AI_ENABLED: "true"
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GEMINI_MODEL: "gemini-3.6-flash"
+      VYOM_AI_PROVIDER: "auto"
+      VYOM_REMOTE_REASONING: "false"
+      VYOM_REMOTE_RESPONSES: "false"
 
     steps:
 
@@ -32,79 +40,15 @@ jobs:
       # 2. VERIFY EXACT BUILD SOURCE
       # ======================================================
 
-      - name: Verify AI Runtime Configuration
+      - name: Verify Local-First Runtime Configuration
         shell: powershell
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
-              Write-Host "GEMINI_API_KEY is not available in CI; EXE will use user-local vyom.env at runtime."
-          } else {
-              Write-Host "GEMINI_API_KEY is available to the build environment (secret value is never printed)."
-          }
-
-
-      - name: Verify Gemini API Connectivity
-        shell: powershell
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: "gemini-3.6-flash"
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
-              Write-Host "GEMINI API SMOKE TEST: SKIPPED - GEMINI_API_KEY secret is not configured."
-              exit 0
-          }
-
-          $uri = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-          $headers = @{
-              "Authorization" = "Bearer $env:GEMINI_API_KEY"
-              "Content-Type" = "application/json"
-              "x-goog-api-client" = "vyom-ai/1.0"
-          }
-
-          $body = @{
-              model = $env:GEMINI_MODEL
-              messages = @(
-                  @{
-                      role = "user"
-                      content = "Reply with the single word OK."
-                  }
-              )
-              temperature = 0
-          } | ConvertTo-Json -Depth 6
-
-          try {
-              $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Post -Body $body -TimeoutSec 30
-              $content = $response.choices[0].message.content
-
-              if ([string]::IsNullOrWhiteSpace([string]$content)) {
-                  Write-Error "GEMINI API SMOKE TEST: FAIL - API returned no message content."
-                  exit 1
-              }
-
-              Write-Host "GEMINI API SMOKE TEST: PASS - secure GitHub key authenticated successfully."
-              Write-Host "Gemini model: $env:GEMINI_MODEL"
-          }
-          catch {
-              $message = [string]$_.Exception.Message
-              $statusCode = $null
-              if ($_.Exception.Response) {
-                  try {
-                      $statusCode = [int]$_.Exception.Response.StatusCode
-                  } catch {}
-              }
-
-              if ($statusCode -eq 429) {
-                  Write-Host "GEMINI API SMOKE TEST: PASS-WARN - Gemini endpoint is reachable but currently rate-limited (HTTP 429)."
-                  Write-Host "Gemini smoke test will not block the build on provider throttling."
-                  exit 0
-              }
-
-              Write-Host "GEMINI API SMOKE TEST: FAIL - API request was rejected or unreachable."
-              Write-Host ("Gemini error: " + $message)
-              if ($statusCode) {
-                  Write-Host ("HTTP status: " + $statusCode)
-              }
+          if ($env:VYOM_REMOTE_REASONING -ne "false" -or $env:VYOM_REMOTE_RESPONSES -ne "false") {
+              Write-Error "The CI contract requires computer reasoning and answer generation to remain local-first."
               exit 1
           }
+          Write-Host "LOCAL-FIRST CONTRACT: PASS - no conversational AI API is required for build or runtime."
+          Write-Host "Factual questions use website retrieval; ordinary computer commands use the local semantic brain."
 
 
       - name: Verify Exact Build Source
@@ -212,21 +156,26 @@ jobs:
               "ai_core/conversation_manager.py",
               "ai_core/conversation_result.py",
               "ai_core/deep_reasoner.py",
+              "ai_core/semantic_brain.py",
               "ai_core/goal_compiler.py",
               "ai_core/goal_router.py",
               "ai_core/logger.py",
               "ai_core/mission_planner.py",
               "ai_core/mission_runtime.py",
               "ai_core/model_gateway.py",
+              "ai_core/memory_learning_policy.py",
               "ai_core/observation_verifier.py",
               "ai_core/reasoning_engine.py",
               "ai_core/reasoning_gateway.py",
               "ai_core/response_engine.py",
+              "ai_core/web_knowledge.py",
               "ai_core/skill_builder.py",
               "ai_core/skill_registry.py",
               "ai_core/ui_autonomous_agent.py",
               "ai_core/result_schema.py",
               "ai_core/world_state.py",
+              "ai_core/providers/__init__.py",
+              "ai_core/providers/local_qwen.py",
 
               # COMMAND ENGINE
               "command_engine/__init__.py",
@@ -242,6 +191,7 @@ jobs:
               "tools/tool_manager.py",
               "tools/universal_app_launcher.py",
               "tools/universal_resolver.py",
+              "tools/vyom_benchmark_runner.py",
 
               # MEMORY
               "memory/selection_manager.py",
@@ -272,6 +222,9 @@ jobs:
               "tests/test_action_core.py",
               "tests/test_conversation_manager.py",
               "tests/test_deep_reasoner_gateway.py",
+              "tests/test_local_semantic_brain.py",
+              "tests/test_web_knowledge.py",
+              "tests/test_tts_voice_selection.py",
               "tests/test_generic_reasoning_integration.py",
               "tests/test_goal_intelligence.py",
               "tests/test_mission_planner_generic_actions.py",
@@ -285,7 +238,14 @@ jobs:
               "tests/test_phase1_contracts.py",
               "tests/test_ui_automation_phase2.py",
               "tests/test_phase3_verification.py",
-              "tests/test_windows_ui_capability.py"
+              "tests/test_windows_ui_capability.py",
+              "tests/test_local_qwen_provider.py",
+              "tests/test_m9_5_memory_learning_safety.py",
+              "tests/test_m10_1_benchmark_corpus.py",
+              "tests/test_m10_2_metrics_runner.py",
+              "tests/test_m10_4_windows_acceptance.py",
+              "tests/fixtures/m10_1_vyom_benchmark_corpus.json",
+              "tests/fixtures/m10_2_stub_observations.json"
           )
 
           foreach ($file in $requiredFiles) {
@@ -332,7 +292,7 @@ jobs:
         shell: powershell
         run: |
 
-          python -c "import ai_core; import ai_core.main; import ai_core.autonomous_agent; import ai_core.brain; import ai_core.capability_manager; import ai_core.capability_executor; import ai_core.capability_registry; import ai_core.capability_resolver; import ai_core.action_schema; import ai_core.action_validator; import ai_core.context_action_compiler; import ai_core.config; import ai_core.conversation_manager; import ai_core.conversation_result; import ai_core.deep_reasoner; import ai_core.goal_compiler; import ai_core.goal_router; import ai_core.logger; import ai_core.mission_planner; import ai_core.mission_runtime; import ai_core.model_gateway; import ai_core.observation_verifier; import ai_core.reasoning_engine; import ai_core.reasoning_gateway; import ai_core.response_engine; import ai_core.skill_builder; import ai_core.skill_registry; import ai_core.ui_autonomous_agent; import ai_core.world_state; import command_engine.executor; import command_engine.intent; import command_engine.multilingual_command; import command_engine.parser; import tools.tool_manager; import tools.universal_app_launcher; import tools.universal_resolver; import memory.selection_manager; import memory.session_memory; import windows_agent.clipboard_manager; import windows_agent.input_controller; import windows_agent.launcher; import windows_agent.process_manager; import windows_agent.screen_observer; import windows_agent.ui_automation; import windows_agent.ui_element_finder; import windows_agent.ui_grounder; import windows_agent.ui_state_observer; import windows_agent.ui_verifier; import windows_agent.ui_patterns; import windows_agent.window_manager; import ai_core.result_schema; print('VYOM CORE + STEP2 IMPORT TEST PASSED')"
+          python -c "import ai_core; import ai_core.providers; import ai_core.providers.local_qwen; import ai_core.main; import ai_core.autonomous_agent; import ai_core.brain; import ai_core.capability_manager; import ai_core.capability_executor; import ai_core.capability_registry; import ai_core.capability_resolver; import ai_core.action_schema; import ai_core.action_validator; import ai_core.context_action_compiler; import ai_core.config; import ai_core.conversation_manager; import ai_core.conversation_result; import ai_core.deep_reasoner; import ai_core.semantic_brain; import ai_core.goal_compiler; import ai_core.goal_router; import ai_core.logger; import ai_core.mission_planner; import ai_core.mission_runtime; import ai_core.model_gateway; import ai_core.observation_verifier; import ai_core.reasoning_engine; import ai_core.reasoning_gateway; import ai_core.response_engine; import ai_core.web_knowledge; import ai_core.skill_builder; import ai_core.skill_registry; import ai_core.ui_autonomous_agent; import ai_core.world_state; import command_engine.executor; import command_engine.intent; import command_engine.multilingual_command; import command_engine.parser; import tools.tool_manager; import tools.universal_app_launcher; import tools.universal_resolver; import memory.selection_manager; import memory.session_memory; import windows_agent.clipboard_manager; import windows_agent.input_controller; import windows_agent.launcher; import windows_agent.process_manager; import windows_agent.screen_observer; import windows_agent.ui_automation; import windows_agent.ui_element_finder; import windows_agent.ui_grounder; import windows_agent.ui_state_observer; import windows_agent.ui_verifier; import windows_agent.ui_patterns; import windows_agent.window_manager; import ai_core.result_schema; print('VYOM CORE + STEP2 IMPORT TEST PASSED')"
 
 
       # ======================================================
@@ -365,6 +325,52 @@ jobs:
           }
 
           Write-Host "COMPLETE PYTEST SUITE PASSED."
+
+
+      # ======================================================
+      # 11. M10.2 REPRODUCIBLE OFFLINE BENCHMARK BASELINE
+      # ======================================================
+
+      - name: Run M10.2 Offline Benchmark and Validate Report
+        shell: powershell
+        run: |
+          python tools/vyom_benchmark_runner.py --output artifacts/m10_2/benchmark_report.json --summary-output artifacts/m10_2/metrics_summary.json
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "M10.2 benchmark runner failed or reported a contract mismatch."
+              exit 1
+          }
+
+          if (!(Test-Path "artifacts/m10_2/benchmark_report.json") -or !(Test-Path "artifacts/m10_2/metrics_summary.json")) {
+              Write-Error "M10.2 report or metrics summary is missing."
+              exit 1
+          }
+
+          Write-Host "M10.2 deterministic report and summary created and validated."
+
+      # M10.3 gate: enforce deterministic synthetic harness regression limits.
+      # This does NOT measure live Vyom accuracy, safety, or latency.
+      - name: Run M10.3 Synthetic Regression Threshold Gate
+        shell: powershell
+        run: |
+          python tools/vyom_benchmark_thresholds.py --report artifacts/m10_2/benchmark_report.json --policy tests/fixtures/m10_3_regression_thresholds.json --output artifacts/m10_3/threshold_report.json
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "M10.3 regression threshold gate failed."
+              exit 1
+          }
+
+          if (!(Test-Path "artifacts/m10_3/threshold_report.json")) {
+              Write-Error "M10.3 threshold report is missing."
+              exit 1
+          }
+
+          Write-Host "M10.3 synthetic harness regression thresholds passed."
+
+
+      # The optional local model provider is covered by unit tests.
+      # CI does not install/download a model: Vyom's core build must not
+      # depend on any LLM service or local model being available.
 
 
       # ======================================================
@@ -451,8 +457,65 @@ jobs:
 
 
       # ======================================================
-      # 14. UPLOAD ONLY ONE EXE ARTIFACT
+      # 14. UPLOAD EXE ARTIFACT; M10.2 METRICS ARE A SEPARATE ARTIFACT
       # ======================================================
+
+      - name: Run M10.4 CI-host executable smoke preflight (not device acceptance)
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/vyom_windows_acceptance.ps1 -ExePath "dist/Vyom.exe" -OutputPath "artifacts/m10_4/ci_host_preflight.json" -AttemptLaunchSmokeTest
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "M10.4 CI-host preflight failed or the runner OS is unsupported."
+              exit 1
+          }
+
+          if (!(Test-Path "artifacts/m10_4/ci_host_preflight.json")) {
+              Write-Error "M10.4 CI-host preflight report is missing."
+              exit 1
+          }
+
+          $report = Get-Content -LiteralPath "artifacts/m10_4/ci_host_preflight.json" | Out-String | ConvertFrom-Json
+          if ($report.scope -ne "preflight_only_not_device_acceptance" -or $report.overall_status -ne "preflight_passed_manual_acceptance_pending" -or $report.launch_smoke_test.status -ne "pass") {
+              Write-Error "M10.4 preflight report contract failed."
+              exit 1
+          }
+
+          Write-Host "M10.4 CI-host preflight passed. This is not target-device acceptance."
+
+
+      - name: Prepare M10.4 target-device package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packageDir = "artifacts/m10_4/target_device_package"
+          $zipPath = "artifacts/m10_4/Vyom_M10_4_Target_Device_Package.zip"
+
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          Copy-Item -LiteralPath "dist/Vyom.exe" -Destination (Join-Path $packageDir "Vyom.exe") -Force
+          Copy-Item -LiteralPath "tools/vyom_windows_acceptance.ps1" -Destination (Join-Path $packageDir "vyom_windows_acceptance.ps1") -Force
+          Copy-Item -LiteralPath "docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md" -Destination (Join-Path $packageDir "M10_4_WINDOWS_ACCEPTANCE.md") -Force
+          Copy-Item -LiteralPath "docs/VYOM_M10_4_TARGET_DEVICE_PACKAGE_README.txt" -Destination (Join-Path $packageDir "README_FIRST.txt") -Force
+
+          if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -Force
+
+          if (!(Test-Path -LiteralPath $zipPath) -or (Get-Item -LiteralPath $zipPath).Length -lt 100000) {
+              Write-Error "M10.4 target-device package was not created or is unexpectedly small."
+              exit 1
+          }
+          Write-Host "Target-device package prepared: $zipPath"
+          Write-Host "This bundle is for user-run target-device evidence; CI does not certify the user's PC."
+
+
+      - name: Upload M10.4 Target Device Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_M10_4_Target_Device_Package
+          path: artifacts/m10_4/Vyom_M10_4_Target_Device_Package.zip
+          if-no-files-found: error
+          retention-days: 30
+
 
       - name: Upload Vyom EXE
         uses: actions/upload-artifact@v4
@@ -464,8 +527,40 @@ jobs:
 
 
       # ======================================================
-      # 15. FINAL BUILD SUMMARY
+      # 15. UPLOAD REPRODUCIBLE M10.2 BASELINE
       # ======================================================
+
+      - name: Upload M10.2 Benchmark Baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_M10_2_Benchmark_Baseline
+          path: |
+            artifacts/m10_2/benchmark_report.json
+            artifacts/m10_2/metrics_summary.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload M10.3 Regression Gate Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_M10_3_Regression_Gate
+          path: artifacts/m10_3/threshold_report.json
+          if-no-files-found: error
+          retention-days: 30
+
+
+      # ======================================================
+      # 16. FINAL BUILD SUMMARY
+      # ======================================================
+
+      - name: Upload M10.4 CI-host Preflight Diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vyom_M10_4_CI_Preflight
+          path: artifacts/m10_4/ci_host_preflight.json
+          if-no-files-found: error
+          retention-days: 30
+
 
       - name: Build Summary
         shell: powershell
@@ -486,9 +581,12 @@ jobs:
           Write-Host "    dist/Vyom.exe"
           Write-Host ""
 
-          Write-Host "ONE ARTIFACT:"
+          Write-Host "ARTIFACTS:"
           Write-Host ""
           Write-Host "    Vyom_EXE"
+          Write-Host "    Vyom_M10_2_Benchmark_Baseline (synthetic adapter conformance only)"
+          Write-Host "    Vyom_M10_3_Regression_Gate (synthetic threshold gate only)"
+          Write-Host "    Vyom_M10_4_Target_Device_Package (run locally; not CI device evidence)"
           Write-Host ""
 
           Write-Host "=============================================="

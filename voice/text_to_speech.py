@@ -20,7 +20,10 @@ IMPORTANT:
 """
 
 from typing import Optional
+import os
 import re
+import shutil
+import subprocess
 
 
 class TextToSpeech:
@@ -56,6 +59,10 @@ class TextToSpeech:
 
         self._current_voice = None
         self._pyttsx3 = None
+
+        # Prefer native Hindi speech when available without making it a startup requirement.
+        # If no Hindi voice/eSpeak is installed, retain the Windows SAPI fallback.
+        self.tts_mode = os.environ.get("VYOM_TTS_MODE", "auto").strip().lower()
 
         self._initialize()
 
@@ -353,6 +360,113 @@ class TextToSpeech:
             for attr in ("id", "name", "languages")
         ).lower()
 
+    def _has_hindi_sapi_voice(self, engine=None):
+        engine = engine or self.engine
+        if engine is None:
+            return False
+        try:
+            voices = engine.getProperty("voices") or []
+        except Exception:
+            return False
+        markers = ("hindi", "hi-in", "hi_in", "kalpana", "hemant")
+        return any(
+            any(marker in self._voice_identity(voice) for marker in markers)
+            for voice in voices
+        )
+
+    def _find_espeak_ng(self):
+        candidates = [shutil.which("espeak-ng"), shutil.which("espeak-ng.exe")]
+        roots = [
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            os.environ.get("LOCALAPPDATA", ""),
+        ]
+        for root in roots:
+            if root:
+                candidates.extend((
+                    os.path.join(root, "eSpeak NG", "espeak-ng.exe"),
+                    os.path.join(root, "eSpeak NG", "espeak-ng"),
+                ))
+        return next((path for path in candidates if path and os.path.isfile(path)), None)
+
+    def _speak_with_espeak_wav(self, executable, text):
+        """Render Hindi speech to WAV, then play it through Windows audio."""
+        temporary_path = None
+        try:
+            import tempfile
+            import winsound
+
+            timeout = max(15, min(45, int(len(str(text)) / 8) + 15))
+            kwargs = {"check": True, "capture_output": True, "timeout": timeout}
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            rendered = subprocess.run(
+                [executable, "-v", "hi", "--stdout", str(text)], **kwargs
+            )
+            audio = getattr(rendered, "stdout", None)
+            if not isinstance(audio, (bytes, bytearray)):
+                raise RuntimeError("eSpeak NG returned no WAV bytes")
+            audio = bytes(audio)
+            if not audio.startswith(b"RIFF") or b"WAVE" not in audio[:16]:
+                raise RuntimeError("eSpeak NG did not return a valid WAV stream")
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as stream:
+                temporary_path = stream.name
+                stream.write(audio)
+                stream.flush()
+
+            flags = getattr(winsound, "SND_FILENAME", 0) | getattr(winsound, "SND_SYNC", 0)
+            winsound.PlaySound(temporary_path, flags)
+            self._log("Hindi WAV playback completed through Windows audio.")
+            return {
+                "success": True, "text": str(text),
+                "message": "Speech rendered and played with local eSpeak NG Hindi voice.",
+            }
+        except Exception as error:
+            self._log("Hindi WAV playback path failed: " + type(error).__name__)
+            return {
+                "success": False, "text": str(text or ""),
+                "message": "Hindi WAV playback failed: " + type(error).__name__,
+            }
+        finally:
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except OSError:
+                    pass
+
+    def _speak_with_espeak(self, text):
+        executable = self._find_espeak_ng()
+        if not executable:
+            self._log(
+                "Hindi SAPI voice is not installed and eSpeak NG was not found. "
+                "Install eSpeak NG (Windows x64) or add a genuine Hindi SAPI voice."
+            )
+            return {
+                "success": False, "text": str(text or ""),
+                "message": "Hindi TTS voice is not installed. Install eSpeak NG or a compatible Hindi SAPI voice.",
+            }
+        try:
+            if os.name == "nt":
+                self._log("Rendering Hindi speech to WAV for Windows audio playback.")
+                wav_result = self._speak_with_espeak_wav(executable, text)
+                if wav_result.get("success"):
+                    return wav_result
+                self._log("WAV playback failed; falling back to direct eSpeak playback.")
+
+            self._log("Using local eSpeak NG Hindi voice (hi); no cloud TTS is used.")
+            kwargs = {
+                "check": True, "capture_output": True, "text": True,
+                "timeout": max(15, min(45, int(len(str(text)) / 8) + 15)),
+            }
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.run([executable, "-v", "hi", str(text)], **kwargs)
+            return {"success": True, "text": str(text), "message": "Speech completed with local eSpeak NG Hindi voice."}
+        except Exception as error:
+            self._log("eSpeak NG Hindi speech failed: " + type(error).__name__)
+            return {"success": False, "text": str(text or ""), "message": "Local Hindi TTS failed: " + type(error).__name__}
+
     def _select_voice_on_engine(self, engine, text):
         try:
             voices = engine.getProperty("voices") or []
@@ -362,20 +476,40 @@ class TextToSpeech:
 
         value = str(text or "")
         is_hindi = bool(re.search(r"[\u0900-\u097F]", value))
-        hindi_keywords = ("hindi", "hi-in", "hi_in", "hindi india", "kalpana", "heera", "hemant")
-        english_keywords = ("english", "en-in", "en_in", "en-us", "en_gb", "en-gb")
-        preferred = hindi_keywords if is_hindi else english_keywords
+        hindi_keywords = ("hindi", "hi-in", "hi_in", "hi-in", "hindi india", "kalpana", "heera", "hemant")
+        indian_english_keywords = ("en-in", "en_in", "indian english", "english india", "english (india)")
+        english_keywords = ("english", "en-us", "en_gb", "en-gb", "en-us")
 
-        selected = None
-        for voice in voices:
-            identity = self._voice_identity(voice)
-            if any(keyword in identity for keyword in preferred):
-                selected = voice
-                break
+        def first_matching(markers):
+            for candidate in voices:
+                identity = self._voice_identity(candidate)
+                if any(marker in identity for marker in markers):
+                    return candidate
+            return None
 
-        if selected is None and is_hindi and voices:
-            selected = voices[0]
-            self._log("Hindi SAPI voice unavailable; using installed default voice.")
+        selected = first_matching(hindi_keywords) if is_hindi else None
+        if selected is None and is_hindi:
+            # Do not silently choose the first installed voice (often US
+            # Microsoft David) when an Indian English SAPI voice is present.
+            selected = first_matching(indian_english_keywords)
+            if selected is not None:
+                self._log(
+                    "Hindi SAPI voice unavailable; using Indian English fallback: "
+                    + str(getattr(selected, "name", selected.id))
+                )
+            elif voices:
+                selected = voices[0]
+                self._log(
+                    "Hindi SAPI voice is not installed; using available fallback: "
+                    + str(getattr(selected, "name", selected.id))
+                    + ". Install a Hindi SAPI voice for native Hindi pronunciation."
+                )
+        elif selected is None:
+            # Prefer an Indian English voice for mixed Hindi-English command
+            # names; only then fall back to another installed English voice.
+            selected = first_matching(indian_english_keywords) or first_matching(english_keywords)
+            if selected is None and voices:
+                selected = voices[0]
 
         if selected is not None:
             try:
@@ -412,15 +546,37 @@ class TextToSpeech:
         engine = None
         previous = self.engine
         try:
+            is_hindi_text = bool(re.search(r"[\u0900-\u097F]", text))
             if previous is not None:
                 try:
                     previous.stop()
                 except Exception:
                     pass
+            # Normal mode respects the Windows default/selected SAPI voice exactly as
+            # before. Hindi pronunciation support is optional and must never stop
+            # Vyom from responding when a Hindi voice or eSpeak NG is unavailable.
+            optional_hindi_modes = {"auto", "hindi", "espeak", "espeak-ng"}
+            use_optional_hindi = self.tts_mode in optional_hindi_modes
 
-            engine = self._create_fresh_engine()
-            self.engine = engine
-            self._select_voice_on_engine(engine, text)
+            if is_hindi_text and use_optional_hindi:
+                if self._has_hindi_sapi_voice(previous):
+                    engine = self._create_fresh_engine()
+                    self.engine = engine
+                    self._select_voice_on_engine(engine, text)
+                else:
+                    local_result = self._speak_with_espeak(text)
+                    if local_result.get("success"):
+                        return local_result
+                    self._log(
+                        "Optional Hindi TTS is unavailable; falling back to the "
+                        "Windows-selected SAPI voice. Vyom will continue normally."
+                    )
+
+            if engine is None:
+                engine = self._create_fresh_engine()
+                self.engine = engine
+                # Do not set a voice in the default mode. SAPI will use the
+                # system/user-selected voice; voice choice is never a startup dependency.
 
             self._log("engine.say() START")
             engine.say(text)

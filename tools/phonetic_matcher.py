@@ -87,8 +87,13 @@ def score_candidate(query, candidate):
             if q == c:
                 return 1.0
             if q in c or c in q:
-                best = max(best, 0.90)
-                continue
+                # A one- or two-character substring (for example "a" in
+                # "amejon") is not meaningful phonetic evidence. Preserve
+                # exact equality above, but only grant substring confidence
+                # when the shorter compared term is at least four characters.
+                if min(len(q), len(c)) >= 4:
+                    best = max(best, 0.90)
+                    continue
             best = max(best, _pair_score(q, c))
     return best
 

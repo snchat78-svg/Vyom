@@ -324,34 +324,52 @@ class SpeechToText:
             "hey vyom", "हे व्योम", "हे वियोम",
         )
 
-    def _wake_detected(self, text):
+    def _wake_detected(self, text, *, allow_fuzzy=True, strict=False):
         value = self._normalize_text(text)
         if not value:
             return False, ""
 
-        compact_value = self._compact(value)
+        # Google's lower-ranked alternatives are noisier than its first
+        # hypothesis. In strict mode accept only unmistakable canonical forms;
+        # do not let a weak alternate such as "viom" turn "Jio"/"Vivo" into
+        # a false wake event.
+        canonical_aliases = (
+            "vyom", "व्योम", "hey vyom", "हे व्योम",
+            "vyom ji", "व्योम जी", "व्योमजी",
+        )
+        raw_aliases = canonical_aliases if strict else self._wake_aliases()
         aliases = []
-        for alias in self._wake_aliases():
+        for alias in raw_aliases:
             normalized = self._normalize_text(alias)
             if normalized and normalized not in aliases:
                 aliases.append(normalized)
 
+        compact_value = self._compact(value)
         for alias in aliases:
-            if value == alias or alias in value or self._compact(alias) in compact_value:
+            compact_alias = self._compact(alias)
+            if value == alias or alias in value:
+                return True, alias
+            # Phrase matching should not join arbitrary characters across words.
+            if " " in alias and compact_alias in compact_value:
                 return True, alias
 
-        # Only short transcripts are eligible for fuzzy wake matching.
-        if len(value) <= 24:
+        # Fuzzy matching is allowed only for Google's first transcript and a
+        # high similarity score. This is a proper-name wake word, so false
+        # activations are more costly than asking the user to say it again.
+        if allow_fuzzy and len(value) <= 24:
             best_alias = ""
             best_score = 0.0
             for alias in aliases:
-                if len(alias) > 12:
+                compact_alias = self._compact(alias)
+                if len(compact_alias) < 4 or len(compact_alias) > 12:
                     continue
-                score = difflib.SequenceMatcher(None, compact_value, self._compact(alias)).ratio()
+                score = difflib.SequenceMatcher(
+                    None, compact_value, compact_alias
+                ).ratio()
                 if score > best_score:
                     best_score = score
                     best_alias = alias
-            if best_score >= 0.72:
+            if best_score >= 0.86:
                 return True, best_alias
         return False, ""
 
@@ -371,8 +389,10 @@ class SpeechToText:
         if first.get("text") and first.get("text") not in candidates:
             candidates.insert(0, first.get("text"))
 
-        for text in candidates:
-            matched, alias = self._wake_detected(text)
+        for index, text in enumerate(candidates):
+            matched, alias = self._wake_detected(
+                text, allow_fuzzy=(index == 0), strict=(index > 0)
+            )
             if matched:
                 self._last_raw_text = text
                 self._last_text = normalize_voice_text(text)
@@ -394,8 +414,10 @@ class SpeechToText:
             candidates = list(second.get("alternatives") or [])
             if second.get("text") and second.get("text") not in candidates:
                 candidates.insert(0, second.get("text"))
-            for text in candidates:
-                matched, alias = self._wake_detected(text)
+            for index, text in enumerate(candidates):
+                matched, alias = self._wake_detected(
+                    text, allow_fuzzy=(index == 0), strict=(index > 0)
+                )
                 if matched:
                     self._last_raw_text = text
                     self._last_text = normalize_voice_text(text)

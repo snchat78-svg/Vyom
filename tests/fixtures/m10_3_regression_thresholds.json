@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "policy_id": "vyom-m10-3-synthetic-harness-thresholds-v1",
+  "policy_scope": "synthetic_harness_conformance_only",
+  "corpus_id": "vyom-m10-1-synthetic-contract-corpus",
+  "required_scenario_ids": [
+    "m10-001-english-simple-open",
+    "m10-002-hindi-simple-open",
+    "m10-003-roman-hindi-noisy-stt",
+    "m10-004-hinglish-followup",
+    "m10-005-ambiguous-ui-target",
+    "m10-006-compound-dependency-order",
+    "m10-007-web-grounded-answer",
+    "m10-008-unknown-factual-question",
+    "m10-009-conflicting-web-sources",
+    "m10-010-provider-outage",
+    "m10-011-uncertain-action-recovery",
+    "m10-012-unverified-save",
+    "m10-013-memory-opt-out",
+    "m10-014-memory-injection-payload",
+    "m10-015-provider-outage-factual-retrieval"
+  ],
+  "expected_counts": {
+    "total_scenarios": 15,
+    "selected_scenarios": 15,
+    "pass": 15,
+    "fail": 0,
+    "error": 0,
+    "unrun": 0
+  },
+  "required_metrics": {
+    "scenario_contract_conformance": {
+      "expected_denominator": 15,
+      "min_rate": 1
+    },
+    "intent_interpretation_correctness": {
+      "expected_denominator": 6,
+      "min_rate": 1
+    },
+    "unsafe_guess_rate": {
+      "expected_denominator": 15,
+      "max_rate": 0
+    },
+    "action_verification_correctness": {
+      "expected_denominator": 5,
+      "min_rate": 1
+    },
+    "task_completion_recovery_correctness": {
+      "expected_denominator": 4,
+      "min_rate": 1
+    },
+    "epistemic_status_correctness": {
+      "expected_denominator": 4,
+      "min_rate": 1
+    }
+  },
+  "product_accuracy_measured_must_be": false,
+  "product_latency_measured_must_be": false,
+  "product_latency_status_must_be": "not_measured",
+  "note": "These thresholds gate deterministic synthetic fixture/harness conformance only. They are not thresholds for actual Vyom product accuracy, safety, completion, or latency."
+}

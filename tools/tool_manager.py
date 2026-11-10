@@ -75,8 +75,12 @@ IMPORTANT:
 """
 
 import os
+import re
+import time
 
 from windows_agent.process_manager import ProcessManager
+from windows_agent.window_manager import WindowManager
+from tools.phonetic_matcher import score_candidate
 
 from tools.file_manager import FileManager
 
@@ -100,6 +104,7 @@ class ToolManager:
         # -----------------------------------------------------
 
         self.process_manager = ProcessManager()
+        self.window_manager = WindowManager()
 
         self.file_manager = FileManager()
 
@@ -177,8 +182,8 @@ class ToolManager:
 
                 name = str(
                     item.get(
-                        "name",
-                        ""
+                        "display_name",
+                        item.get("name", "")
                     )
                 ).strip()
 
@@ -739,9 +744,12 @@ class ToolManager:
         #     pic samu.jpg
         # -----------------------------------------------------
 
-        resolver_results = self.resolver.find(
-            target
-        )
+        file_only_finder = getattr(self.resolver, "find_file_or_folder", None)
+        if callable(file_only_finder):
+            resolver_results = file_only_finder(target)
+        else:
+            # Compatibility with resolver adapters created by older callers.
+            resolver_results = self.resolver.find(target)
 
         if resolver_results:
 
@@ -824,7 +832,155 @@ class ToolManager:
     # This combines the old and new behaviour.
     # =========================================================
 
-    def _open_target(
+    def _foreground_snapshot(self):
+        try:
+            return self.window_manager.get_foreground() or {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _title_segments(title):
+        value = str(title or "").strip()
+        if not value:
+            return []
+        pieces = [piece.strip() for piece in re.split(r"\s+(?:-|—|–|\|)\s+", value) if piece.strip()]
+        return pieces or [value]
+
+    @staticmethod
+    def _same_runtime_target(target, candidate):
+        target_text = str(target or "").strip().lower()
+        candidate_text = str(candidate or "").strip().lower()
+        if not target_text or not candidate_text:
+            return False
+        if target_text == candidate_text:
+            return True
+        if target_text in candidate_text or candidate_text in target_text:
+            return False
+        return score_candidate(target_text, candidate_text) >= 0.80
+
+    def _foreground_matches_target(self, target, window):
+        title = str(window.get("title") or "").strip() if isinstance(window, dict) else ""
+        return any(self._same_runtime_target(target, segment) for segment in self._title_segments(title))
+
+    def _verify_open_effect(self, target, before, raw_result):
+        """Observe the resulting foreground window after a legacy open route."""
+        source = raw_result if isinstance(raw_result, dict) else {}
+        candidates = [str(target or "").strip()]
+        records = source.get("results") if isinstance(source, dict) else None
+        if isinstance(records, list):
+            for item in records:
+                if isinstance(item, dict):
+                    name = str(item.get("name") or "").strip()
+                    if name and name not in candidates:
+                        candidates.append(name)
+
+        before_hwnd = before.get("hwnd") if isinstance(before, dict) else None
+        after = {}
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            after = self._foreground_snapshot()
+            title = str(after.get("title") or "").strip()
+            after_hwnd = after.get("hwnd")
+            if after_hwnd and title:
+                if before_hwnd and after_hwnd != before_hwnd:
+                    return True, after, "foreground_window_changed"
+                for candidate in candidates:
+                    # Match each caption segment so app captions remain discoverable.
+                    if candidate and self._foreground_matches_target(candidate, after):
+                        return True, after, "foreground_title_match"
+            time.sleep(0.15)
+        return False, after, "foreground_change_not_observed"
+
+    def _open_result_contract(self, target, before, raw_result):
+        if isinstance(raw_result, dict):
+            if self.selection_manager.has_results():
+                return {
+                    "success": False,
+                    "status": "needs_selection",
+                    "stage": "needs_selection",
+                    "message": str(raw_result.get("message") or "कृपया एक विकल्प चुनें।"),
+                    "selection_options": list(self.selection_manager.results),
+                    "result": raw_result,
+                    "verification": {"verified": False, "reason": "Selection is pending."},
+                }
+            launch_succeeded = bool(raw_result.get("success", False))
+        else:
+            # Legacy callers return display text. Accept only explicit success
+            # wording; a foreground change alone cannot turn "not found" into
+            # a successful application launch.
+            legacy_message = str(raw_result or "").strip().lower()
+            launch_succeeded = legacy_message.startswith((
+                "opened successfully",
+                "opened windows application",
+                "opened ",
+            ))
+
+        if self.selection_manager.has_results():
+            return {
+                "success": False,
+                "status": "needs_selection",
+                "stage": "needs_selection",
+                "message": str(raw_result or "कृपया एक विकल्प चुनें।"),
+                "selection_options": list(self.selection_manager.results),
+                "result": raw_result,
+                "verification": {"verified": False, "reason": "Selection is pending."},
+            }
+
+        verified, after, method = self._verify_open_effect(target, before, raw_result)
+        success = bool(verified and launch_succeeded)
+        if success:
+            message = (
+                "हाँ, %s खोल दिया है। अब बताइए, आगे क्या करना है।"
+                % str((after or {}).get("title") or target).strip()
+            )
+        else:
+            message = (
+                "मैंने खोलने का अनुरोध किया, लेकिन स्क्रीन पर उसका खुलना verify नहीं कर पाया। "
+                "कृपया देखें कि ऐप खुला है या नहीं।"
+            )
+        return {
+            "success": success,
+            "status": "success" if success else "failed",
+            "stage": "verified" if success else "launch_unverified",
+            "message": message,
+            "result": raw_result,
+            "verification": {
+                "verified": success,
+                "verification_level": "foreground_state",
+                "method": method,
+                "window_before": before or {},
+                "window_after": after or {},
+            },
+        }
+
+    def _open_target(self, target, structured=False):
+        # Preserve the established string-returning contract for old callers.
+        # The unified executor opts into a structured, observation-backed
+        # result so a missing app cannot be reported as a false success.
+        if not structured:
+            return self._open_target_legacy(target)
+        before = self._foreground_snapshot()
+        if self._foreground_matches_target(target, before):
+            title = str(before.get("title") or target).strip()
+            message = "%s is already active; reusing the existing window." % title
+            return {
+                "success": True,
+                "status": "success",
+                "stage": "verified",
+                "message": message,
+                "result": {"success": True, "reused_existing_window": True, "message": message},
+                "verification": {
+                    "verified": True,
+                    "verification_level": "foreground_state",
+                    "method": "existing_foreground_match",
+                    "window_before": before,
+                    "window_after": before,
+                },
+            }
+        raw_result = self._open_target_legacy(target)
+        return self._open_result_contract(target, before, raw_result)
+
+    def _open_target_legacy(
         self,
         target
     ):
@@ -1109,9 +1265,26 @@ class ToolManager:
             []
         )
 
-        resolver_results = self.resolver.find(
-            target
-        )
+        file_only_finder = getattr(self.resolver, "find_file_or_folder", None)
+        target_words = set(re.findall(
+            r"[a-z0-9]+|[\u0900-\u097f]+",
+            str(target or "").lower(),
+        ))
+        # Use fuzzy file matching only when the utterance itself signals a
+        # file/photo/document/folder request. A generic failed app name such
+        # as "amejon" must never fan out into arbitrary JPG/MP3 suggestions.
+        explicit_file_cues = {
+            "file", "files", "folder", "folders", "directory", "directories",
+            "photo", "photos", "foto", "fotos", "picture", "pictures",
+            "image", "images", "pdf", "jpg", "jpeg", "png", "gif", "document",
+            "documents", "file", "tasveer", "tasveeren", "tasveeron",
+            "फोटो", "तस्वीर", "तस्वीरें", "चित्र", "फाइल", "फ़ाइल", "पीडीएफ",
+            "इमेज", "दस्तावेज", "दस्तावेज़", "फ़ोल्डर", "फोल्डर",
+        }
+        if callable(file_only_finder) and not (target_words & explicit_file_cues):
+            resolver_results = file_only_finder(target)
+        else:
+            resolver_results = self.resolver.find(target)
 
         if resolver_results:
 
@@ -1328,7 +1501,8 @@ class ToolManager:
 
     def execute(
         self,
-        intent
+        intent,
+        structured=False,
     ):
 
         if not isinstance(
@@ -1384,7 +1558,8 @@ class ToolManager:
         if intent_type == "open":
 
             return self._open_target(
-                target
+                target,
+                structured=structured,
             )
 
         # =====================================================

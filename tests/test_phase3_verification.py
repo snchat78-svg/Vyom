@@ -54,6 +54,43 @@ class Phase3VerificationTests(unittest.TestCase):
             {"success": True},
         )
         self.assertFalse(result["verified"])
+    def test_click_ui_element_requires_observable_effect(self):
+        action = {
+            "action": "click_ui_element",
+            "capability": "windows_ui",
+            "target": "Send",
+        }
+        before = {
+            "target_element": {"exists": True, "name": "Send", "focused": False},
+            "focused_element": {"exists": True, "name": "Input", "value": "hello"},
+            "ui_tree_signature": [{"name": "Send"}],
+            "active_window": {"name": "Chat", "hwnd": 10},
+        }
+        unchanged = {
+            "target_element": {"exists": True, "name": "Send", "focused": False},
+            "focused_element": {"exists": True, "name": "Input", "value": "hello"},
+            "ui_tree_signature": [{"name": "Send"}],
+            "active_window": {"name": "Chat", "hwnd": 10},
+        }
+        result = self.verifier.verify(action, before, unchanged, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_click_ui_element_passes_when_target_state_changes(self):
+        action = {
+            "action": "click_ui_element",
+            "capability": "windows_ui",
+            "target": "Send",
+        }
+        before = {
+            "target_element": {"exists": True, "name": "Send", "focused": False},
+            "focused_element": {"exists": True, "name": "Input", "value": "hello"},
+        }
+        after = {
+            "target_element": {"exists": True, "name": "Send", "focused": True},
+            "focused_element": {"exists": True, "name": "Send"},
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertTrue(result["verified"])
 
     def test_custom_postcondition_is_generic(self):
         action = {
@@ -111,6 +148,219 @@ class Phase3VerificationTests(unittest.TestCase):
         )
         self.assertFalse(result["verified"])
         self.assertEqual(result["verification_level"], "execution_failed")
+
+
+    def test_missing_negative_postcondition_evidence_does_not_pass(self):
+        action = {
+            "action": "click_ui_element",
+            "target": "Send",
+            "metadata": {
+                "verification": {
+                    "mode": "all",
+                    "checks": [
+                        {
+                            "kind": "property",
+                            "source": "target_element",
+                            "field": "name",
+                            "operator": "not_equals",
+                            "value": "Send",
+                        },
+                        {"kind": "element_not_exists", "source": "target_element"},
+                    ],
+                }
+            },
+        }
+        result = self.verifier.verify(action, {}, {}, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_missing_execution_result_is_not_assumed_success(self):
+        action = {"action": "click_ui_element", "target": "Search"}
+        before = {
+            "target_element": {"exists": True, "name": "Search"},
+            "ui_tree_signature": [{"name": "Search"}],
+        }
+        after = {
+            "target_element": {"exists": True, "name": "Search", "focused": True},
+            "ui_tree_signature": [{"name": "Search", "focused": True}],
+        }
+        result = self.verifier.verify(action, before, after)
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification_level"], "execution_failed")
+
+    def test_empty_after_tree_is_not_evidence_of_ui_transition(self):
+        action = {"action": "click", "target": ""}
+        before = {
+            "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+            "focused_element": {"exists": True, "name": "Editor"},
+            "ui_tree_signature": [{"name": "Search"}],
+        }
+        after = {
+            "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+            "focused_element": {"exists": True, "name": "Editor"},
+            "ui_tree_signature": [],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+
+    def test_state_change_does_not_pass_on_missing_after_properties(self):
+        action = {"action": "toggle_ui_element", "target": "Toggle"}
+        before = {
+            "target_element": {
+                "exists": True,
+                "name": "Toggle",
+                "toggle_state": 0,
+            }
+        }
+        after = {"target_element": {"exists": True}}
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_partial_focus_snapshot_does_not_count_as_focus_change(self):
+        action = {"action": "click", "target": ""}
+        before = {
+            "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+            "focused_element": {"exists": True, "name": "Editor"},
+            "ui_tree_signature": [{"name": "Search"}],
+        }
+        after = {
+            "active_window": {"exists": True, "name": "Example", "hwnd": 7},
+            "focused_element": {"exists": True},
+            "ui_tree_signature": [{"name": "Search"}],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+
+    def test_type_text_does_not_pass_on_unrelated_tree_change(self):
+        action = {
+            "action": "type_text",
+            "target": "Hello",
+            "args": {"text": "Hello"},
+        }
+        before = {
+            "focused_element": {"exists": True, "value": "", "text": ""},
+            "ui_tree_signature": [{"name": "Editor"}],
+        }
+        after = {
+            "focused_element": {"exists": True, "value": "", "text": ""},
+            "ui_tree_signature": [{"name": "Editor"}, {"name": "New unrelated item"}],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_type_text_requires_the_focused_value_to_change(self):
+        action = {"action": "type_text", "target": "Hello", "args": {"text": "Hello"}}
+        before = {
+            "focused_element": {"exists": True, "value": "Hello", "text": "Hello"},
+            "ui_tree_signature": [{"name": "Editor"}],
+        }
+        after = {
+            "focused_element": {"exists": True, "value": "Hello", "text": "Hello"},
+            "ui_tree_signature": [{"name": "Editor"}, {"name": "Changed"}],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_set_ui_value_requires_exact_value_including_clear(self):
+        action = {
+            "action": "set_ui_value",
+            "args": {"value": ""},
+        }
+        cleared = {"target_element": {"exists": True, "value": ""}}
+        result = self.verifier.verify(action, {}, cleared, {"success": True})
+        self.assertTrue(result["verified"])
+
+        stale = {"target_element": {"exists": True, "value": "old value plus expected"}}
+        action["args"]["value"] = "expected"
+        result = self.verifier.verify(action, {}, stale, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_toggle_requires_toggle_or_selection_state_change(self):
+        action = {"action": "toggle_ui_element", "target": "Toggle"}
+        before = {
+            "target_element": {
+                "exists": True, "name": "Toggle", "toggle_state": "0", "selected": False
+            }
+        }
+        name_only_change = {
+            "target_element": {
+                "exists": True, "name": "Toggle enabled", "toggle_state": "0", "selected": False
+            }
+        }
+        result = self.verifier.verify(action, before, name_only_change, {"success": True})
+        self.assertFalse(result["verified"])
+
+        after = {
+            "target_element": {
+                "exists": True, "name": "Toggle enabled", "toggle_state": "1", "selected": True
+            }
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertTrue(result["verified"])
+
+
+    def test_ui_observer_preserves_empty_value_for_cleared_control(self):
+        class EmptyEdit:
+            def get_value(self):
+                return ""
+
+            def window_text(self):
+                return "Search"
+
+        observed = UIStateObserver.element_state(EmptyEdit())
+        self.assertTrue(observed["exists"])
+        self.assertEqual(observed["value"], "")
+
+
+    def test_type_text_falls_back_to_changed_visible_surface_without_focus(self):
+        action = {
+            "action": "type_text",
+            "target": "focused_element",
+            "args": {"text": "25+25"},
+        }
+        before = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [{"name": "Display is 0", "control_type": "Text"}],
+        }
+        after = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [{"name": "Display is 25+25", "control_type": "Text"}],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertTrue(result["verified"])
+
+    def test_type_text_without_focus_rejects_unrelated_surface_change(self):
+        action = {"action": "type_text", "target": "focused_element", "args": {"text": "25+25"}}
+        before = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [{"name": "Display is 0", "control_type": "Text"}],
+        }
+        after = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [
+                {"name": "Display is 0", "control_type": "Text"},
+                {"name": "Unrelated notification", "control_type": "Text"},
+            ],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
+
+    def test_type_text_without_focus_rejects_payload_already_visible_before(self):
+        action = {"action": "type_text", "target": "focused_element", "args": {"text": "25+25"}}
+        before = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [{"name": "History item 25+25", "control_type": "Text"}],
+        }
+        after = {
+            "focused_element": {"exists": False},
+            "ui_tree_signature": [
+                {"name": "History item 25+25", "control_type": "Text"},
+                {"name": "Unrelated notification", "control_type": "Text"},
+            ],
+        }
+        result = self.verifier.verify(action, before, after, {"success": True})
+        self.assertFalse(result["verified"])
 
 
 if __name__ == "__main__":

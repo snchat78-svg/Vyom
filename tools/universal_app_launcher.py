@@ -162,6 +162,9 @@ class UniversalAppLauncher:
 
         self._cache = []
         self._cache_time = 0
+        # Populated only when the direct AppsFolder fallback finds multiple
+        # exact-name entries; callers must surface these as a selection.
+        self._last_appsfolder_matches = []
 
         # Cache for 60 seconds
         self.cache_seconds = 60
@@ -453,6 +456,21 @@ class UniversalAppLauncher:
 
         results.append(item)
 
+    @staticmethod
+    def _stop_child_process(process):
+        """Terminate a timed-out discovery child and drain its pipes."""
+        if process is None:
+            return
+        try:
+            if process.poll() is None:
+                process.kill()
+        except Exception:
+            pass
+        try:
+            process.communicate(timeout=1)
+        except Exception:
+            pass
+
     # ========================================================
     # START MENU SCAN
     # ========================================================
@@ -658,7 +676,7 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=30
+                timeout=4
             )
 
             results = []
@@ -707,7 +725,7 @@ catch {
             OSError,
             Exception
         ):
-
+            self._stop_child_process(locals().get("process"))
             return []
 
     # ========================================================
@@ -792,7 +810,7 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=30
+                timeout=4
             )
 
             results = []
@@ -843,7 +861,7 @@ catch {
             OSError,
             Exception
         ):
-
+            self._stop_child_process(locals().get("process"))
             return []
 
     # ========================================================
@@ -944,7 +962,7 @@ catch {
             )
 
             stdout, stderr = process.communicate(
-                timeout=45
+                timeout=5
             )
 
             results = []
@@ -994,7 +1012,7 @@ catch {
             OSError,
             Exception
         ):
-
+            self._stop_child_process(locals().get("process"))
             return []
 
     # ========================================================
@@ -1076,6 +1094,9 @@ catch {
                 self.program_files_x86
             )
 
+        scan_started = time.monotonic()
+        scan_budget_seconds = 2.5 if target_name else 8.0
+
         for base in bases:
 
             if not os.path.exists(base):
@@ -1088,6 +1109,8 @@ catch {
                     base,
                     onerror=lambda e: None
                 ):
+                    if time.monotonic() - scan_started >= scan_budget_seconds:
+                        return results
 
                     # Avoid huge cache folders
                     dirs[:] = [
@@ -1247,6 +1270,66 @@ catch {
     # SEARCH
     # ========================================================
 
+    def _rank_by_confidence_margin(self, scored, minimum_score, margin=0.055):
+        """Return the top candidate only when its score margin is unambiguous.
+
+        If a distinct runtime-discovered candidate scores within the margin of
+        the leader, return the near-tied candidates together so open asks the
+        user to choose instead of silently launching the first result.
+        """
+        ranked = []
+        for entry in scored or []:
+            if not isinstance(entry, (tuple, list)) or len(entry) != 2:
+                continue
+            try:
+                score = float(entry[0])
+            except (TypeError, ValueError, OverflowError):
+                continue
+            item = entry[1]
+            if not isinstance(item, dict) or not str(item.get("name") or "").strip():
+                continue
+            ranked.append((score, item))
+
+        ranked.sort(key=lambda pair: (
+            -pair[0],
+            self.normalize(pair[1].get("name", "")),
+            str(pair[1].get("path") or "").casefold(),
+        ))
+        if not ranked or ranked[0][0] < float(minimum_score):
+            return []
+
+        top_score, top_item = ranked[0]
+
+        def identity(item):
+            return tuple(
+                str(item.get(key) or "").strip().casefold()
+                for key in ("name", "path", "app_id", "aumid")
+            )
+
+        top_identity = identity(top_item)
+        near_ties = [
+            (score, item)
+            for score, item in ranked[1:]
+            if score >= top_score - float(margin)
+            and identity(item) != top_identity
+        ]
+        if not near_ties:
+            return [top_item]
+
+        candidates = []
+        seen = set()
+        for score, item in ranked:
+            if score < top_score - float(margin):
+                continue
+            key = identity(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(item)
+            if len(candidates) >= self.max_results:
+                break
+        return candidates
+
     def search(
         self,
         target,
@@ -1325,14 +1408,47 @@ catch {
         if exact:
             return exact[:self.max_results]
 
-        # Avoid a full Windows application inventory when a strong quick
-        # candidate already exists. This is important on low-resource
-        # machines: Start Apps/AppX/AppsFolder discovery can spawn large
-        # PowerShell processes and enumerate hundreds of entries.
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        strong = [item for score, item in scored if score >= 0.90]
-        if strong and not force_refresh:
-            return strong[:self.max_results]
+        # Keep the fast path for confident speech repairs, but never discard
+        # a near-tied candidate just because it falls slightly below 0.90.
+        # Close distinct runtime matches are returned together for selection.
+        if scored and not force_refresh:
+            confident_matches = self._rank_by_confidence_margin(
+                scored, minimum_score=0.84, margin=0.055
+            )
+            if confident_matches:
+                return confident_matches[:self.max_results]
+
+        # Targeted Program Files discovery comes before the expensive
+        # complete AppsFolder/AppX inventory. It is generic and preserves
+        # phonetic/fuzzy matching while reducing latency for installed desktop
+        # applications that are not exposed by Start Menu/desktop shortcuts.
+        if not force_refresh:
+            try:
+                # The target must be supplied here. Scanning every EXE and
+                # filtering afterward was needlessly expensive on cold starts.
+                targeted = self.scan_program_files(target)
+            except Exception:
+                targeted = []
+
+            targeted_scored = []
+            for app in targeted:
+                if not isinstance(app, dict):
+                    continue
+                app_name = str(app.get("name", "")).strip()
+                if not app_name:
+                    continue
+                score = max(
+                    self._match_score(variant, app_name)
+                    for variant in target_variants
+                )
+                if score >= 0.62:
+                    targeted_scored.append((float(score), app))
+
+            targeted_matches = self._rank_by_confidence_margin(
+                targeted_scored, minimum_score=0.82, margin=0.055
+            )
+            if targeted_matches:
+                return targeted_matches[:self.max_results]
 
         database = self.build_database(force=force_refresh)
         for app in database:
@@ -1347,7 +1463,10 @@ catch {
             )
             add_candidate(app, score)
 
-        if not exact and not scored:
+        # A normal search already performed the bounded, target-scoped
+        # Program Files scan above. Repeat it only for an explicit forced
+        # refresh; doing it twice made a no-match voice command feel frozen.
+        if not exact and not scored and force_refresh:
             try:
                 for variant in target_variants:
                     for item in self.scan_program_files(variant):
@@ -1414,7 +1533,11 @@ catch {
         )
 
         if not normalized_target:
-
+            return []
+        # Very short targets are not distinctive enough for fuzzy suggestions
+        # across the installed-app inventory ("kal" can match unrelated names).
+        compact_target = re.sub(r"[^a-z0-9]", "", normalized_target)
+        if len(compact_target) < 4:
             return []
 
         database = self.build_database()
@@ -1453,7 +1576,7 @@ catch {
         phonetic_matches = rank_candidates(
             normalized_target,
             candidates,
-            threshold=0.62,
+            threshold=0.74,
             limit=limit
         )
 
@@ -1641,90 +1764,57 @@ catch {
     #   4. Launch through explorer.exe
     # ========================================================
 
-    def open_appsfolder_by_name(
-        self,
-        target
-    ):
-
+    def _find_appsfolder_candidates_by_name(self, target):
+        """Return all exact-name AppsFolder entries without launching any."""
         if not self.is_windows():
+            return []
 
-            return False
-
-        target = self.clean_target(
-            target
-        )
-
+        target = self.clean_target(target)
         if not target:
+            return []
 
-            return False
-
-        safe_target = target.replace(
-            "'",
-            "''"
-        )
-
+        safe_target = target.replace("'", "''")
         script = r"""
 $ErrorActionPreference = "SilentlyContinue"
-
 $target = '__TARGET__'
+$matches = @()
 
 try {
-
     $shell = New-Object -ComObject Shell.Application
-
     $folder = $shell.Namespace(
         "shell:::{4234d49b-0245-4df3-b780-3893943456e1}"
     )
-
-    if ($folder -eq $null) {
-
-        exit 2
-    }
-
-    foreach ($item in $folder.Items()) {
-
-        try {
-
-            $name = [string]$item.Name
-            $path = [string]$item.Path
-
-            if (
-                $name -and
-                $name.Equals(
-                    $target,
-                    [System.StringComparison]::OrdinalIgnoreCase
-                )
-            ) {
-
-                if ($path) {
-
-                    Write-Output $path
-
-                    exit 0
+    if ($folder -ne $null) {
+        foreach ($item in $folder.Items()) {
+            try {
+                $name = [string]$item.Name
+                $path = [string]$item.Path
+                if (
+                    $name -and $path -and
+                    $name.Equals(
+                        $target,
+                        [System.StringComparison]::OrdinalIgnoreCase
+                    )
+                ) {
+                    $matches += [PSCustomObject]@{
+                        Name = $name
+                        Path = $path
+                    }
                 }
-            }
-
-        }
-        catch {
-
+            } catch {}
         }
     }
+} catch {}
 
+foreach ($match in $matches) {
+    Write-Output ("MATCH" + [char]9 + $match.Name + [char]9 + $match.Path)
 }
-catch {
-
-}
-
+if ($matches.Count -gt 0) { exit 0 }
 exit 3
 """
-
-        script = script.replace(
-            "__TARGET__",
-            safe_target
-        )
+        script = script.replace("__TARGET__", safe_target)
 
         try:
-
             process = subprocess.Popen(
                 [
                     "powershell.exe",
@@ -1733,67 +1823,82 @@ exit 3
                     "-ExecutionPolicy",
                     "Bypass",
                     "-Command",
-                    script
+                    script,
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                universal_newlines=True
+                universal_newlines=True,
             )
-
-            stdout, stderr = process.communicate(
-                timeout=30
-            )
-
-            if process.returncode != 0:
-
-                return False
-
-            app_path = ""
-
-            for line in stdout.splitlines():
-
-                line = line.strip()
-
-                if line:
-
-                    app_path = line
-
-                    break
-
-            if not app_path:
-
-                return False
-
-            prefix = "shell:AppsFolder\\"
-
-            if app_path.lower().startswith(
-                prefix.lower()
-            ):
-
-                app_id = app_path[
-                    len(prefix):
-                ]
-
-                return self.open_by_aumid(
-                    app_id
-                )
-
-            if "!" in app_path:
-
-                return self.open_by_aumid(
-                    app_path
-                )
-
-            return self.open_normal_path(
-                app_path
-            )
-
+            stdout, _ = process.communicate(timeout=4)
+            if process.returncode not in (0, None):
+                return []
         except Exception:
+            self._stop_child_process(locals().get("process"))
+            return []
 
+        prefix = "shell:AppsFolder\\"
+        results = []
+        seen = set()
+        for line in str(stdout or "").splitlines():
+            if not line.startswith("MATCH\t"):
+                continue
+            parts = line.split("\t", 2)
+            if len(parts) != 3:
+                continue
+            name = parts[1].strip()
+            path = parts[2].strip()
+            if not name or not path:
+                continue
+            identity = (name.casefold(), path.casefold())
+            if identity in seen:
+                continue
+            seen.add(identity)
+            app_id = path[len(prefix):] if path.lower().startswith(prefix.lower()) else ""
+            results.append({
+                "name": name,
+                "path": path,
+                "app_id": app_id,
+                "aumid": app_id if "!" in app_id else "",
+                "type": "appsfolder",
+            })
+
+        if len(results) > 1:
+            for item in results:
+                app_id = str(item.get("app_id") or item.get("path") or "").strip()
+                item["type"] = "AppsFolder: " + app_id[-90:]
+        return results[:self.max_results]
+
+    def open_appsfolder_by_name(self, target):
+        """Open only a unique exact-name AppsFolder match."""
+        self._last_appsfolder_matches = []
+        target = self.clean_target(target)
+        if not target:
             return False
 
+        matches = self._find_appsfolder_candidates_by_name(target)
+        if not matches:
+            return False
+        if len(matches) > 1:
+            # Ambiguous exact labels must return to the caller for selection.
+            self._last_appsfolder_matches = matches
+            return False
 
-           # ========================================================
+        app_path = str(matches[0].get("path") or "").strip()
+        if not app_path:
+            return False
+
+        prefix = "shell:AppsFolder\\"
+        if app_path.lower().startswith(prefix.lower()):
+            app_id = app_path[len(prefix):]
+            return self.open_by_aumid(app_id)
+
+        if "!" in app_path:
+            return self.open_by_aumid(app_path)
+
+        return self.open_normal_path(app_path)
+
+
+    # ========================================================
     # OPEN BY AUMID / APPID
     #
     # Windows 8 / 8.1 / 10 / 11
@@ -2056,6 +2161,9 @@ exit 3
 
                     return True
 
+                if self._last_appsfolder_matches:
+                    return False
+
         # ----------------------------------------------------
         # 5. FINAL NORMAL PATH FALLBACK
         # ----------------------------------------------------
@@ -2080,10 +2188,32 @@ exit 3
 
                 return True
 
+            if self._last_appsfolder_matches:
+                return False
+
         return False
     # ========================================================
     # OPEN
     # ========================================================
+
+    def _appsfolder_ambiguity_response(self, target):
+        matches = list(self._last_appsfolder_matches or [])
+        if len(matches) < 2:
+            return None
+
+        lines = ["Multiple Windows apps found for '{}':".format(target), ""]
+        for index, item in enumerate(matches, start=1):
+            name = str(item.get("name") or "Unknown").strip()
+            identity = str(item.get("type") or "").strip()
+            label = "{} [{}]".format(name, identity) if identity else name
+            lines.append("{}. {}".format(index, label))
+        lines.extend(["", "Please select a number."])
+        return {
+            "success": False,
+            "message": "\\n".join(lines),
+            "results": matches,
+            "suggestions": [],
+        }
 
     def open(
         self,
@@ -2091,6 +2221,7 @@ exit 3
         force_refresh=False
     ):
 
+        self._last_appsfolder_matches = []
         target = self.clean_target(
             target
         )
@@ -2163,34 +2294,14 @@ exit 3
                     "suggestions": []
                 }
 
-            # If first launch mechanism failed,
-            # force refresh and try again.
-            refreshed = self.search(
-                target,
-                force_refresh=True
-            )
+            if self._last_appsfolder_matches:
+                return self._appsfolder_ambiguity_response(target)
 
-            for item in refreshed:
-
-                if self.open_record(
-                    item
-                ):
-
-                    return {
-                        "success": True,
-                        "message": (
-                            "Opened successfully: "
-                            + item.get(
-                                "name",
-                                target
-                            )
-                        ),
-                        "results": [
-                            item
-                        ],
-                        "suggestions": []
-                    }
-
+            # Do not immediately repeat the full Windows application
+            # inventory after a launch attempt fails. open_record already
+            # tries path, AUMID and AppsFolder routes, and a forced full scan
+            # here could block voice mode for another 30-45 seconds. Continue
+            # to the direct AppsFolder and suggestion fallbacks below.
         # ----------------------------------------------------
         # MULTIPLE RESULTS
         # ----------------------------------------------------
@@ -2270,6 +2381,8 @@ exit 3
                     "results": [],
                     "suggestions": []
                 }
+            if self._last_appsfolder_matches:
+                return self._appsfolder_ambiguity_response(target)
 
         # ----------------------------------------------------
         # SPELLING SUGGESTIONS
