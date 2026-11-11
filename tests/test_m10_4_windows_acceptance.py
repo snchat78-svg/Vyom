@@ -38,6 +38,15 @@ def test_m10_4_evidence_notes_are_bounded_and_credential_like_text_is_redacted()
     assert "Do not enter passwords, API keys, private transcripts, or personal file contents." in SCRIPT
 
 
+def test_m10_4_manual_collector_includes_the_documented_screen_observation_gate():
+    checklist = (
+        ROOT / "docs" / "VYOM_M10_4_WINDOWS_ACCEPTANCE.md"
+    ).read_text(encoding="utf-8")
+
+    assert 'id = "screen_observation"' in SCRIPT
+    assert "| screen_observation |" in checklist
+
+
 def test_m10_4_workflow_builds_and_uploads_single_target_device_package():
     workflow = (ROOT / ".github" / "workflows" / "vyom.yml").read_text(encoding="utf-8")
     package_readme = (
