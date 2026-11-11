@@ -22,7 +22,7 @@ def test_manual_checklist_matches_the_ten_target_device_acceptance_gates():
 
 def test_blank_and_invalid_manual_statuses_remain_not_run():
     answers = iter(["", "", "complete", "", "fail", "a harmless note"])
-    evidence = diagnostic_runner._collect_manual_acceptance(lambda _prompt: next(answers))
+    evidence = diagnostic_runner._collect_manual_acceptance(lambda _prompt: next(answers, ""))
     assert evidence[0]["status"] == "not_run"
     assert evidence[1]["status"] == "not_run"
     assert evidence[2]["status"] == "fail"
@@ -52,5 +52,31 @@ def test_runner_uses_the_m10_4_checklist_and_explicit_limitations():
     source = Path(diagnostic_runner.__file__).read_text(encoding="utf-8")
     assert "one_click_diagnostics_not_release_acceptance" in source
     assert "No network requests" in source
-    assert "user-entered, not independently verified" in source
+    assert "does not independently verify user-entered manual observations" in source
     assert "M10.4 release acceptance" in source
+
+
+def test_run_diagnostics_saves_a_shareable_json_report(monkeypatch, tmp_path):
+    import json
+
+    monkeypatch.setattr(
+        diagnostic_runner,
+        "collect_automated_diagnostics",
+        lambda: (
+            {"device": {"os_name": "Windows", "physical_memory_mb": {"total_mb": 3500}},
+             "executable": {"file_name": "Vyom.exe", "sha256": "abc"}},
+            [{"id": "runtime", "status": "pass", "detail": "runtime available"}],
+        ),
+    )
+    monkeypatch.setattr(diagnostic_runner, "_report_directory", lambda: tmp_path)
+    result = diagnostic_runner.run_diagnostics(
+        input_func=lambda _prompt: "",
+        output_func=lambda _message: None,
+    )
+    files = list(tmp_path.glob("Vyom_Diagnostic_*.json"))
+    assert len(files) == 1
+    saved = json.loads(files[0].read_text(encoding="utf-8"))
+    assert saved["report_type"] == "one_click_diagnostics_not_release_acceptance"
+    assert len(saved["manual_acceptance"]) == 10
+    assert all(item["status"] == "not_run" for item in saved["manual_acceptance"])
+    assert result["manual_status_counts"]["not_run"] == 10
