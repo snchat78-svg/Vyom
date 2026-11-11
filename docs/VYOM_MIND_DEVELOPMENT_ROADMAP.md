@@ -356,8 +356,10 @@ No system can guarantee correct interpretation of every possible sentence or bad
 **Anti-skip gate:** no phase advancement until the updated target package is preflighted, all manual evidence is reviewed, and M10.4 failures are resolved or explicitly accepted with documented limitations. No claim of universal/human-level command success is made; ambiguous intent must clarify rather than guess.
 
 
-## M10.4 one-click device diagnostic increment — implementation added; CI pending (2026-11-11)
-- Added a diagnostics / 3 command inside the existing terminal launcher. It performs bounded, read-only environment checks and guides the user through the established ten-item M10.4 acceptance checklist.
-- It is designed for low-resource Windows devices: standard-library system inspection, existing package/module checks, no GUI framework, no model load/download, no network call, no settings mutation, and no additional runtime package.
-- The JSON report is timestamped and saved in Documents\\VyomDiagnostics, with a temp-folder fallback. Credential-like text in optional notes is redacted; no transcripts, audio, API key values, clipboard data, or document contents are collected.
-- Automated CI and target-PC run are pending. A report is not an acceptance pass: manual evidence remains user-entered and must be reviewed. Keep M10.4 active/blocked and do not start M10.5.
+## M10.4 one-click device diagnostic increment — exact-SHA CI passed (2026-11-11)
+- Code/test commit `d8e2180b6dc776882636d23eaa866e471c232570`; exact-SHA [CI run #43015924019](https://github.com/snchat78-svg/Vyom/actions/runs/43015924019) succeeded.
+- Full suite: **520 passed, 4 warnings, 47 subtests**. M10.2 synthetic baseline: 15/15; M10.3 synthetic gate: 22/22. Windows EXE build/verification and target-device package upload passed.
+- The existing launcher now exposes a local-only One-Click Diagnostics action by entering `diagnostics` or `3`. It reports OS/RAM/module/dependency/microphone-device-list/SAPI-registration/local paid-override facts and collects the ten existing manual acceptance checks.
+- Latest package: [artifact 13852587594](https://github.com/snchat78-svg/Vyom/actions/runs/43015924019/artifacts/13852587594). It contains the new EXE and diagnostic usage instructions.
+- **Next:** run a fresh package-matched preflight and the diagnostic on the user's actual Windows 8.1 PC; share the resulting JSON. This does not independently prove audible Hindi audio, recognition quality or successful UI/task workflows.
+- **Anti-skip:** M10.4 remains active/blocked until actual-device evidence and prior failures are reviewed; M10.5 is not started.

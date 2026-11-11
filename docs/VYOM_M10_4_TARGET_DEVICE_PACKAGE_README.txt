@@ -60,7 +60,8 @@ Notes must be short and non-sensitive. Do not enter passwords, API keys,
 private transcripts, clipboard content, or personal file contents.
 
 STEP 5 — RETURN THE REPORTS
-Attach M10_4_preflight.json and, if collected, M10_4_target_device_evidence.json
+Attach M10_4_preflight.json, the generated Vyom_Diagnostic_*.json, and, if collected,
+M10_4_target_device_evidence.json
 in the Vyom project chat so the evidence can be reviewed. These are
 user-entered reports and are not independently verified until reviewed.
 Do not edit not_run entries to pass.
