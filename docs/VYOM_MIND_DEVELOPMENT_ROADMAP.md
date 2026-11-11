@@ -339,3 +339,18 @@ No system can guarantee correct interpretation of every possible sentence or bad
 - The first attempt caught "send invite" versus "send an invite"; the supported phrase matcher now handles optional articles and "invitation". The test was retained with natural phrasing.
 - Action risk analysis inspects independent target labels/metadata and effect/confirmation descriptions while keeping typed payloads out of command-risk interpretation.
 - This is CI-verified code, but M10.4 remains open pending actual-PC preflight and manual acceptance. M10.5 remains gated.
+
+
+## M10.4 target-device acceptance review — 2026-11-11 (phase remains active)
+
+**Decision:** the actual Windows preflight passed, but the manual acceptance report failed. M10.4 remains ACTIVE/BLOCKED; M10.5 is not started.
+
+- Device preflight: Windows 8.1 Pro `6.3.9600`, x64, 3,558 MB visible RAM; EXE launch/clean-exit smoke passed. The submitted report is explicitly scoped as `preflight_only_not_device_acceptance`. The EXE hash in that report matches the earlier run #645 target package; do not pair it with a newer rebuilt EXE without regenerating preflight.
+- Manual report: `manual_acceptance_failed`; 2 PASS (Hindi/Hinglish text, microphone/STT/TTS as user-entered) and 7 FAIL (typed startup/exit, UI grounding, multi-step dependencies, postcondition verification, provider-outage unknown answer, memory consent/opt-out, low-memory stability). Most failure notes were blank, so the exact underlying cause of each fail is not established.
+- User log evidence: a Romanized arithmetic request `isamen 25 + 25 joro` failed to resolve; `kailakuletar kloj karo` mapped to close-app but the process target was not found; Hindi SAPI and eSpeak NG were absent so the system SAPI voice was used; speech recognition intermittently returned `UnknownValueError`. The conversation status query worked through the deterministic local response path. Do not treat TTS engine completion as proof of audible Hindi output.
+- Collector integrity defect fixed on exact code/test SHA `22f56d4f3c18a061587540f54340a4b518fcdf7f`: `tools/vyom_windows_acceptance.ps1` now prompts for the existing checklist's missing `screen_observation` gate; `tests/test_m10_4_windows_acceptance.py` guards the checklist/collector contract. Exact-SHA [Actions run #647](https://github.com/snchat78-svg/Vyom/actions/runs/43008125560) succeeded and uploaded target package artifact `13849262991`.
+- Next: download the run #647 target package; generate a new `M10_4_preflight.json` for that package's rebuilt EXE; then rerun the updated 10-item manual collection. Include brief non-sensitive observations for all failed/blocked checks. Investigate each root cause inside M10.4 and add focused tests before rebuilding.
+- Mind/no-paid boundary: `VYOM_ALLOW_PAID_API=false` remains the default; optional local Qwen remains disabled until configured. `RESPONSE MODEL AVAILABLE: False` is not evidence that the local semantic brain is missing. Do not install large local models on this Windows 8.1 / ~3.56 GB device without an explicit resource assessment.
+- Safety follow-up: source review found the current process closer uses substring process-name matching and `taskkill /F /IM`. Review exact identity, ambiguity handling and graceful-close behavior before claiming safe app-close acceptance; this update has not changed that implementation.
+
+**Anti-skip gate:** no phase advancement until the updated target package is preflighted, all manual evidence is reviewed, and M10.4 failures are resolved or explicitly accepted with documented limitations. No claim of universal/human-level command success is made; ambiguous intent must clarify rather than guess.
