@@ -192,6 +192,7 @@ jobs:
               "tools/universal_app_launcher.py",
               "tools/universal_resolver.py",
               "tools/vyom_benchmark_runner.py",
+              "tools/diagnostic_runner.py",
 
               # MEMORY
               "memory/selection_manager.py",
@@ -244,6 +245,7 @@ jobs:
               "tests/test_m10_1_benchmark_corpus.py",
               "tests/test_m10_2_metrics_runner.py",
               "tests/test_m10_4_windows_acceptance.py",
+              "tests/test_m10_4_diagnostic_runner.py",
               "tests/fixtures/m10_1_vyom_benchmark_corpus.json",
               "tests/fixtures/m10_2_stub_observations.json"
           )
@@ -495,6 +497,7 @@ jobs:
           Copy-Item -LiteralPath "dist/Vyom.exe" -Destination (Join-Path $packageDir "Vyom.exe") -Force
           Copy-Item -LiteralPath "tools/vyom_windows_acceptance.ps1" -Destination (Join-Path $packageDir "vyom_windows_acceptance.ps1") -Force
           Copy-Item -LiteralPath "docs/VYOM_M10_4_WINDOWS_ACCEPTANCE.md" -Destination (Join-Path $packageDir "M10_4_WINDOWS_ACCEPTANCE.md") -Force
+          Copy-Item -LiteralPath "docs/VYOM_M10_4_ONE_CLICK_DIAGNOSTICS.md" -Destination (Join-Path $packageDir "ONE_CLICK_DIAGNOSTICS.md") -Force
           Copy-Item -LiteralPath "docs/VYOM_M10_4_TARGET_DEVICE_PACKAGE_README.txt" -Destination (Join-Path $packageDir "README_FIRST.txt") -Force
 
           if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }

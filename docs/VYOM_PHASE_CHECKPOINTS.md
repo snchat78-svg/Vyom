@@ -186,3 +186,11 @@ This file is the hand-off record across conversations. The repository code and C
 - First attempt [42581529285](https://github.com/snchat78-svg/Vyom/actions/runs/42581529285) exposed that "send invite" did not cover "send an invite". Corrected the matcher without weakening the natural-language regression; follow-up exact-SHA CI passed.
 - Artifacts: target-device package 13657003664 (expires 2026-12-09); EXE 13657775705 (expires 2026-11-16); CI preflight 13657950237; M10.2 baseline 13657876556; M10.3 report 13656749281.
 - **Next required action:** actual-PC preflight and manual acceptance evidence. CI-host smoke is not device acceptance. M10.4 remains active; no M10.5 start.
+
+
+## M10.4 one-click device diagnostic increment — implementation added; exact-SHA CI pending (2026-11-11)
+- Added `tools/diagnostic_runner.py` and wired it to the existing `ai_core/main.py` launcher as diagnostics / 3. No new GUI, model, paid API, network operation, audio capture, or system-setting mutation is used.
+- The runner reads OS/version, RAM, module/dependency presence, microphone device count, Windows SAPI voice registration and the paid-provider override. It collects the existing ten target-device acceptance statuses and writes a credential-redacted JSON report under Documents\\VyomDiagnostics (temp fallback).
+- Added `tests/test_m10_4_diagnostic_runner.py`; the GitHub Actions workflow now requires the new runtime/test files and places diagnostic instructions in the target-device package.
+- Exact code/test commit and exact-SHA CI result will be recorded after the workflow completes. The manual checks remain user-entered, not independently verified.
+- **Gate unchanged:** M10.4 ACTIVE/BLOCKED; M10.5 NOT STARTED. A diagnostic report or GitHub CI success alone cannot clear real-device acceptance.

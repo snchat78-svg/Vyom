@@ -5,6 +5,7 @@ This package contains:
 - Vyom.exe
 - vyom_windows_acceptance.ps1
 - M10_4_WINDOWS_ACCEPTANCE.md
+- ONE_CLICK_DIAGNOSTICS.md
 - this README
 
 No Python installation is required for the EXE or preflight script.
@@ -32,7 +33,22 @@ code 2, stop here; do not mark app tests as passed. A separately reviewed
 packaging decision would be needed to support that older OS. Do not install
 Python just to run these checks.
 
-STEP 3 — ONLY IF THE OS IS SUPPORTED, COLLECT MANUAL ACCEPTANCE
+STEP 3 — RUN VYOM'S ONE-CLICK SELF-TEST
+After a supported-device preflight, start Vyom.exe normally. At the Vyom prompt,
+type diagnostics (or 3) and press Enter. The diagnostic checks core module
+availability, OS version, RAM, voice/UI dependencies, microphone device listing,
+registered Windows SAPI voices, and the paid-provider override. It then guides
+you through the same ten M10.4 manual checks. A blank/invalid status remains
+not_run. The JSON report is saved under Documents\\VyomDiagnostics (or the
+Windows temporary folder if Documents is not writable). Attach that JSON report
+for review. It contains no audio recording, transcript, API key, or document data.
+
+The diagnostic does not launch other applications, click controls, change
+settings, install anything, or make network requests. It cannot independently
+prove audible Hindi speech, recognition quality, UI grounding, or task success.
+Those observations remain user-entered and require review.
+
+STEP 4 — ONLY IF THE OS IS SUPPORTED, COLLECT THE POWERSHELL ACCEPTANCE REPORT
 After the first report confirms a supported OS and the EXE starts/exits
 successfully, run:
 
@@ -43,7 +59,7 @@ pass, fail, block, or not_run. Blank or invalid entries remain not_run.
 Notes must be short and non-sensitive. Do not enter passwords, API keys,
 private transcripts, clipboard content, or personal file contents.
 
-STEP 4 — RETURN THE REPORTS
+STEP 5 — RETURN THE REPORTS
 Attach M10_4_preflight.json and, if collected, M10_4_target_device_evidence.json
 in the Vyom project chat so the evidence can be reviewed. These are
 user-entered reports and are not independently verified until reviewed.

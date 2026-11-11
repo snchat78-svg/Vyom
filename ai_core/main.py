@@ -155,9 +155,11 @@ def main():
     _safe_print("Available modes:")
     _safe_print("1. Text mode")
     _safe_print("2. Voice mode")
+    _safe_print("3. Run one-click diagnostics")
     _safe_print("")
     _safe_print("Type a normal command to use text mode.")
     _safe_print("Type 'voice' to start voice mode.")
+    _safe_print("Type 'diagnostics' or '3' to run the one-click self-test.")
     _safe_print("Type 'exit' to close Vyom.")
     _safe_print("")
 
@@ -202,6 +204,23 @@ def main():
 
             _safe_print("Vyom : Goodbye")
             break
+
+        # ========================================================
+        # M10.4 ONE-CLICK DEVICE DIAGNOSTICS
+        # ========================================================
+
+        if command_lower in (
+            "3",
+            "diagnostics",
+            "self test",
+            "run diagnostics",
+            "system check",
+        ):
+            from tools.diagnostic_runner import run_diagnostics
+
+            run_diagnostics()
+            _safe_print("")
+            continue
 
         # ========================================================
         # EXPLICIT MEMORY CONSENT (TYPED TEXT ONLY)

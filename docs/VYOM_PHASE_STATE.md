@@ -239,3 +239,12 @@ This is the authoritative phase register for continuing work across chats. Read 
 - **Artifacts from successful run:** target-device package ID **13657003664** (expires 2026-12-09); `Vyom_EXE` ID **13657775705** (expires 2026-11-16); CI preflight ID **13657950237**; M10.2 baseline ID **13657876556**; M10.3 regression report ID **13656749281**.
 - Risk scanning checks independent target labels/descriptions and confirmation-reason fields. Free-form `args`/typed text/query payloads remain excluded.
 - **Still BLOCKED:** the successful GitHub-hosted CI is not proof of the user's actual PC. Run the newly refreshed target-device package and provide `M10_4_preflight.json` plus required manual evidence. M10.5 is not started.
+
+
+## M10.4 one-click diagnostics increment — implementation added; CI pending
+
+- Added `tools/diagnostic_runner.py`, exposed through the existing Vyom terminal launcher as `diagnostics` / `3`; no new GUI stack, paid provider, model download, network call, or additional runtime dependency is introduced.
+- The runner performs read-only OS/RAM/runtime/module/dependency/microphone-device-list/SAPI-registration/local-paid-override checks, then guides the user through the same ten M10.4 manual acceptance items. It writes a timestamped JSON report in Documents\\VyomDiagnostics (temporary-folder fallback).
+- Regression tests cover the ten-item checklist, conservative status handling, note redaction, diagnostic status shape and evidence limitations. The workflow's required-file checks and target-device package include the runner and instructions.
+- **Verification status:** exact-SHA full CI is pending for the implementation commit. No CI or real-PC diagnostic result is claimed yet. Microphone listing is not recording; SAPI registration is not audible playback; manual results are user-entered.
+- **Phase gate:** M10.4 remains ACTIVE/BLOCKED until the diagnostic runs on the actual target PC and manual failures are reproduced/reviewed. M10.5 has NOT started.

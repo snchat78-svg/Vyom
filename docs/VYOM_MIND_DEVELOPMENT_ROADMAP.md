@@ -354,3 +354,10 @@ No system can guarantee correct interpretation of every possible sentence or bad
 - Safety follow-up: source review found the current process closer uses substring process-name matching and `taskkill /F /IM`. Review exact identity, ambiguity handling and graceful-close behavior before claiming safe app-close acceptance; this update has not changed that implementation.
 
 **Anti-skip gate:** no phase advancement until the updated target package is preflighted, all manual evidence is reviewed, and M10.4 failures are resolved or explicitly accepted with documented limitations. No claim of universal/human-level command success is made; ambiguous intent must clarify rather than guess.
+
+
+## M10.4 one-click device diagnostic increment — implementation added; CI pending (2026-11-11)
+- Added a diagnostics / 3 command inside the existing terminal launcher. It performs bounded, read-only environment checks and guides the user through the established ten-item M10.4 acceptance checklist.
+- It is designed for low-resource Windows devices: standard-library system inspection, existing package/module checks, no GUI framework, no model load/download, no network call, no settings mutation, and no additional runtime package.
+- The JSON report is timestamped and saved in Documents\\VyomDiagnostics, with a temp-folder fallback. Credential-like text in optional notes is redacted; no transcripts, audio, API key values, clipboard data, or document contents are collected.
+- Automated CI and target-PC run are pending. A report is not an acceptance pass: manual evidence remains user-entered and must be reviewed. Keep M10.4 active/blocked and do not start M10.5.
