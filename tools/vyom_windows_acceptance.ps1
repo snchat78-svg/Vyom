@@ -201,6 +201,7 @@ if (-not $os) {
 if ($exeFullPath) { $exeFileName = [System.IO.Path]::GetFileName($exeFullPath) } else { $exeFileName = [System.IO.Path]::GetFileName($ExePath) }
 
 $manualAcceptance = @(
+    [ordered]@{ id = "screen_observation"; status = "not_run"; note = "Read-only screen/UI observation; verify the active window and visible controls." },
     [ordered]@{ id = "typed_startup_and_exit"; status = "not_run"; note = "Safe text-mode launch and graceful exit." },
     [ordered]@{ id = "hindi_and_hinglish_text"; status = "not_run"; note = "Hindi, Roman Hindi, and Hinglish commands/replies." },
     [ordered]@{ id = "microphone_stt_and_tts"; status = "not_run"; note = "Actual microphone input and audible speech output." },
