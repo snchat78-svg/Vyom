@@ -184,3 +184,25 @@ def test_windows_hindi_wav_helper_rejects_invalid_audio_stream(monkeypatch):
     result = tts._speak_with_espeak_wav("espeak-ng.exe", "नमस्ते")
     assert result["success"] is False
     assert "RuntimeError" in result["message"]
+
+
+
+def test_audio_diagnostic_never_claims_physical_audibility(monkeypatch):
+    tts = TextToSpeech.__new__(TextToSpeech)
+    tts._play_audio_test_tone = lambda: {
+        "success": True, "stage": "playback_api_completed",
+        "audible_output_verified": False,
+    }
+    tts.speak = lambda text: {
+        "success": True,
+        "stage": "sapi_call_completed" if text.startswith("Vyom") else "playback_api_completed",
+        "message": "playback API returned",
+        "audible_output_verified": False,
+    }
+
+    report = tts.run_audio_diagnostic()
+
+    assert report["tone"]["success"] is True
+    assert report["english_sapi"]["success"] is True
+    assert report["hindi_tts"]["success"] is True
+    assert report["audibility_verified"] is False

@@ -415,12 +415,57 @@ class TextToSpeech:
                 stream.write(audio)
                 stream.flush()
 
+            # Validate PCM before playback. A successful PlaySound return does
+            # not prove that the selected physical speaker was audible.
+            import wave
+            with wave.open(temporary_path, "rb") as wav_file:
+                channels = wav_file.getnchannels()
+                sample_width = wav_file.getsampwidth()
+                sample_rate = wav_file.getframerate()
+                frame_count = wav_file.getnframes()
+                compression = wav_file.getcomptype()
+                if (
+                    channels not in (1, 2)
+                    or sample_width not in (1, 2, 3, 4)
+                    or sample_rate < 8000
+                    or frame_count <= 0
+                    or compression != "NONE"
+                ):
+                    raise RuntimeError("eSpeak NG returned unsupported/empty PCM audio")
+                duration = frame_count / float(sample_rate)
+                if duration < 0.10 or duration > 180:
+                    raise RuntimeError("eSpeak NG WAV duration is outside safe limits")
+                sample_data = wav_file.readframes(min(frame_count, sample_rate))
+                if sample_width == 1:
+                    has_signal = any(sample != 128 for sample in sample_data)
+                else:
+                    has_signal = any(sample_data)
+                if not has_signal:
+                    raise RuntimeError("eSpeak NG WAV contains digital silence")
+
             flags = getattr(winsound, "SND_FILENAME", 0) | getattr(winsound, "SND_SYNC", 0)
             winsound.PlaySound(temporary_path, flags)
-            self._log("Hindi WAV playback completed through Windows audio.")
+            self._log(
+                "Hindi WAV playback API returned. Physical speaker audibility "
+                "still requires user confirmation."
+            )
             return {
-                "success": True, "text": str(text),
-                "message": "Speech rendered and played with local eSpeak NG Hindi voice.",
+                "success": True,
+                "stage": "playback_api_completed",
+                "audio_output_status": "audibility_unverified",
+                "audible_output_verified": False,
+                "text": str(text),
+                "message": (
+                    "Hindi WAV was validated and the Windows playback API returned; "
+                    "physical speaker audibility is not independently verified."
+                ),
+                "audio": {
+                    "channels": channels,
+                    "sample_width_bytes": sample_width,
+                    "sample_rate_hz": sample_rate,
+                    "duration_seconds": round(duration, 3),
+                    "non_silent": True,
+                },
             }
         except Exception as error:
             self._log("Hindi WAV playback path failed: " + type(error).__name__)
@@ -518,6 +563,102 @@ class TextToSpeech:
             except Exception as error:
                 self._log("Speech voice selection failed: " + str(error))
 
+    def _play_audio_test_tone(self):
+        """Play a short local PCM tone through the Windows default audio route."""
+        if os.name != "nt":
+            return {
+                "success": False,
+                "stage": "unsupported_platform",
+                "message": "The Windows speaker test is available only on Windows.",
+                "audible_output_verified": False,
+            }
+
+        temporary_path = None
+        try:
+            import math
+            import struct
+            import tempfile
+            import wave
+            import winsound
+
+            sample_rate = 22050
+            duration = 0.55
+            frequency = 880.0
+            frame_count = int(sample_rate * duration)
+            frames = bytearray()
+            for index in range(frame_count):
+                envelope = min(1.0, index / 350.0, (frame_count - index) / 350.0)
+                sample = int(10000 * envelope * math.sin(
+                    2.0 * math.pi * frequency * index / sample_rate
+                ))
+                frames.extend(struct.pack("<h", sample))
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as stream:
+                temporary_path = stream.name
+
+            with wave.open(temporary_path, "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(bytes(frames))
+
+            flags = (
+                getattr(winsound, "SND_FILENAME", 0)
+                | getattr(winsound, "SND_SYNC", 0)
+            )
+            winsound.PlaySound(temporary_path, flags)
+            self._log(
+                "Speaker test tone playback API returned; physical audibility "
+                "must be confirmed by the user."
+            )
+            return {
+                "success": True,
+                "stage": "playback_api_completed",
+                "message": "Windows tone playback API returned.",
+                "audible_output_verified": False,
+            }
+        except Exception as error:
+            self._log("Speaker test tone failed: " + type(error).__name__)
+            return {
+                "success": False,
+                "stage": "playback_failed",
+                "message": "Windows tone playback failed: " + type(error).__name__,
+                "audible_output_verified": False,
+            }
+        finally:
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except OSError:
+                    pass
+
+    def run_audio_diagnostic(self):
+        """Exercise tone, English SAPI and the normal Hindi TTS route separately."""
+        tone = self._play_audio_test_tone()
+        english = self.speak("Vyom audio test. Can you hear this voice?")
+        hindi = self.speak("नमस्ते। यह व्योम की हिंदी आवाज़ जाँच है।")
+
+        return {
+            "tone": tone,
+            "english_sapi": {
+                "success": bool(english.get("success")) if isinstance(english, dict) else bool(english),
+                "stage": str(english.get("stage") or "sapi_call_completed") if isinstance(english, dict) else "sapi_call_completed",
+                "message": str(english.get("message") or "") if isinstance(english, dict) else "",
+                "audible_output_verified": False,
+            },
+            "hindi_tts": {
+                "success": bool(hindi.get("success")) if isinstance(hindi, dict) else bool(hindi),
+                "stage": str(hindi.get("stage") or "tts_call_completed") if isinstance(hindi, dict) else "tts_call_completed",
+                "message": str(hindi.get("message") or "") if isinstance(hindi, dict) else "",
+                "audible_output_verified": False,
+            },
+            "audibility_verified": False,
+            "next_step": (
+                "The user must report whether the tone, English voice, and Hindi voice "
+                "were actually audible."
+            ),
+        }
+
     # =========================================================
     # SPEAK
     # =========================================================
@@ -586,7 +727,18 @@ class TextToSpeech:
             engine.runAndWait()
             self._log("engine.runAndWait() COMPLETE")
 
-            return {"success": True, "text": text, "message": "Speech completed."}
+            self._log(
+                "SAPI synthesis/playback call completed; physical speaker audibility "
+                "still requires user confirmation."
+            )
+            return {
+                "success": True,
+                "stage": "sapi_call_completed",
+                "audio_output_status": "audibility_unverified",
+                "audible_output_verified": False,
+                "text": text,
+                "message": "SAPI speech call completed; audible output is not independently verified.",
+            }
 
         except Exception as error:
             self._log("Speech failed: " + str(error))

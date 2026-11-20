@@ -2,6 +2,7 @@ import unittest
 
 from command_engine.intent import IntentEngine
 from voice.command_normalizer import VoiceCommandNormalizer
+from tools.phonetic_matcher import score_candidate
 
 
 class VoiceCommandNormalizationTests(unittest.TestCase):
@@ -93,3 +94,10 @@ class VoiceCommandNormalizationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+def test_hindi_transcribed_calculator_name_matches_runtime_app_name():
+    # STT may romanize "कैलकुलेटर" as "kailakuletar". Hard-C/K phonetics
+    # should match the live Windows candidate without rewriting user payloads.
+    assert score_candidate("kailakuletar", "Calculator") >= 0.90

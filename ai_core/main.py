@@ -206,6 +206,44 @@ def main():
             break
 
         # ========================================================
+        # M10.4 AUDIO OUTPUT TEST
+        # ========================================================
+
+        if command_lower in (
+            "audio test",
+            "speaker test",
+            "tts test",
+            "test audio",
+        ):
+            audio_report = voice_controller.text_to_speech.run_audio_diagnostic()
+            _safe_print("")
+            _safe_print("VYOM AUDIO OUTPUT TEST")
+            for route_name in ("tone", "english_sapi", "hindi_tts"):
+                route = audio_report.get(route_name) or {}
+                _safe_print(
+                    "[%s] %s: %s"
+                    % (
+                        "API OK" if route.get("success") else "FAILED",
+                        route_name,
+                        route.get("message") or route.get("stage") or "no detail",
+                    )
+                )
+            _safe_print(
+                "IMPORTANT: API completion does not prove that sound was audible."
+            )
+            try:
+                heard = input(
+                    "What did you actually hear? [both/tone/english/hindi/none]: "
+                ).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                heard = "not_reported"
+            if heard not in {"both", "tone", "english", "hindi", "none"}:
+                heard = "not_reported"
+            _safe_print("Manual audibility observation: " + heard)
+            _safe_print("")
+            continue
+
+        # ========================================================
         # M10.4 ONE-CLICK DEVICE DIAGNOSTICS
         # ========================================================
 

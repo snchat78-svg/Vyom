@@ -141,3 +141,12 @@ def test_corrupt_journal_fails_closed_until_explicit_cancel(tmp_path):
     assert runtime.resolve_uncertain_outcome("cancelled") is True
     assert runtime.snapshot()["replay_lock"] is None
     assert not path.exists()
+
+
+
+def test_recovery_cancel_accepts_the_romanizer_output_for_rahane_do():
+    from ai_core.autonomous_agent import AutonomousAgent
+
+    assert AutonomousAgent._recovery_confirmation_kind("rahane do") == "cancelled"
+    assert AutonomousAgent._recovery_confirmation_kind("rehne do") == "cancelled"
+    assert AutonomousAgent._recovery_confirmation_kind("रहने दो") == "cancelled"

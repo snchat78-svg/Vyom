@@ -1336,7 +1336,8 @@ class AutonomousAgent:
         cancel_phrases = (
             "cancel recovery", "cancel this", "don't retry", "do not retry",
             "stop mission", "stop here", "leave it", "forget it", "cancel",
-            "rehne do", "mat karo", "rok do", "ruko", "रहने दो", "मत करो",
+            "rehne do", "rahane do", "rahne do", "rahenedo", "rehne do vyom",
+            "mat karo", "rok do", "ruko", "रहने दो", "मत करो",
             "रोक दो", "रुक जाओ", "रद्द करो",
         )
         if any(phrase in value for phrase in cancel_phrases):

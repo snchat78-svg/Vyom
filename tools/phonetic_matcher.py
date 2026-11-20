@@ -47,6 +47,10 @@ def _candidate_variants(value):
 def _phonetic_key(value):
     value = _normalize(value)
     value = re.sub(r"[^a-z0-9]", "", value)
+    # Hard English C is commonly heard/transcribed as Hindi K (e.g. calculator -> kailakuletar).
+    # Keep soft C before e/i/y unchanged.
+    value = re.sub(r"c(?=[aou])", "k", value)
+    value = re.sub(r"c(?![eiy])", "k", value)
     replacements = (
         ("ksh", "x"), ("ks", "x"), ("chh", "c"), ("ch", "c"),
         ("sh", "s"), ("ph", "f"), ("bh", "b"), ("dh", "d"),

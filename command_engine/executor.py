@@ -1263,14 +1263,22 @@ def _execute_internal(
                         active_window = ui_snapshot.get("current_window") or {}
                         active_title = str(active_window.get("title") or "").strip()
                         target_text = str(intent.get("target") or "").strip()
-                        live_match = bool(
-                            active_window.get("hwnd")
-                            and target_text
-                            and (
-                                target_text.lower() in active_title.lower()
-                                or active_title.lower() in target_text.lower()
-                            )
+                        target_matcher = getattr(
+                            tool_manager,
+                            "_foreground_matches_target",
+                            None,
                         )
+                        if active_window.get("hwnd") and target_text and callable(target_matcher):
+                            # Reuse the runtime-discovered foreground matcher so a noisy
+                            # transcript can match its observed app window safely.
+                            live_match = bool(target_matcher(target_text, active_window))
+                        else:
+                            # Without a target-aware matcher, require exact title equality.
+                            live_match = bool(
+                                active_window.get("hwnd")
+                                and target_text
+                                and target_text.casefold() == active_title.casefold()
+                            )
                         if live_match:
                             close_action = {
                                 "action": "close_application",
