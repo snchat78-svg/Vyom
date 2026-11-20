@@ -33,22 +33,40 @@ code 2, stop here; do not mark app tests as passed. A separately reviewed
 packaging decision would be needed to support that older OS. Do not install
 Python just to run these checks.
 
-STEP 3 — RUN VYOM'S ONE-CLICK SELF-TEST
-After a supported-device preflight, start Vyom.exe normally. At the Vyom prompt,
-type diagnostics (or 3) and press Enter. The diagnostic checks core module
-availability, OS version, RAM, voice/UI dependencies, microphone device listing,
-registered Windows SAPI voices, and the paid-provider override. It then guides
-you through the same ten M10.4 manual checks. A blank/invalid status remains
-not_run. The JSON report is saved under Documents\\VyomDiagnostics (or the
-Windows temporary folder if Documents is not writable). Attach that JSON report
-for review. It contains no audio recording, transcript, API key, or document data.
+STEP 3 — TEST THE ACTUAL AUDIO OUTPUT
+After a supported-device preflight, start Vyom.exe normally. At the main Vyom
+console prompt, type:
 
-The diagnostic does not launch other applications, click controls, change
-settings, install anything, or make network requests. It cannot independently
-prove audible Hindi speech, recognition quality, UI grounding, or task success.
-Those observations remain user-entered and require review.
+audio test
 
-STEP 4 — ONLY IF THE OS IS SUPPORTED, COLLECT THE POWERSHELL ACCEPTANCE REPORT
+Vyom plays three separate outputs through the Windows default audio route:
+1. A short local tone.
+2. An English SAPI voice phrase.
+3. The normal Hindi TTS route.
+
+After playback, tell the console which outputs you actually heard. Use the
+result to separate a Windows speaker/output-device problem from an SAPI or
+Hindi-TTS route problem. If none is audible, check the Windows default playback
+device, master volume, and Vyom application volume in Volume Mixer, then use
+the Windows playback-device Test action. Do not mark audio as passed merely
+because a playback API returned successfully; the user must actually hear it.
+
+STEP 4 — RUN VYOM'S ONE-CLICK SELF-TEST
+At the Vyom prompt, type diagnostics (or 3) and press Enter. The diagnostic
+checks core module availability, OS version, RAM, voice/UI dependencies,
+microphone device listing, registered Windows SAPI voices, and the paid-provider
+override. It then guides you through the same ten M10.4 manual checks. A
+blank/invalid status remains not_run. The JSON report is saved under
+Documents\\VyomDiagnostics (or the Windows temporary folder if Documents is
+not writable). Attach that JSON report for review. It contains no audio
+recording, transcript, API key, or document data.
+
+The one-click diagnostic does not launch other applications, click controls,
+change settings, install anything, or make network requests. It cannot
+independently prove audible Hindi speech, recognition quality, UI grounding,
+or task success. Those observations remain user-entered and require review.
+
+STEP 5 — ONLY IF THE OS IS SUPPORTED, COLLECT THE POWERSHELL ACCEPTANCE REPORT
 After the first report confirms a supported OS and the EXE starts/exits
 successfully, run:
 
@@ -59,7 +77,7 @@ pass, fail, block, or not_run. Blank or invalid entries remain not_run.
 Notes must be short and non-sensitive. Do not enter passwords, API keys,
 private transcripts, clipboard content, or personal file contents.
 
-STEP 5 — RETURN THE REPORTS
+STEP 6 — RETURN THE REPORTS
 Attach M10_4_preflight.json, the generated Vyom_Diagnostic_*.json, and, if collected,
 M10_4_target_device_evidence.json
 in the Vyom project chat so the evidence can be reviewed. These are

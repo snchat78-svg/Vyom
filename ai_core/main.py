@@ -160,6 +160,7 @@ def main():
     _safe_print("Type a normal command to use text mode.")
     _safe_print("Type 'voice' to start voice mode.")
     _safe_print("Type 'diagnostics' or '3' to run the one-click self-test.")
+    _safe_print("Type 'audio test' to test the Windows tone, English SAPI and Hindi TTS routes.")
     _safe_print("Type 'exit' to close Vyom.")
     _safe_print("")
 
