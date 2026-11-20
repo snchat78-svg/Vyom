@@ -156,8 +156,17 @@ def test_windows_hindi_wav_helper_plays_rendered_wav_and_removes_temp_file(monke
 
     calls = []
     def fake_run(command, **kwargs):
+        import io
+        import wave
+
         calls.append((command, kwargs))
-        return SimpleNamespace(stdout=b"RIFF" + b"0000" + b"WAVE" + b"audio-sample" * 4)
+        output = io.BytesIO()
+        with wave.open(output, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(22050)
+            wav_file.writeframes(b"\x10\x00" * 22050)
+        return SimpleNamespace(stdout=output.getvalue())
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     tts = TextToSpeech.__new__(TextToSpeech)
