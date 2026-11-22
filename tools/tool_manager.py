@@ -863,7 +863,7 @@ class ToolManager:
         return any(self._same_runtime_target(target, segment) for segment in self._title_segments(title))
 
     def _verify_open_effect(self, target, before, raw_result):
-        """Observe the resulting foreground window after a legacy open route."""
+        """Verify the foreground belongs to the requested runtime target."""
         source = raw_result if isinstance(raw_result, dict) else {}
         candidates = [str(target or "").strip()]
         records = source.get("results") if isinstance(source, dict) else None
@@ -876,6 +876,7 @@ class ToolManager:
 
         before_hwnd = before.get("hwnd") if isinstance(before, dict) else None
         after = {}
+        foreground_changed = False
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
             after = self._foreground_snapshot()
@@ -883,13 +884,21 @@ class ToolManager:
             after_hwnd = after.get("hwnd")
             if after_hwnd and title:
                 if before_hwnd and after_hwnd != before_hwnd:
-                    return True, after, "foreground_window_changed"
+                    foreground_changed = True
                 for candidate in candidates:
-                    # Match each caption segment so app captions remain discoverable.
+                    # Require the observed title to match the requested target
+                    # or the actual runtime-discovered launch record. A
+                    # different foreground HWND alone is not app-open proof.
                     if candidate and self._foreground_matches_target(candidate, after):
                         return True, after, "foreground_title_match"
             time.sleep(0.15)
-        return False, after, "foreground_change_not_observed"
+
+        method = (
+            "foreground_changed_without_target_match"
+            if foreground_changed
+            else "foreground_change_not_observed"
+        )
+        return False, after, method
 
     def _open_result_contract(self, target, before, raw_result):
         if isinstance(raw_result, dict):
