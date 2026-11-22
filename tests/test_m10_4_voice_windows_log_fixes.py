@@ -29,6 +29,8 @@ class GenericVoiceTargetTests(unittest.TestCase):
         self.assertGreaterEqual(score_candidate("gugal krom", "Google Chrome"), 0.80)
         self.assertGreaterEqual(score_candidate("kailakuletar", "Calculator"), 0.80)
         self.assertGreaterEqual(score_candidate("krom", "Chrome"), 0.80)
+        self.assertGreaterEqual(score_candidate("eksel", "Microsoft Excel 2016"), 0.80)
+        self.assertLess(score_candidate("gugal krom", "Microsoft Excel 2016"), 0.80)
 
 
 class KnownUserFolderTests(unittest.TestCase):
