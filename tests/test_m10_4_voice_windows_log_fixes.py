@@ -34,12 +34,26 @@ class GenericVoiceTargetTests(unittest.TestCase):
 
 
 class KnownUserFolderTests(unittest.TestCase):
+    @staticmethod
+    def _isolated_resolver(common_paths):
+        resolver = UniversalResolver()
+        resolver.common_paths = common_paths
+        # Never let the CI host's own Start Menu applications or desktop
+        # shortcuts influence a test about personal-folder root resolution.
+        resolver.start_menu_paths = []
+        resolver.desktop_paths = []
+        resolver.find_in_path = lambda _target: None
+        resolver.search_registry_app_paths = lambda _target: []
+        resolver.search_start_menu = lambda _target: []
+        resolver.search_desktop = lambda _target: []
+        resolver._fuzzy_search_known_locations = lambda _target: []
+        return resolver
+
     def test_photo_alias_resolves_existing_pictures_root(self):
         with tempfile.TemporaryDirectory() as root:
             pictures = os.path.join(root, "Pictures")
             os.makedirs(pictures)
-            resolver = UniversalResolver()
-            resolver.common_paths = [pictures]
+            resolver = self._isolated_resolver([pictures])
 
             self.assertEqual(resolver.find("photos"), [pictures])
             self.assertEqual(
@@ -50,8 +64,7 @@ class KnownUserFolderTests(unittest.TestCase):
     def test_known_folder_alias_does_not_return_missing_directory(self):
         with tempfile.TemporaryDirectory() as root:
             missing = os.path.join(root, "Pictures")
-            resolver = UniversalResolver()
-            resolver.common_paths = [missing]
+            resolver = self._isolated_resolver([missing])
 
             self.assertEqual(resolver.find("photos"), [])
             self.assertEqual(resolver.find_file_or_folder("pictures"), [])
@@ -60,8 +73,7 @@ class KnownUserFolderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             custom = os.path.join(root, "Family Archive")
             os.makedirs(custom)
-            resolver = UniversalResolver()
-            resolver.common_paths = [custom]
+            resolver = self._isolated_resolver([custom])
 
             self.assertEqual(resolver.find("photos"), [])
 
