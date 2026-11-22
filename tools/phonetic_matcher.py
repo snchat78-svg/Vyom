@@ -48,16 +48,15 @@ def _phonetic_key(value):
     """Build a broad, application-agnostic key for common Hindi-accented English.
 
     This handles sound patterns rather than storing product/application aliases.
-    In particular, English x (/ks/) and soft c (/s/) must match transcripts such
-    as "eksel" for "Excel". The chr/sch cases are ordered before generic ch/c
-    rules so words such as "Chrome" and "school" keep their common hard-k sound.
+    It covers x/soft-c in words such as Excel and common chr/sch spellings.
     """
     value = _normalize(value)
     value = re.sub(r"[^a-z0-9]", "", value)
 
-    # Orthographic sound normalization. Keep the order deliberate:
-    # x -> ks before ks -> x makes both spellings share one key.
-    # In "Excel", x+c before e is heard as /ks/ overall; do not count\n    # an extra /k/ for the x when the following soft-c already supplies /s/.\n    value = re.sub(r"x(?=c)", "k", value)\n    value = value.replace("x", "ks")
+    # In "Excel", x+c before e is heard as /ks/ overall. The x contributes /k/
+    # and the following soft-c contributes /s/, so do not double-count /k/.
+    value = re.sub(r"x(?=c)", "k", value)
+    value = value.replace("x", "ks")
     value = value.replace("sch", "sk")
     value = value.replace("chr", "kr")
     value = value.replace("chh", "c")
