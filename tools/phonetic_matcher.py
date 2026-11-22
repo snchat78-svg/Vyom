@@ -57,7 +57,7 @@ def _phonetic_key(value):
 
     # Orthographic sound normalization. Keep the order deliberate:
     # x -> ks before ks -> x makes both spellings share one key.
-    value = value.replace("x", "ks")
+    # In "Excel", x+c before e is heard as /ks/ overall; do not count\n    # an extra /k/ for the x when the following soft-c already supplies /s/.\n    value = re.sub(r"x(?=c)", "k", value)\n    value = value.replace("x", "ks")
     value = value.replace("sch", "sk")
     value = value.replace("chr", "kr")
     value = value.replace("chh", "c")
