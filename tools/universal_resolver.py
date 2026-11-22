@@ -629,6 +629,7 @@ exit 1
             return []
 
         value = re.sub(r"^(?:my|the)\s+", "", value)
+        value = re.sub(r"^(?:folder|directory)\s+", "", value)
         value = re.sub(r"\s+(?:folder|directory)$", "", value)
         aliases = {
             "desktop": "desktop",
