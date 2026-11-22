@@ -1287,7 +1287,15 @@ def _execute_internal(
                                 "args": {"hwnd": active_window.get("hwnd")},
                             }
                             candidate = execute_capability(close_action)
-                            if isinstance(candidate, dict) and candidate.get("success"):
+                            # Once the live foreground window has been matched
+                            # and a UI close has been attempted, preserve that
+                            # result even when it is not verified. Do not fall
+                            # through to a process-name kill path using a noisy
+                            # STT transcript; the user may need to handle a
+                            # save-confirmation dialog or a blocked window.
+                            if isinstance(candidate, dict):
+                                raw_result = candidate
+                            elif candidate is not None:
                                 raw_result = candidate
                 except Exception:
                     raw_result = None
