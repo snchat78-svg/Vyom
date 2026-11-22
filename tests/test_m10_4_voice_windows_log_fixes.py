@@ -1,4 +1,4 @@
-"""Regressions for the 2026-11-22 Windows voice-log investigation."""
+"""Regression tests for noisy voice targets, known folders and WM_CLOSE safety."""
 
 import os
 import tempfile
@@ -13,20 +13,26 @@ from windows_agent.ui_automation import WindowsUICapability
 import windows_agent.window_manager as window_manager_module
 
 
+class _FakeWin32Call:
+    def __init__(self, result=1):
+        self.result = result
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, *args):
+        return self.result
+
+
 class GenericVoiceTargetTests(unittest.TestCase):
-    def test_common_hinglish_app_pronunciations_match_runtime_names(self):
+    def test_hinglish_transcriptions_match_discovered_application_names(self):
         self.assertGreaterEqual(score_candidate("eksel", "Excel"), 0.80)
         self.assertGreaterEqual(score_candidate("gugal krom", "Google Chrome"), 0.80)
         self.assertGreaterEqual(score_candidate("kailakuletar", "Calculator"), 0.80)
-
-    def test_chrome_does_not_require_an_application_alias(self):
-        # The generic sound matcher should compare speech with a discovered
-        # title/name; it must not depend on a hard-coded Chrome alias.
         self.assertGreaterEqual(score_candidate("krom", "Chrome"), 0.80)
 
 
 class KnownUserFolderTests(unittest.TestCase):
-    def test_photos_alias_resolves_existing_pictures_root(self):
+    def test_photo_alias_resolves_existing_pictures_root(self):
         with tempfile.TemporaryDirectory() as root:
             pictures = os.path.join(root, "Pictures")
             os.makedirs(pictures)
@@ -39,7 +45,7 @@ class KnownUserFolderTests(unittest.TestCase):
                 [pictures],
             )
 
-    def test_standard_folder_alias_does_not_return_a_missing_directory(self):
+    def test_known_folder_alias_does_not_return_missing_directory(self):
         with tempfile.TemporaryDirectory() as root:
             missing = os.path.join(root, "Pictures")
             resolver = UniversalResolver()
@@ -48,7 +54,7 @@ class KnownUserFolderTests(unittest.TestCase):
             self.assertEqual(resolver.find("photos"), [])
             self.assertEqual(resolver.find_file_or_folder("pictures"), [])
 
-    def test_custom_folder_is_not_guessed_as_a_standard_photos_folder(self):
+    def test_unrelated_custom_folder_is_not_guessed_as_pictures(self):
         with tempfile.TemporaryDirectory() as root:
             custom = os.path.join(root, "Family Archive")
             os.makedirs(custom)
@@ -58,18 +64,8 @@ class KnownUserFolderTests(unittest.TestCase):
             self.assertEqual(resolver.find("photos"), [])
 
 
-class _FakeWin32Call:
-    def __init__(self, result=1):
-        self.result = result
-        self.argtypes = None
-        self.restype = None
-
-    def __call__(self, *args):
-        return self.result
-
-
 class WindowManagerSignatureTests(unittest.TestCase):
-    def test_post_message_uses_pointer_safe_win32_types(self):
+    def test_post_message_uses_pointer_sized_win32_parameters(self):
         user32 = SimpleNamespace(
             GetForegroundWindow=_FakeWin32Call(),
             IsWindow=_FakeWin32Call(),
@@ -78,13 +74,11 @@ class WindowManagerSignatureTests(unittest.TestCase):
             SetForegroundWindow=_FakeWin32Call(),
             PostMessageW=_FakeWin32Call(),
         )
-        fake_windll = SimpleNamespace(user32=user32)
-
         with patch.object(window_manager_module.os, "name", "nt"):
             with patch.object(
                 window_manager_module.ctypes,
                 "windll",
-                fake_windll,
+                SimpleNamespace(user32=user32),
                 create=True,
             ):
                 manager = window_manager_module.WindowManager()
@@ -105,14 +99,15 @@ class WindowManagerSignatureTests(unittest.TestCase):
 class _FakeWindowManagerForClose:
     def __init__(self, accepts_message):
         self.closed = False
-        self.post_message = _FakeWin32Call(result=int(accepts_message))
+        self.accepts_message = bool(accepts_message)
+        self.posted_arguments = None
         self._user32 = SimpleNamespace(PostMessageW=self._post_message)
 
     def _post_message(self, hwnd, message, wparam, lparam):
-        self.post_message(hwnd, message, wparam, lparam)
-        if self.post_message.result:
+        self.posted_arguments = (hwnd, message, wparam, lparam)
+        if self.accepts_message:
             self.closed = True
-        return self.post_message.result
+        return self.accepts_message
 
     def find(self, hwnd=None, **_kwargs):
         if self.closed:
@@ -121,12 +116,13 @@ class _FakeWindowManagerForClose:
 
 
 class ObservedWindowCloseTests(unittest.TestCase):
-    def _provider(self, manager):
+    @staticmethod
+    def _provider(manager):
         provider = WindowsUICapability.__new__(WindowsUICapability)
         provider.window_manager = manager
         return provider
 
-    def test_close_uses_observed_hwnd_and_verifies_window_disappears(self):
+    def test_close_uses_observed_window_handle_and_verifies_disappearance(self):
         manager = _FakeWindowManagerForClose(accepts_message=True)
         result = self._provider(manager)._close_application({
             "action": "close_application",
@@ -136,6 +132,7 @@ class ObservedWindowCloseTests(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["stage"], "verified")
+        self.assertEqual(manager.posted_arguments, (77, 0x0010, 0, 0))
         self.assertTrue(manager.closed)
 
     def test_rejected_close_message_is_not_reported_as_success(self):
