@@ -102,7 +102,7 @@ def score_candidate(query, candidate):
     # application label (for example "eksel" -> "Microsoft Excel 2016").
     # Do not split multi-word queries: "gugal krom" must be compared as a
     # complete phrase so a single coincidental token cannot win the match.
-    single_word_query = all(not re.search(r"\\s", value) for value in query_variants)
+    single_word_query = all(not re.search(r"\s", value) for value in query_variants)
     if single_word_query:
         for value in list(candidate_variants):
             if "/" in value:
