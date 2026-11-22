@@ -780,7 +780,24 @@ class WindowsUICapability:
         hwnd = matches[0].get("hwnd")
         try:
             WM_CLOSE = 0x0010
-            self.window_manager._user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+            user32 = getattr(self.window_manager, "_user32", None)
+            post_message = getattr(user32, "PostMessageW", None)
+            if not callable(post_message):
+                raise RuntimeError("Windows PostMessageW is unavailable.")
+            posted = bool(post_message(hwnd, WM_CLOSE, 0, 0))
+            if not posted:
+                return {
+                    "success": False,
+                    "stage": "close_dispatch_failed",
+                    "message": "Windows did not accept the close message for the observed window.",
+                    "target": target,
+                    "hwnd": hwnd,
+                    "verification": {
+                        "verified": False,
+                        "verification_level": "dispatch",
+                        "method": "PostMessageW_WM_CLOSE",
+                    },
+                }
         except Exception as error:
             return {
                 "success": False,
@@ -790,9 +807,8 @@ class WindowsUICapability:
                 "hwnd": hwnd,
             }
 
-        # Some document viewers need more than one scheduler tick to destroy
-        # the top-level window. Poll the exact HWND instead of checking only a
-        # title string, which may remain ambiguous across viewer instances.
+        # Poll the exact HWND; a process name/title alone is not proof that the
+        # requested window closed. Never force-terminate the owning process.
         verified = False
         for _ in range(10):
             time.sleep(0.15)
