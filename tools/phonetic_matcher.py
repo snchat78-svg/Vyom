@@ -45,21 +45,35 @@ def _candidate_variants(value):
 
 
 def _phonetic_key(value):
+    """Build a broad, application-agnostic key for common Hindi-accented English.
+
+    This handles sound patterns rather than storing product/application aliases.
+    In particular, English x (/ks/) and soft c (/s/) must match transcripts such
+    as "eksel" for "Excel". The chr/sch cases are ordered before generic ch/c
+    rules so words such as "Chrome" and "school" keep their common hard-k sound.
+    """
     value = _normalize(value)
     value = re.sub(r"[^a-z0-9]", "", value)
-    # Hard English C is commonly heard/transcribed as Hindi K (e.g. calculator -> kailakuletar).
-    # Keep soft C before e/i/y unchanged.
-    value = re.sub(r"c(?=[aou])", "k", value)
-    value = re.sub(r"c(?![eiy])", "k", value)
+
+    # Orthographic sound normalization. Keep the order deliberate:
+    # x -> ks before ks -> x makes both spellings share one key.
+    value = value.replace("x", "ks")
+    value = value.replace("sch", "sk")
+    value = value.replace("chr", "kr")
+    value = value.replace("chh", "c")
+    value = value.replace("ch", "c")
+    value = re.sub(r"c(?=[eiy])", "s", value)  # soft c: city, cycle, Excel
+    value = value.replace("c", "k")           # hard c: calculator, camera
+
     replacements = (
-        ("ksh", "x"), ("ks", "x"), ("chh", "c"), ("ch", "c"),
-        ("sh", "s"), ("ph", "f"), ("bh", "b"), ("dh", "d"),
-        ("th", "t"), ("kh", "h"), ("gh", "g"), ("aa", "a"),
-        ("ee", "i"), ("ii", "i"), ("oo", "u"), ("uu", "u"),
+        ("ksh", "x"), ("ks", "x"),
+        ("sh", "s"), ("ph", "f"), ("bh", "b"),
+        ("dh", "d"), ("th", "t"), ("kh", "h"),
+        ("gh", "g"), ("aa", "a"), ("ee", "i"),
+        ("ii", "i"), ("oo", "u"), ("uu", "u"),
         ("ai", "e"), ("au", "o"),
         # Voice recognition can interchange /v/ and /w/ in Romanized
-        # Hindi/Hinglish. Treat them as the same phonetic class while
-        # keeping the matcher generic and application-agnostic.
+        # Hindi/Hinglish. Keep the equivalence generic.
         ("v", "w"),
     )
     for source, replacement in replacements:
