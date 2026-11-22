@@ -59,8 +59,9 @@ def _phonetic_key(value):
     value = value.replace("x", "ks")
     value = value.replace("sch", "sk")
     value = value.replace("chr", "kr")
-    value = value.replace("chh", "c")
-    value = value.replace("ch", "c")
+    # Preserve ordinary "ch" as a distinct sound. Converting "chalu" to
+    # "kalu" would make a noisy "kolo" transcript collide with both
+    # "chalu" (start) and "kholo" (open), erasing the confidence margin.
     value = re.sub(r"c(?=[eiy])", "s", value)  # soft c: city, cycle, Excel
     value = value.replace("c", "k")           # hard c: calculator, camera
 
