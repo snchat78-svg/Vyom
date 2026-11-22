@@ -98,6 +98,20 @@ def score_candidate(query, candidate):
     if not query_variants or not candidate_variants:
         return 0.0
 
+    # A single spoken word may refer to one word in a longer runtime-discovered
+    # application label (for example "eksel" -> "Microsoft Excel 2016").
+    # Do not split multi-word queries: "gugal krom" must be compared as a
+    # complete phrase so a single coincidental token cannot win the match.
+    single_word_query = all(not re.search(r"\\s", value) for value in query_variants)
+    if single_word_query:
+        for value in list(candidate_variants):
+            if "/" in value:
+                continue
+            for token in re.findall(r"[a-z0-9][a-z0-9._-]*", value):
+                compact = re.sub(r"[^a-z0-9]", "", token)
+                if len(compact) >= 4 and token not in candidate_variants:
+                    candidate_variants.append(token)
+
     best = 0.0
     for q in query_variants:
         for c in candidate_variants:
