@@ -9,6 +9,8 @@ from ctypes import wintypes
 
 from tools.phonetic_matcher import score_candidate
 from tools.universal_resolver import UniversalResolver
+from tools.tool_manager import ToolManager
+import tools.tool_manager as tool_manager_module
 from windows_agent.ui_automation import WindowsUICapability
 import windows_agent.window_manager as window_manager_module
 
@@ -76,6 +78,47 @@ class KnownUserFolderTests(unittest.TestCase):
             resolver = self._isolated_resolver([custom])
 
             self.assertEqual(resolver.find("photos"), [])
+
+
+class OpenWindowVerificationTests(unittest.TestCase):
+    @staticmethod
+    def _manager(title):
+        manager = ToolManager.__new__(ToolManager)
+        manager._foreground_snapshot = lambda: {
+            "hwnd": 200,
+            "title": title,
+        }
+        return manager
+
+    def test_excel_launch_verification_matches_runtime_title_token(self):
+        manager = self._manager("Book1 - Microsoft Excel 2016")
+        ticks = iter([0.0, 1.0, 3.0])
+        with patch.object(tool_manager_module.time, "monotonic", side_effect=lambda: next(ticks)):
+            with patch.object(tool_manager_module.time, "sleep", return_value=None):
+                verified, window, method = manager._verify_open_effect(
+                    "eksel",
+                    {"hwnd": 100, "title": "Vyom Console"},
+                    {"success": True, "results": [{"name": "Microsoft Excel 2016"}]},
+                )
+
+        self.assertTrue(verified)
+        self.assertEqual(window["hwnd"], 200)
+        self.assertEqual(method, "foreground_title_match")
+
+    def test_unrelated_foreground_window_change_does_not_verify_app_launch(self):
+        manager = self._manager("Unrelated Window")
+        ticks = iter([0.0, 1.0, 3.0])
+        with patch.object(tool_manager_module.time, "monotonic", side_effect=lambda: next(ticks)):
+            with patch.object(tool_manager_module.time, "sleep", return_value=None):
+                verified, window, method = manager._verify_open_effect(
+                    "eksel",
+                    {"hwnd": 100, "title": "Vyom Console"},
+                    {"success": True, "results": [{"name": "Microsoft Excel 2016"}]},
+                )
+
+        self.assertFalse(verified)
+        self.assertEqual(window["hwnd"], 200)
+        self.assertEqual(method, "foreground_changed_without_target_match")
 
 
 class WindowManagerSignatureTests(unittest.TestCase):
