@@ -622,6 +622,45 @@ exit 1
         except Exception as e:
             return False, "Error opening '{}': {}".format(path, e)
 
+    def _find_known_user_folder_roots(self, target):
+        """Resolve Windows' standard user-folder roots without scanning arbitrary paths."""
+        value = self.normalize(self.clean_target(target))
+        if not value:
+            return []
+
+        value = re.sub(r"^(?:my|the)\\s+", "", value)
+        value = re.sub(r"\\s+(?:folder|directory)$", "", value)
+        aliases = {
+            "desktop": "desktop",
+            "documents": "documents",
+            "document": "documents",
+            "downloads": "downloads",
+            "download": "downloads",
+            "pictures": "pictures",
+            "picture": "pictures",
+            "photos": "pictures",
+            "photo": "pictures",
+            "images": "pictures",
+            "image": "pictures",
+            "videos": "videos",
+            "video": "videos",
+            "music": "music",
+        }
+        canonical = aliases.get(value)
+        if not canonical:
+            return []
+
+        results = []
+        for path in self.common_paths:
+            if not path or not os.path.isdir(path):
+                continue
+            folder_name = self.normalize(os.path.basename(os.path.normpath(path)))
+            if folder_name == canonical:
+                self._add_unique(results, path)
+            if len(results) >= self.max_results:
+                break
+        return results
+
     def find_file_or_folder(self, target):
         """Find an exact path or plausible user-folder item, without app/fuzzy scans.
 
@@ -634,6 +673,9 @@ exit 1
         exact = self.find_exact_path(target)
         if exact:
             return [exact]
+        known_folders = self._find_known_user_folder_roots(target)
+        if known_folders:
+            return known_folders[:self.max_results]
         return self.search_common_locations(target)[:self.max_results]
 
     def find(self, target):
@@ -644,6 +686,10 @@ exit 1
         exact = self.find_exact_path(target)
         if exact:
             return [exact]
+
+        known_folders = self._find_known_user_folder_roots(target)
+        if known_folders:
+            return known_folders[:self.max_results]
 
         results = []
 
