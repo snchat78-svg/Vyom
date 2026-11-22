@@ -40,6 +40,15 @@ class WindowManager:
                 self._user32.BringWindowToTop.restype = wintypes.BOOL
                 self._user32.SetForegroundWindow.argtypes = [wintypes.HWND]
                 self._user32.SetForegroundWindow.restype = wintypes.BOOL
+                # PostMessageW carries an HWND-sized pointer. Without an
+                # explicit prototype, ctypes may truncate a 64-bit handle.
+                self._user32.PostMessageW.argtypes = [
+                    wintypes.HWND,
+                    wintypes.UINT,
+                    wintypes.WPARAM,
+                    wintypes.LPARAM,
+                ]
+                self._user32.PostMessageW.restype = wintypes.BOOL
             except Exception:
                 pass
 
