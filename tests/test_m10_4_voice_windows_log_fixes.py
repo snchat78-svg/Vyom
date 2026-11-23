@@ -114,6 +114,35 @@ class CurrentForegroundObservationTests(unittest.TestCase):
             executor_module.tool_manager = original_manager
             executor_module.autonomous_agent = original_agent
 
+    def test_close_current_rejects_incoherent_world_state_window(self):
+        original_manager = executor_module.tool_manager
+        original_agent = executor_module.autonomous_agent
+        try:
+            manager = SimpleNamespace(_foreground_snapshot=lambda: {})
+            agent = SimpleNamespace(
+                world_state=SimpleNamespace(snapshot=lambda *args, **kwargs: {
+                    "current_window": {"hwnd": 813, "title": "Stale Notepad"},
+                    "ui": {
+                        "available": True,
+                        "coherent": False,
+                        "active_window": {"hwnd": 813, "title": "Stale Notepad"},
+                    },
+                }),
+                mission_runtime=SimpleNamespace(snapshot=lambda: {}),
+                context=SimpleNamespace(snapshot=lambda: {"current_app": "Notepad"}),
+            )
+            executor_module.tool_manager = manager
+            executor_module.autonomous_agent = agent
+
+            window, source = executor_module._observed_foreground_window()
+
+            self.assertEqual(window, {})
+            self.assertEqual(source, "foreground_unavailable")
+        finally:
+            executor_module.tool_manager = original_manager
+            executor_module.autonomous_agent = original_agent
+
+
     def test_close_current_refuses_a_remembered_app_without_live_hwnd(self):
         original_manager = executor_module.tool_manager
         original_agent = executor_module.autonomous_agent
