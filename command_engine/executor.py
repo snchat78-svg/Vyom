@@ -779,17 +779,57 @@ def _execute_internal(
             status="exit_session",
         )
 
-    # Resolve any uncertain prior action before normal intent/goal routing.
+    # Resolve uncertain prior actions before normal command routing. A replay
+    # lock blocks every computer action, but it need not block harmless
+    # read-only conversation or factual questions. These are admitted only
+    # when the real IntentEngine explicitly classifies the complete utterance
+    # as "conversation"; unknown, screen, selection and all action intents
+    # continue through the fail-closed recovery handler.
     recovery_handler = getattr(
         autonomous_agent,
         "handle_recovery_confirmation",
         None,
     )
+    recovery_readonly_intent = None
     if callable(recovery_handler):
-        recovery = recovery_handler(command)
-        if recovery is not None:
-            _trace_sink_update(trace_sink, routing_path="recovery_confirmation")
-            return _recovery_confirmation_response(command, recovery, metadata)
+        recovery_lock = {}
+        try:
+            recovery_lock = (
+                autonomous_agent.mission_runtime.snapshot().get("replay_lock")
+                or {}
+            )
+        except Exception:
+            recovery_lock = {}
+
+        if isinstance(recovery_lock, dict) and recovery_lock.get("active") is True:
+            try:
+                normalized_for_recovery = intent_engine._normalize(command)
+                read_only_candidate = bool(
+                    intent_engine._conversation(normalized_for_recovery)
+                    or intent_engine._is_information_question_text(normalized_for_recovery)
+                )
+            except Exception:
+                read_only_candidate = False
+
+            if read_only_candidate:
+                try:
+                    candidate = (
+                        intent_engine.detect(command, metadata=metadata)
+                        if metadata is not None
+                        else intent_engine.detect(command)
+                    )
+                    if isinstance(candidate, dict) and str(
+                        candidate.get("intent") or ""
+                    ).strip().lower() == "conversation":
+                        recovery_readonly_intent = candidate
+                except Exception:
+                    recovery_readonly_intent = None
+
+        if recovery_readonly_intent is None:
+            recovery = recovery_handler(command)
+            if recovery is not None:
+                _trace_sink_update(trace_sink, routing_path="recovery_confirmation")
+                return _recovery_confirmation_response(command, recovery, metadata)
 
     # =========================================================
     # GOAL / COMMAND ROUTING
@@ -804,7 +844,9 @@ def _execute_internal(
 
     try:
 
-        if metadata is not None:
+        if recovery_readonly_intent is not None:
+            intent = recovery_readonly_intent
+        elif metadata is not None:
             intent = intent_engine.detect(
                 command,
                 metadata=metadata,
