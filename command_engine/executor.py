@@ -1146,55 +1146,69 @@ def _execute_internal(
     if intent_type in fast_intents:
         _trace_sink_update(trace_sink, routing_path="deterministic_fast_lane")
 
-        target = str(
-            intent.get(
-                "target",
-                ""
-            ) or ""
-        ).strip()
-
-        # -----------------------------------------------------
-        # Missing target
-        # -----------------------------------------------------
-
+        target = str(intent.get("target") or "").strip()
         if not target:
-
             if intent_type == "open":
-
                 return _structured_response(
                     "ज़रूर। बताइए, क्या खोलना है?",
                     success=False,
                     stage="needs_clarification",
                     status="needs_clarification",
                 )
-
             if intent_type == "search_file":
-
                 return _structured_response(
                     "ज़रूर। बताइए, कौन-सी फ़ाइल खोजनी है?",
                     success=False,
                     stage="needs_clarification",
                     status="needs_clarification",
                 )
+            if intent_type == "close_app":
+                current_app = getattr(
+                    autonomous_agent.context,
+                    "current_app",
+                    None,
+                )
+                if not current_app:
+                    return _structured_response(
+                        "किस application को बंद करना है? उसका नाम बताइए।",
+                        success=False,
+                        stage="needs_clarification",
+                        status="needs_clarification",
+                    )
+                intent = {"intent": "close_app", "target": str(current_app)}
+                target = str(current_app).strip()
+
+        try:
+            autonomous_agent.context.set_current_target(
+                intent.get("target", "")
+            )
+            if intent_type == "open":
+                autonomous_agent.context.set_current_app(intent.get("target", ""))
+            elif intent_type in (
+                "open_file",
+                "search_file",
+                "search_and_open_file",
+            ):
+                autonomous_agent.context.set_current_file(intent.get("target", ""))
+
+            raw_result = None
 
             if intent_type == "close_app":
-                target_text = str(intent.get("target") or "").strip()
+                # Spoken app names are resolved against the actual foreground
+                # window. A noisy transcript is never converted into an .exe
+                # name and is never handed to ProcessManager for termination.
                 capability_executor = getattr(
                     autonomous_agent,
                     "capability_executor",
                     None,
                 )
-                execute_capability = getattr(
-                    capability_executor,
-                    "execute",
-                    None,
-                )
+                execute_capability = getattr(capability_executor, "execute", None)
 
                 if not callable(execute_capability):
                     raw_result = {
                         "success": False,
                         "stage": "close_capability_unavailable",
-                        "message": "Vyom cannot access the verified Windows window-close capability in this session.",
+                        "message": "Verified Windows window-close capability is unavailable.",
                     }
                 else:
                     active_window = {}
@@ -1209,8 +1223,6 @@ def _execute_internal(
                         if not active_window and isinstance(ui_snapshot.get("ui"), dict):
                             active_window = ui_snapshot["ui"].get("active_window") or {}
                     except Exception:
-                        # The direct Win32 foreground reader remains available
-                        # even when the independent UIA/world-state observer fails.
                         active_window = {}
 
                     resolver = getattr(
@@ -1219,59 +1231,74 @@ def _execute_internal(
                         None,
                     )
                     if callable(resolver):
-                        resolution = resolver(target_text, active_window)
+                        resolution = resolver(target, active_window)
                     else:
                         foreground = {}
-                        snapshotter = getattr(tool_manager, "_foreground_snapshot", None)
-                        if callable(snapshotter):
+                        foreground_reader = getattr(
+                            tool_manager,
+                            "_foreground_snapshot",
+                            None,
+                        )
+                        if callable(foreground_reader):
                             try:
-                                foreground = snapshotter() or {}
+                                foreground = foreground_reader() or {}
                             except Exception:
                                 foreground = {}
-                        matcher = getattr(tool_manager, "_foreground_matches_target", None)
+                        matcher = getattr(
+                            tool_manager,
+                            "_foreground_matches_target",
+                            None,
+                        )
                         matched = bool(
                             foreground.get("hwnd")
-                            and target_text
                             and (
-                                matcher(target_text, foreground)
+                                matcher(target, foreground)
                                 if callable(matcher)
-                                else str(foreground.get("title") or "").casefold() == target_text.casefold()
+                                else str(foreground.get("title") or "").casefold() == target.casefold()
                             )
                         )
                         resolution = {
                             "success": matched,
                             "window": foreground if matched else {},
-                            "stage": "foreground_target_not_matched" if not matched else "resolved",
+                            "observed_title": str(foreground.get("title") or ""),
                         }
 
                     if isinstance(resolution, dict) and resolution.get("success") is True:
                         matched_window = resolution.get("window") or {}
-                        close_action = {
-                            "action": "close_application",
-                            "capability": "windows_ui",
-                            "target": str(
-                                matched_window.get("title")
-                                or matched_window.get("name")
-                                or target_text
-                            ),
-                            "args": {"hwnd": matched_window.get("hwnd")},
-                        }
-                        try:
-                            candidate = execute_capability(close_action)
-                            raw_result = (
-                                candidate
-                                if isinstance(candidate, dict)
-                                else {
+                        hwnd = matched_window.get("hwnd")
+                        if hwnd:
+                            close_action = {
+                                "action": "close_application",
+                                "capability": "windows_ui",
+                                "target": str(
+                                    matched_window.get("title")
+                                    or matched_window.get("name")
+                                    or target
+                                ),
+                                "args": {"hwnd": hwnd},
+                            }
+                            try:
+                                candidate = execute_capability(close_action)
+                                raw_result = (
+                                    candidate
+                                    if isinstance(candidate, dict)
+                                    else {
+                                        "success": False,
+                                        "stage": "close_result_invalid",
+                                        "message": "Windows did not return a verifiable window-close result.",
+                                    }
+                                )
+                            except Exception as error:
+                                raw_result = {
                                     "success": False,
-                                    "stage": "close_result_invalid",
-                                    "message": "Windows did not return a verifiable window-close result.",
+                                    "stage": "close_execution_error",
+                                    "message": str(error)[:240],
                                 }
-                            )
-                        except Exception as error:
+                        else:
                             raw_result = {
                                 "success": False,
-                                "stage": "close_execution_error",
-                                "message": str(error)[:240],
+                                "stage": "close_hwnd_missing",
+                                "message": "The foreground match did not include a live window handle.",
                             }
                     else:
                         observed_title = (
@@ -1284,11 +1311,14 @@ def _execute_internal(
                             "message": (
                                 "मैंने '%s' सुना, लेकिन सामने खुली window '%s' उससे match नहीं हुई। "
                                 "सुरक्षा के लिए मैंने किसी process को अनुमान से बंद नहीं किया।"
-                                % (target_text, observed_title or "अज्ञात")
+                                % (target, observed_title or "अज्ञात")
                             ),
-                            "target": target_text,
+                            "target": target,
                             "observed_title": observed_title,
-                            "verification": {"verified": False, "method": "live_foreground_target_match"},
+                            "verification": {
+                                "verified": False,
+                                "method": "live_foreground_target_match",
+                            },
                         }
 
             if raw_result is None:
@@ -1296,13 +1326,11 @@ def _execute_internal(
                     log(
                         "[EXEC] STRUCTURED APP OPEN START: %s"
                         % str(intent.get("target") or "").encode(
-                            "unicode_escape", errors="backslashreplace"
+                            "unicode_escape",
+                            errors="backslashreplace",
                         ).decode("ascii")
                     )
-                    raw_result = tool_manager.execute(
-                        intent,
-                        structured=True,
-                    )
+                    raw_result = tool_manager.execute(intent, structured=True)
                     log(
                         "[EXEC] STRUCTURED APP OPEN END: success=%s stage=%s"
                         % (
@@ -1315,28 +1343,11 @@ def _execute_internal(
                 else:
                     raw_result = tool_manager.execute(intent)
 
-            # -------------------------------------------------
-            # Sync selection state immediately.
-            # -------------------------------------------------
-
-            _sync_pending_selection_context(
-                intent.get(
-                    "target"
-                )
-            )
-
-            return _natural_response(
-                command,
-                raw_result,
-                intent
-            )
+            _sync_pending_selection_context(intent.get("target"))
+            return _natural_response(command, raw_result, intent)
 
         except Exception as error:
-
-            return response_engine.failure_response(
-                command,
-                str(error)
-            )
+            return response_engine.failure_response(command, str(error))
 
     # =========================================================
     # NATURAL / COMPLEX GOAL
