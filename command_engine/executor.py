@@ -172,6 +172,42 @@ def _sync_pending_selection_context(target=None):
         pass
 
 
+def _observed_foreground_window():
+    """Return the live foreground HWND/title, preferring the Win32 source.
+
+    UI Automation is a separate observer and may fail while Win32 foreground
+    identity remains available. Do not substitute a remembered spoken target
+    for the active window; close-current must be based on an observed HWND.
+    """
+    foreground_reader = getattr(tool_manager, "_foreground_snapshot", None)
+    if callable(foreground_reader):
+        try:
+            value = foreground_reader()
+            if isinstance(value, dict) and value.get("hwnd") and str(value.get("title") or "").strip():
+                return dict(value), "win32_foreground"
+        except Exception:
+            pass
+
+    try:
+        snapshot = autonomous_agent.world_state.snapshot(
+            autonomous_agent.context.snapshot(),
+            mission_state=autonomous_agent.mission_runtime.snapshot(),
+            include_ui=True,
+            include_clipboard=False,
+        )
+        value = snapshot.get("current_window") or {}
+        if not value and isinstance(snapshot.get("ui"), dict):
+            value = snapshot["ui"].get("active_window") or {}
+        if isinstance(value, dict) and value.get("hwnd") and str(
+            value.get("title") or value.get("name") or ""
+        ).strip():
+            return dict(value), "world_state_ui"
+    except Exception:
+        pass
+
+    return {}, "foreground_unavailable"
+
+
 # =============================================================
 # NATURAL RESPONSE
 # =============================================================
@@ -928,52 +964,21 @@ def _execute_internal(
 
     if intent_type == "close_current":
 
-        # Prefer the actual foreground window over stale remembered app/file
-        # names. This is what lets "PDF khol diya -> close" close the window
-        # that is actually on screen, even when the opened file is not a
-        # process name.
-        active_window = {}
-        try:
-            snapshot = autonomous_agent.world_state.snapshot(
-                autonomous_agent.context.snapshot(),
-                mission_state=autonomous_agent.mission_runtime.snapshot(),
-                include_ui=True,
-                include_clipboard=False,
-            )
-            active_window = snapshot.get("current_window") or {}
-            if not active_window:
-                active_window = (
-                    snapshot.get("ui", {}).get("active_window", {})
-                    if isinstance(snapshot.get("ui"), dict)
-                    else {}
-                )
-        except Exception:
-            active_window = {}
-
-        current_app = getattr(
-            autonomous_agent.context,
-            "current_app",
-            None
-        )
-        current_file = getattr(
-            autonomous_agent.context,
-            "current_file",
-            None
-        )
-
+        active_window, observation_source = _observed_foreground_window()
         target = str(
             active_window.get("title")
-            or current_app
-            or current_file
+            or active_window.get("name")
             or ""
         ).strip()
         hwnd = active_window.get("hwnd")
 
-        if not target and not hwnd:
-
-            return response_engine.failure_response(
-                command,
-                "No current window is available to close."
+        if not target or not hwnd:
+            return _structured_response(
+                "मैं वर्तमान foreground window की पहचान verify नहीं कर पाया, इसलिए किसी application को अनुमान से बंद नहीं किया।",
+                success=False,
+                stage="close_current_window_unavailable",
+                status="failed",
+                result={"observation_source": observation_source},
             )
 
         close_intent = {
@@ -981,51 +986,42 @@ def _execute_internal(
             "target": target,
         }
 
+        capability_executor = getattr(
+            autonomous_agent,
+            "capability_executor",
+            None,
+        )
+        execute_capability = getattr(capability_executor, "execute", None)
+        if not callable(execute_capability):
+            return _structured_response(
+                "Verified Windows window-close capability उपलब्ध नहीं है।",
+                success=False,
+                stage="close_capability_unavailable",
+                status="failed",
+            )
+
         try:
-            capability_executor = getattr(
-                autonomous_agent,
-                "capability_executor",
-                None,
-            )
-
-            execute_capability = getattr(
-                capability_executor,
-                "execute",
-                None,
-            )
-
-            if callable(execute_capability):
-                close_action = {
-                    "action": "close_application",
-                    "capability": "windows_ui",
-                    "target": target,
-                    "args": {},
+            raw = execute_capability({
+                "action": "close_application",
+                "capability": "windows_ui",
+                "target": target,
+                "args": {"hwnd": hwnd},
+            })
+            if not isinstance(raw, dict):
+                raw = {
+                    "success": False,
+                    "stage": "close_result_invalid",
+                    "message": "Windows did not return a verifiable window-close result.",
                 }
-                if hwnd:
-                    close_action["args"]["hwnd"] = hwnd
-                raw = execute_capability(close_action)
-            else:
-                raw = tool_manager.execute(close_intent)
-
-            if isinstance(raw, dict) and raw.get("success"):
+            if raw.get("success") is True:
                 try:
                     autonomous_agent.context.last_success = True
                     autonomous_agent.context.last_result = raw
                 except Exception:
                     pass
-
-            return _natural_response(
-                command,
-                raw,
-                close_intent
-            )
-
+            return _natural_response(command, raw, close_intent)
         except Exception as error:
-
-            return response_engine.failure_response(
-                command,
-                str(error)
-            )
+            return response_engine.failure_response(command, str(error))
 
     # =========================================================
     # CONVERSATION
