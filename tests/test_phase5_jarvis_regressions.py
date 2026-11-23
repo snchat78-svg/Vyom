@@ -122,12 +122,23 @@ def test_close_current_prefers_live_window_over_stale_app_context(monkeypatch):
                     "current_window": {
                         "hwnd": 321,
                         "title": "Report.pdf - Viewer",
-                    }
+                    },
+                    "ui": {
+                        "available": True,
+                        "coherent": True,
+                        "active_window": {
+                            "hwnd": 321,
+                            "title": "Report.pdf - Viewer",
+                        },
+                    },
                 }
 
         world_state = World()
 
     monkeypatch.setattr(executor, "autonomous_agent", AgentBoundary())
+    # The live Win32 reader is deliberately unavailable in this fixture, so
+    # close-current must rely on the same coherent UIA generation below.
+    monkeypatch.setattr(executor.tool_manager, "_foreground_snapshot", lambda: {})
     monkeypatch.setattr(
         executor.intent_engine,
         "detect",
