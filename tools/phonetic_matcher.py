@@ -127,6 +127,24 @@ def score_candidate(query, candidate):
                     best = max(best, 0.90)
                     continue
             best = max(best, _pair_score(q, c))
+
+    # Window captions often expose only the product's short name, e.g.
+    # "Shambhulal - Chrome", while the installed-app record is "Google Chrome".
+    # Permit one query token to match a *single clean runtime caption token*.
+    # Do not apply this to decorated names such as "Notepad++" or to two
+    # multi-word phrases; those continue to require full-phrase evidence.
+    for q in query_variants:
+        query_tokens = re.findall(r"[a-z0-9]+", q)
+        if len(query_tokens) < 2:
+            continue
+        for c in candidate_variants:
+            if not re.fullmatch(r"[a-z0-9]+", c):
+                continue
+            if len(c) < 4:
+                continue
+            for token in query_tokens:
+                if len(token) >= 4:
+                    best = max(best, _pair_score(token, c))
     return best
 
 
