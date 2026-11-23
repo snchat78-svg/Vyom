@@ -1182,78 +1182,27 @@ def _execute_internal(
                 )
 
             if intent_type == "close_app":
-
-                current_app = getattr(
-                    autonomous_agent.context,
-                    "current_app",
-                    None
+                target_text = str(intent.get("target") or "").strip()
+                capability_executor = getattr(
+                    autonomous_agent,
+                    "capability_executor",
+                    None,
+                )
+                execute_capability = getattr(
+                    capability_executor,
+                    "execute",
+                    None,
                 )
 
-                if current_app:
-
-                    intent = {
-                        "intent": "close_app",
-                        "target": str(
-                            current_app
-                        )
+                if not callable(execute_capability):
+                    raw_result = {
+                        "success": False,
+                        "stage": "close_capability_unavailable",
+                        "message": "Vyom cannot access the verified Windows window-close capability in this session.",
                     }
-
                 else:
-
-                    return _failure_response(command, "No application was specified to close.", stage="needs_clarification")
-
-        try:
-
-            # Record current context before execution.
-            autonomous_agent.context.set_current_target(
-                intent.get(
-                    "target",
-                    ""
-                )
-            )
-
-            if intent_type == "open":
-
-                autonomous_agent.context.set_current_app(
-                    intent.get(
-                        "target",
-                        ""
-                    )
-                )
-
-            elif intent_type in (
-                "open_file",
-                "search_file",
-                "search_and_open_file"
-            ):
-
-                autonomous_agent.context.set_current_file(
-                    intent.get(
-                        "target",
-                        ""
-                    )
-                )
-
-            raw_result = None
-
-            # For an explicit close target, prefer the live generic UI
-            # capability when the target resolves to an observed window.
-            # This avoids treating document-viewer processes (for example a
-            # PDF opened by an associated application) as if the document
-            # filename itself were a Windows process name.
-            if intent_type == "close_app":
-                try:
-                    capability_executor = getattr(
-                        autonomous_agent,
-                        "capability_executor",
-                        None,
-                    )
-                    execute_capability = getattr(
-                        capability_executor,
-                        "execute",
-                        None,
-                    )
-                    if callable(execute_capability):
+                    active_window = {}
+                    try:
                         ui_snapshot = autonomous_agent.world_state.snapshot(
                             autonomous_agent.context.snapshot(),
                             mission_state=autonomous_agent.mission_runtime.snapshot(),
@@ -1261,44 +1210,90 @@ def _execute_internal(
                             include_clipboard=False,
                         )
                         active_window = ui_snapshot.get("current_window") or {}
-                        active_title = str(active_window.get("title") or "").strip()
-                        target_text = str(intent.get("target") or "").strip()
-                        target_matcher = getattr(
-                            tool_manager,
-                            "_foreground_matches_target",
-                            None,
-                        )
-                        if active_window.get("hwnd") and target_text and callable(target_matcher):
-                            # Reuse the runtime-discovered foreground matcher so a noisy
-                            # transcript can match its observed app window safely.
-                            live_match = bool(target_matcher(target_text, active_window))
-                        else:
-                            # Without a target-aware matcher, require exact title equality.
-                            live_match = bool(
-                                active_window.get("hwnd")
-                                and target_text
-                                and target_text.casefold() == active_title.casefold()
+                        if not active_window and isinstance(ui_snapshot.get("ui"), dict):
+                            active_window = ui_snapshot["ui"].get("active_window") or {}
+                    except Exception:
+                        # The direct Win32 foreground reader remains available
+                        # even when the independent UIA/world-state observer fails.
+                        active_window = {}
+
+                    resolver = getattr(
+                        tool_manager,
+                        "_resolve_foreground_for_close",
+                        None,
+                    )
+                    if callable(resolver):
+                        resolution = resolver(target_text, active_window)
+                    else:
+                        foreground = {}
+                        snapshotter = getattr(tool_manager, "_foreground_snapshot", None)
+                        if callable(snapshotter):
+                            try:
+                                foreground = snapshotter() or {}
+                            except Exception:
+                                foreground = {}
+                        matcher = getattr(tool_manager, "_foreground_matches_target", None)
+                        matched = bool(
+                            foreground.get("hwnd")
+                            and target_text
+                            and (
+                                matcher(target_text, foreground)
+                                if callable(matcher)
+                                else str(foreground.get("title") or "").casefold() == target_text.casefold()
                             )
-                        if live_match:
-                            close_action = {
-                                "action": "close_application",
-                                "capability": "windows_ui",
-                                "target": active_title or target_text,
-                                "args": {"hwnd": active_window.get("hwnd")},
-                            }
+                        )
+                        resolution = {
+                            "success": matched,
+                            "window": foreground if matched else {},
+                            "stage": "foreground_target_not_matched" if not matched else "resolved",
+                        }
+
+                    if isinstance(resolution, dict) and resolution.get("success") is True:
+                        matched_window = resolution.get("window") or {}
+                        close_action = {
+                            "action": "close_application",
+                            "capability": "windows_ui",
+                            "target": str(
+                                matched_window.get("title")
+                                or matched_window.get("name")
+                                or target_text
+                            ),
+                            "args": {"hwnd": matched_window.get("hwnd")},
+                        }
+                        try:
                             candidate = execute_capability(close_action)
-                            # Once the live foreground window has been matched
-                            # and a UI close has been attempted, preserve that
-                            # result even when it is not verified. Do not fall
-                            # through to a process-name kill path using a noisy
-                            # STT transcript; the user may need to handle a
-                            # save-confirmation dialog or a blocked window.
-                            if isinstance(candidate, dict):
-                                raw_result = candidate
-                            elif candidate is not None:
-                                raw_result = candidate
-                except Exception:
-                    raw_result = None
+                            raw_result = (
+                                candidate
+                                if isinstance(candidate, dict)
+                                else {
+                                    "success": False,
+                                    "stage": "close_result_invalid",
+                                    "message": "Windows did not return a verifiable window-close result.",
+                                }
+                            )
+                        except Exception as error:
+                            raw_result = {
+                                "success": False,
+                                "stage": "close_execution_error",
+                                "message": str(error)[:240],
+                            }
+                    else:
+                        observed_title = (
+                            str(resolution.get("observed_title") or "")
+                            if isinstance(resolution, dict) else ""
+                        )
+                        raw_result = {
+                            "success": False,
+                            "stage": "close_target_not_matched",
+                            "message": (
+                                "मैंने '%s' सुना, लेकिन सामने खुली window '%s' उससे match नहीं हुई। "
+                                "सुरक्षा के लिए मैंने किसी process को अनुमान से बंद नहीं किया।"
+                                % (target_text, observed_title or "अज्ञात")
+                            ),
+                            "target": target_text,
+                            "observed_title": observed_title,
+                            "verification": {"verified": False, "method": "live_foreground_target_match"},
+                        }
 
             if raw_result is None:
                 if intent_type == "open" and isinstance(tool_manager, ToolManager):
