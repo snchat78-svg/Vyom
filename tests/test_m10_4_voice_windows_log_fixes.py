@@ -297,7 +297,9 @@ class OpenWindowVerificationTests(unittest.TestCase):
 
     def test_unrelated_foreground_window_change_does_not_verify_app_launch(self):
         manager = self._manager("Unrelated Window")
-        ticks = iter([0.0, 1.0, 3.0])
+        # The verifier reads monotonic time for the deadline and once per
+        # loop iteration; provide enough deterministic ticks for the 8s window.
+        ticks = iter([0.0, 0.0, 1.0, 1.0, 9.0, 9.0])
         with patch.object(tool_manager_module.time, "monotonic", side_effect=lambda: next(ticks)):
             with patch.object(tool_manager_module.time, "sleep", return_value=None):
                 verified, window, method = manager._verify_open_effect(
