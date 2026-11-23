@@ -433,6 +433,25 @@ class IntentEngine:
 
         return None
 
+    @staticmethod
+    def _is_screen_analysis_request(text: Any) -> bool:
+        """Keep explicit read-only screen requests out of generic conversation routing."""
+        value = re.sub(r"\\s+", " ", str(text or "").strip().casefold()).strip(" .!?")
+        return value in {
+            "analyze screen", "analyse screen", "describe screen",
+            "screen samjhao", "screen ko samjhao", "screen dekho",
+            "screen ko dekho", "screen batao", "screen ko describe karo",
+            "what is on screen", "what is on my screen",
+            "what can you see on screen", "what is visible on screen",
+            "screen par kya hai", "screen pe kya hai",
+            "screen par kya dikh raha hai", "screen pe kya dikh raha hai",
+            "abhi screen par kya dikh raha hai", "abhi screen pe kya hai",
+            "स्क्रीन देखो", "स्क्रीन को देखो", "स्क्रीन समझाओ",
+            "स्क्रीन को समझाओ", "स्क्रीन पर क्या है", "स्क्रीन पे क्या है",
+            "स्क्रीन पर क्या दिख रहा है", "अभी स्क्रीन पर क्या दिख रहा है",
+            "अभी क्या खुला है", "वर्तमान स्क्रीन बताओ",
+        }
+
     def detect(self, command: Any, metadata: Any = None) -> Dict[str, Any]:
         original = str(command or "").strip()
         voice_meta = self.voice_normalizer.normalize(original)
@@ -452,6 +471,14 @@ class IntentEngine:
         text = self._normalize(normalized_input)
         if not text:
             return {"intent": "unknown", "target": "", "selection": None, "voice": voice_meta}
+
+        if self._is_screen_analysis_request(text):
+            return {
+                "intent": "unknown",
+                "target": original,
+                "voice": voice_meta,
+                "semantic_handoff_reason": "screen_understanding",
+            }
 
         selection = self._detect_selection(text)
         if selection is not None:
