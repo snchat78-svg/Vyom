@@ -862,8 +862,52 @@ class ToolManager:
         title = str(window.get("title") or "").strip() if isinstance(window, dict) else ""
         return any(self._same_runtime_target(target, segment) for segment in self._title_segments(title))
 
+    def _resolve_foreground_for_close(self, target, observed_window=None):
+        """Resolve a spoken close target against a live Win32 HWND/title.
+
+        WorldState/UIA snapshots can be unavailable independently of the
+        WindowManager. Prefer the direct foreground reader, then accept a
+        coherent caller-supplied observation only when its identity also
+        matches the requested target. Never convert a noisy title to an .exe.
+        """
+        candidates = []
+        foreground = self._foreground_snapshot()
+        for source, window in (
+            ("win32_foreground", foreground),
+            ("world_state_ui", observed_window),
+        ):
+            if not isinstance(window, dict):
+                continue
+            hwnd = window.get("hwnd")
+            title = str(window.get("title") or window.get("name") or "").strip()
+            if not hwnd or not title:
+                continue
+            if any(int(item.get("hwnd") or 0) == int(hwnd) for item in candidates):
+                continue
+            if self._foreground_matches_target(target, {"title": title}):
+                candidates.append({
+                    "hwnd": int(hwnd),
+                    "title": title,
+                    "source": source,
+                })
+        if not candidates:
+            return {
+                "success": False,
+                "stage": "foreground_target_not_matched",
+                "target": str(target or ""),
+                "observed_title": str(
+                    (foreground or {}).get("title")
+                    or (observed_window or {}).get("title")
+                    or (observed_window or {}).get("name")
+                    or ""
+                ),
+            }
+        # The Win32 foreground is first and therefore preferred. No process
+        # enumeration or name-based termination is used here.
+        return {"success": True, "window": candidates[0]}
+
     def _verify_open_effect(self, target, before, raw_result):
-        """Verify the foreground belongs to the requested runtime target."""
+        """Verify the requested app in the foreground, including slow startups."""
         source = raw_result if isinstance(raw_result, dict) else {}
         candidates = [str(target or "").strip()]
         records = source.get("results") if isinstance(source, dict) else None
@@ -877,8 +921,10 @@ class ToolManager:
         before_hwnd = before.get("hwnd") if isinstance(before, dict) else None
         after = {}
         foreground_changed = False
-        deadline = time.monotonic() + 2.0
+        deadline = time.monotonic() + 8.0
+        next_window_scan = 0.0
         while time.monotonic() < deadline:
+            now = time.monotonic()
             after = self._foreground_snapshot()
             title = str(after.get("title") or "").strip()
             after_hwnd = after.get("hwnd")
@@ -886,17 +932,55 @@ class ToolManager:
                 if before_hwnd and after_hwnd != before_hwnd:
                     foreground_changed = True
                 for candidate in candidates:
-                    # Require the observed title to match the requested target
-                    # or the actual runtime-discovered launch record. A
-                    # different foreground HWND alone is not app-open proof.
                     if candidate and self._foreground_matches_target(candidate, after):
                         return True, after, "foreground_title_match"
+
+            # Some Windows launchers create the app window in the background
+            # or after a slow first-run delay. Discover matching visible
+            # windows and activate only a target-verified HWND.
+            if now >= next_window_scan:
+                next_window_scan = now + 0.5
+                manager = getattr(self, "window_manager", None)
+                list_windows = getattr(manager, "list_windows", None)
+                activate = getattr(manager, "activate", None)
+                if callable(list_windows) and callable(activate):
+                    try:
+                        windows = list_windows(max_results=200)
+                    except TypeError:
+                        try:
+                            windows = list_windows()
+                        except Exception:
+                            windows = []
+                    except Exception:
+                        windows = []
+                    for candidate_window in windows if isinstance(windows, list) else []:
+                        if not isinstance(candidate_window, dict):
+                            continue
+                        hwnd = candidate_window.get("hwnd")
+                        if not hwnd or not any(
+                            self._foreground_matches_target(name, candidate_window)
+                            for name in candidates if name
+                        ):
+                            continue
+                        if before_hwnd and int(hwnd) == int(before_hwnd):
+                            continue
+                        try:
+                            activation = activate(hwnd)
+                        except Exception:
+                            activation = {"success": False}
+                        if isinstance(activation, dict) and activation.get("success"):
+                            focused = self._foreground_snapshot()
+                            if any(
+                                self._foreground_matches_target(name, focused)
+                                for name in candidates if name
+                            ):
+                                return True, focused, "matching_window_discovered_and_activated"
             time.sleep(0.15)
 
         method = (
             "foreground_changed_without_target_match"
             if foreground_changed
-            else "foreground_change_not_observed"
+            else "matching_window_not_observed"
         )
         return False, after, method
 
