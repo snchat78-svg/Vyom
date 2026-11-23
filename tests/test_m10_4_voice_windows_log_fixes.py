@@ -8,6 +8,8 @@ from unittest.mock import patch
 from ctypes import wintypes
 
 from tools.phonetic_matcher import score_candidate
+from ai_core.semantic_brain import LocalSemanticBrain
+import command_engine.executor as executor_module
 from tools.universal_resolver import UniversalResolver
 from tools.tool_manager import ToolManager
 import tools.tool_manager as tool_manager_module
@@ -23,6 +25,101 @@ class _FakeWin32Call:
 
     def __call__(self, *args):
         return self.result
+
+
+class ScreenUnderstandingIntentTests(unittest.TestCase):
+    def test_hinglish_screen_request_routes_to_read_only_screen_capability(self):
+        for phrase in ("screen samjhao", "screen par kya hai", "स्क्रीन समझाओ"):
+            with self.subTest(phrase=phrase):
+                result = LocalSemanticBrain().reason(phrase, context={})
+                self.assertEqual(result["route"], "capability")
+                self.assertEqual(result["plan"][0]["action"], "analyze_screen")
+                self.assertEqual(result["plan"][0]["capability"], "screen_understanding")
+                self.assertFalse(result["meaning"]["requires_clarification"])
+
+    def test_screen_analysis_capability_never_becomes_a_computer_action(self):
+        result = LocalSemanticBrain().reason("what is on my screen", context={})
+        step = result["plan"][0]
+        self.assertEqual(step["action"], "analyze_screen")
+        self.assertEqual(step["capability"], "screen_understanding")
+        self.assertEqual(step["args"]["question"], "what is on my screen")
+
+
+class CurrentForegroundObservationTests(unittest.TestCase):
+    def test_close_current_prefers_direct_win32_foreground_over_world_state(self):
+        original_manager = executor_module.tool_manager
+        original_agent = executor_module.autonomous_agent
+        try:
+            manager = SimpleNamespace(
+                _foreground_snapshot=lambda: {"hwnd": 811, "title": "Notepad"}
+            )
+            agent = SimpleNamespace(
+                world_state=SimpleNamespace(
+                    snapshot=lambda *args, **kwargs: (_ for _ in ()).throw(
+                        AssertionError("UIA/WorldState must not override live Win32 HWND")
+                    )
+                ),
+                mission_runtime=SimpleNamespace(snapshot=lambda: {}),
+                context=SimpleNamespace(snapshot=lambda: {}),
+            )
+            executor_module.tool_manager = manager
+            executor_module.autonomous_agent = agent
+
+            window, source = executor_module._observed_foreground_window()
+
+            self.assertEqual(source, "win32_foreground")
+            self.assertEqual(window, {"hwnd": 811, "title": "Notepad"})
+        finally:
+            executor_module.tool_manager = original_manager
+            executor_module.autonomous_agent = original_agent
+
+    def test_close_current_falls_back_to_coherent_world_state_when_win32_missing(self):
+        original_manager = executor_module.tool_manager
+        original_agent = executor_module.autonomous_agent
+        try:
+            manager = SimpleNamespace(_foreground_snapshot=lambda: {})
+            agent = SimpleNamespace(
+                world_state=SimpleNamespace(snapshot=lambda *args, **kwargs: {
+                    "current_window": {"hwnd": 812, "title": "Google Chrome"},
+                    "ui": {"available": True, "coherent": True},
+                }),
+                mission_runtime=SimpleNamespace(snapshot=lambda: {}),
+                context=SimpleNamespace(snapshot=lambda: {}),
+            )
+            executor_module.tool_manager = manager
+            executor_module.autonomous_agent = agent
+
+            window, source = executor_module._observed_foreground_window()
+
+            self.assertEqual(source, "world_state_ui")
+            self.assertEqual(window, {"hwnd": 812, "title": "Google Chrome"})
+        finally:
+            executor_module.tool_manager = original_manager
+            executor_module.autonomous_agent = original_agent
+
+    def test_close_current_refuses_a_remembered_app_without_live_hwnd(self):
+        original_manager = executor_module.tool_manager
+        original_agent = executor_module.autonomous_agent
+        try:
+            manager = SimpleNamespace(_foreground_snapshot=lambda: {})
+            agent = SimpleNamespace(
+                world_state=SimpleNamespace(snapshot=lambda *args, **kwargs: {
+                    "current_window": {},
+                    "ui": {"available": False},
+                }),
+                mission_runtime=SimpleNamespace(snapshot=lambda: {}),
+                context=SimpleNamespace(snapshot=lambda: {"current_app": "Notepad"}),
+            )
+            executor_module.tool_manager = manager
+            executor_module.autonomous_agent = agent
+
+            window, source = executor_module._observed_foreground_window()
+
+            self.assertEqual(window, {})
+            self.assertEqual(source, "foreground_unavailable")
+        finally:
+            executor_module.tool_manager = original_manager
+            executor_module.autonomous_agent = original_agent
 
 
 class GenericVoiceTargetTests(unittest.TestCase):
