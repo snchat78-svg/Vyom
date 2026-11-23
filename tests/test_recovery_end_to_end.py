@@ -117,6 +117,32 @@ def test_executor_cancel_resolves_lock_without_dispatch_or_retry(monkeypatch):
     )
 
 
+def test_executor_roman_hindi_recovery_cancel_resolves_lock_without_retry(monkeypatch):
+    agent = _agent_with_uncertain_send()
+    monkeypatch.setattr(executor, "autonomous_agent", agent)
+    monkeypatch.setattr(
+        executor.intent_engine,
+        "detect",
+        lambda *args, **kwargs: pytest.fail("recovery cancel must be handled before intent detection"),
+    )
+    monkeypatch.setattr(
+        executor.tool_manager,
+        "execute",
+        lambda *args, **kwargs: pytest.fail("recovery cancel must not dispatch an action"),
+    )
+
+    result = executor.execute("rahane do")
+
+    assert result["success"] is False
+    assert result["status"] == "cancelled"
+    assert result["stage"] == "recovery_cancelled"
+    assert agent.mission_runtime.snapshot()["replay_lock"] is None
+    assert not any(
+        event.get("event") == "step_retry"
+        for event in agent.mission_runtime.history
+    )
+
+
 def test_executor_retry_is_blocked_when_live_ui_observation_is_unavailable(monkeypatch):
     agent = _agent_with_uncertain_send()
     agent._observe_cycle = lambda **kwargs: {
