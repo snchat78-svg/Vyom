@@ -438,7 +438,7 @@ class LocalSemanticBrain:
             "type": "action",
             "id": "",
             "action": action,
-            "capability": "windows_ui",
+            "capability": ("screen_understanding" if str(action or "").strip().lower() == "analyze_screen" else "windows_ui"),
             "target": target,
             "args": dict(args or {}),
             "preconditions": [],
@@ -660,6 +660,8 @@ class LocalSemanticBrain:
     def _has_action_shape(cls, text: str) -> bool:
         """Recognize generic imperative morphology, not application names."""
         value = cls._lower(text)
+        if cls._is_screen_analysis_request(value):
+            return True
         verbs = (
             cls._OPEN + cls._CLOSE + cls._TYPE + cls._CLICK
             + cls._DOUBLE_CLICK + cls._INVOKE + cls._FOCUS
@@ -678,6 +680,26 @@ class LocalSemanticBrain:
         )
         return any(value.endswith(" " + suffix) for suffix in command_suffixes)
 
+    @classmethod
+    def _is_screen_analysis_request(cls, text: str) -> bool:
+        """Identify an explicit read-only request to describe the current screen."""
+        value = cls._normalize(text).casefold().strip(" .!?")
+        exact = {
+            "analyze screen", "analyse screen", "describe screen",
+            "screen samjhao", "screen ko samjhao", "screen dekho",
+            "screen ko dekho", "screen batao", "screen ko describe karo",
+            "what is on screen", "what is on my screen",
+            "what can you see on screen", "what is visible on screen",
+            "screen par kya hai", "screen pe kya hai",
+            "screen par kya dikh raha hai", "screen pe kya dikh raha hai",
+            "abhi screen par kya dikh raha hai", "abhi screen pe kya hai",
+            "स्क्रीन देखो", "स्क्रीन को देखो", "स्क्रीन समझाओ",
+            "स्क्रीन को समझाओ", "स्क्रीन पर क्या है", "स्क्रीन पे क्या है",
+            "स्क्रीन पर क्या दिख रहा है", "अभी स्क्रीन पर क्या दिख रहा है",
+            "अभी क्या खुला है", "वर्तमान स्क्रीन बताओ",
+        }
+        return value in exact
+
     def _semantic_surface_action(
         self,
         text: str,
@@ -685,6 +707,14 @@ class LocalSemanticBrain:
     ) -> Optional[Dict[str, Any]]:
         value = self._normalize(text)
         lower = value.lower()
+
+        if self._is_screen_analysis_request(value):
+            return {
+                "operation": "analyze_screen",
+                "target": "",
+                "args": {"question": value},
+                "confidence": 0.92,
+            }
 
         payload = self._extract_payload(value, self._TYPE)
         if payload:
