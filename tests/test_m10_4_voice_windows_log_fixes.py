@@ -33,6 +33,8 @@ class GenericVoiceTargetTests(unittest.TestCase):
         self.assertGreaterEqual(score_candidate("krom", "Chrome"), 0.80)
         self.assertGreaterEqual(score_candidate("eksel", "Microsoft Excel 2016"), 0.80)
         self.assertLess(score_candidate("gugal krom", "Microsoft Excel 2016"), 0.80)
+        self.assertGreaterEqual(score_candidate("gugal krom", "Chrome"), 0.90)
+        self.assertLess(score_candidate("Notepad", "Notepad++"), 0.80)
 
 
 class KnownUserFolderTests(unittest.TestCase):
@@ -80,6 +82,35 @@ class KnownUserFolderTests(unittest.TestCase):
             self.assertEqual(resolver.find("photos"), [])
 
 
+class ForegroundCloseResolutionTests(unittest.TestCase):
+    def test_noisy_notepad_transcript_resolves_live_foreground_hwnd(self):
+        manager = ToolManager.__new__(ToolManager)
+        manager._foreground_snapshot = lambda: {
+            "hwnd": 501,
+            "title": "Notepad",
+        }
+
+        result = manager._resolve_foreground_for_close("notapaid", {})
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["window"]["hwnd"], 501)
+        self.assertEqual(result["window"]["title"], "Notepad")
+        self.assertEqual(result["window"]["source"], "win32_foreground")
+
+    def test_close_resolution_does_not_choose_an_unrelated_foreground_window(self):
+        manager = ToolManager.__new__(ToolManager)
+        manager._foreground_snapshot = lambda: {
+            "hwnd": 502,
+            "title": "Calculator",
+        }
+
+        result = manager._resolve_foreground_for_close("notapaid", {})
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["stage"], "foreground_target_not_matched")
+        self.assertEqual(result["observed_title"], "Calculator")
+
+
 class OpenWindowVerificationTests(unittest.TestCase):
     @staticmethod
     def _manager(title):
@@ -92,7 +123,7 @@ class OpenWindowVerificationTests(unittest.TestCase):
 
     def test_excel_launch_verification_matches_runtime_title_token(self):
         manager = self._manager("Book1 - Microsoft Excel 2016")
-        ticks = iter([0.0, 1.0, 3.0])
+        ticks = iter([0.0, 0.0, 1.0, 1.0, 9.0])
         with patch.object(tool_manager_module.time, "monotonic", side_effect=lambda: next(ticks)):
             with patch.object(tool_manager_module.time, "sleep", return_value=None):
                 verified, window, method = manager._verify_open_effect(
@@ -104,6 +135,22 @@ class OpenWindowVerificationTests(unittest.TestCase):
         self.assertTrue(verified)
         self.assertEqual(window["hwnd"], 200)
         self.assertEqual(method, "foreground_title_match")
+
+    def test_chrome_short_caption_verifies_spoken_multiword_target(self):
+        manager = self._manager("Shambhulal - Chrome")
+        ticks = iter([0.0, 0.0, 1.0, 1.0, 9.0])
+        with patch.object(tool_manager_module.time, "monotonic", side_effect=lambda: next(ticks)):
+            with patch.object(tool_manager_module.time, "sleep", return_value=None):
+                verified, window, method = manager._verify_open_effect(
+                    "gugal krom",
+                    {"hwnd": 100, "title": "Vyom Console"},
+                    {"success": True, "results": [{"name": "Google Chrome"}]},
+                )
+
+        self.assertTrue(verified)
+        self.assertEqual(window["title"], "Shambhulal - Chrome")
+        self.assertEqual(method, "foreground_title_match")
+
 
     def test_unrelated_foreground_window_change_does_not_verify_app_launch(self):
         manager = self._manager("Unrelated Window")
