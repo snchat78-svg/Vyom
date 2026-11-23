@@ -195,13 +195,15 @@ def _observed_foreground_window():
             include_ui=True,
             include_clipboard=False,
         )
-        value = snapshot.get("current_window") or {}
-        if not value and isinstance(snapshot.get("ui"), dict):
-            value = snapshot["ui"].get("active_window") or {}
-        if isinstance(value, dict) and value.get("hwnd") and str(
-            value.get("title") or value.get("name") or ""
-        ).strip():
-            return dict(value), "world_state_ui"
+        ui = snapshot.get("ui") if isinstance(snapshot.get("ui"), dict) else {}
+        # A foreground race during UIA capture invalidates the entire snapshot.
+        # Do not close using controls/windows from a mixed observation.
+        if ui.get("available") is True and ui.get("coherent") is True:
+            value = ui.get("active_window") or snapshot.get("current_window") or {}
+            if isinstance(value, dict) and value.get("hwnd") and str(
+                value.get("title") or value.get("name") or ""
+            ).strip():
+                return dict(value), "world_state_ui"
     except Exception:
         pass
 
@@ -1219,9 +1221,20 @@ def _execute_internal(
                             include_ui=True,
                             include_clipboard=False,
                         )
-                        active_window = ui_snapshot.get("current_window") or {}
-                        if not active_window and isinstance(ui_snapshot.get("ui"), dict):
-                            active_window = ui_snapshot["ui"].get("active_window") or {}
+                        ui_observation = (
+                            ui_snapshot.get("ui")
+                            if isinstance(ui_snapshot.get("ui"), dict)
+                            else {}
+                        )
+                        if (
+                            ui_observation.get("available") is True
+                            and ui_observation.get("coherent") is True
+                        ):
+                            active_window = (
+                                ui_observation.get("active_window")
+                                or ui_snapshot.get("current_window")
+                                or {}
+                            )
                     except Exception:
                         active_window = {}
 
