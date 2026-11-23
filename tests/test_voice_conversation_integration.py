@@ -220,8 +220,10 @@ def test_session_memory_records_context_and_selection():
     assert memory.selection_options == ["a", "b"]
 
 
-def test_executor_fast_paths_route_real_intents_to_tool_manager(monkeypatch):
+def test_executor_fast_paths_keep_open_search_on_tool_manager_and_close_on_live_hwnd(monkeypatch):
     calls = []
+    close_calls = []
+    close_resolutions = []
 
     class ToolBoundary:
         selection_manager = None
@@ -230,13 +232,64 @@ def test_executor_fast_paths_route_real_intents_to_tool_manager(monkeypatch):
             calls.append(intent)
             return {"success": True, "message": "handled"}
 
+        def _resolve_foreground_for_close(self, target, observed_window):
+            close_resolutions.append((target, dict(observed_window or {})))
+            return {
+                "success": True,
+                "window": {"hwnd": 321, "title": "Notepad"},
+                "observed_title": "Notepad",
+            }
+
+    class CapabilityBoundary:
+        def execute(self, action):
+            close_calls.append(action)
+            return {
+                "success": True,
+                "stage": "verified",
+                "message": "closed",
+                "verification": {"verified": True},
+            }
+
     monkeypatch.setattr(executor, "tool_manager", ToolBoundary())
     executor.autonomous_agent.context.clear_task()
+    monkeypatch.setattr(
+        executor.autonomous_agent,
+        "capability_executor",
+        CapabilityBoundary(),
+    )
+    monkeypatch.setattr(
+        executor.autonomous_agent.world_state,
+        "snapshot",
+        lambda *args, **kwargs: {
+            "current_window": {"hwnd": 321, "title": "Notepad"},
+            "ui": {
+                "available": True,
+                "coherent": True,
+                "active_window": {"hwnd": 321, "title": "Notepad"},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        executor.response_engine,
+        "format",
+        lambda **kwargs: "handled",
+    )
+
     executor.execute("open Notepad")
     executor.execute("search file report")
     executor.execute("close Notepad")
 
-    assert [call["intent"] for call in calls] == ["open", "search_file", "close_app"]
+    # Open/search remain on their existing ToolManager fast paths. Closing a
+    # window must use the verified live-HWND capability, never ProcessManager.
+    assert [call["intent"] for call in calls] == ["open", "search_file"]
+    assert len(close_resolutions) == 1
+    assert close_resolutions[0][0] == "Notepad"
+    assert close_calls == [{
+        "action": "close_application",
+        "capability": "windows_ui",
+        "target": "Notepad",
+        "args": {"hwnd": 321},
+    }]
 
 
 def test_executor_unknown_goal_uses_existing_autonomous_agent(monkeypatch):
