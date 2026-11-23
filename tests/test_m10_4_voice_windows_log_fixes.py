@@ -9,6 +9,7 @@ from ctypes import wintypes
 
 from tools.phonetic_matcher import score_candidate
 from ai_core.semantic_brain import LocalSemanticBrain
+from command_engine.intent import IntentEngine
 import command_engine.executor as executor_module
 from tools.universal_resolver import UniversalResolver
 from tools.tool_manager import ToolManager
@@ -36,6 +37,22 @@ class ScreenUnderstandingIntentTests(unittest.TestCase):
                 self.assertEqual(result["plan"][0]["action"], "analyze_screen")
                 self.assertEqual(result["plan"][0]["capability"], "screen_understanding")
                 self.assertFalse(result["meaning"]["requires_clarification"])
+
+    def test_intent_engine_hands_screen_requests_to_semantic_perception(self):
+        engine = IntentEngine()
+        for phrase in (
+            "screen samjhao",
+            "screen par kya hai",
+            "what is on my screen",
+            "स्क्रीन समझाओ",
+        ):
+            with self.subTest(phrase=phrase):
+                result = engine.detect(phrase)
+                self.assertEqual(result["intent"], "unknown")
+                self.assertEqual(
+                    result.get("semantic_handoff_reason"),
+                    "screen_understanding",
+                )
 
     def test_screen_analysis_capability_never_becomes_a_computer_action(self):
         result = LocalSemanticBrain().reason("what is on my screen", context={})
