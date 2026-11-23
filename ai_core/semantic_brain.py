@@ -1007,6 +1007,43 @@ class LocalSemanticBrain:
         )
         original = transcript_recovery["text"]
 
+        # Screen understanding is an explicit read-only capability request,
+        # not a factual question for the conversation provider and not a
+        # generic unresolved mission. Resolve it before question classification
+        # and compatibility compilation can intercept the phrase.
+        if (
+            self._is_screen_analysis_request(raw_original)
+            or self._is_screen_analysis_request(original)
+        ):
+            step = self._action(
+                "analyze_screen",
+                target="",
+                args={"question": raw_original},
+                description=(
+                    "Describe the current desktop using a coherent Windows UI "
+                    "Automation snapshot and optional explicitly enabled local vision."
+                ),
+            )
+            self._set_ids([step])
+            result = {
+                "success": True,
+                "route": "capability",
+                "goal": original,
+                "confidence": 0.92,
+                "semantic_interpretation": [{
+                    "text": raw_original,
+                    "operation": "analyze_screen",
+                    "confidence": 0.92,
+                }],
+                "plan": [step],
+                "source": "local_semantic_brain",
+                "needs_confirmation": False,
+                "raw_transcript": raw_original,
+                "transcript_recovery": transcript_recovery,
+            }
+            self.last_result = result
+            return result
+
         if not original:
             result = {
                 "success": False,
