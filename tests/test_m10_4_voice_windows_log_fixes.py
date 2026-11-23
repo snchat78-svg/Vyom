@@ -131,7 +131,7 @@ class GenericVoiceTargetTests(unittest.TestCase):
         self.assertGreaterEqual(score_candidate("eksel", "Microsoft Excel 2016"), 0.80)
         self.assertLess(score_candidate("gugal krom", "Microsoft Excel 2016"), 0.80)
         self.assertGreaterEqual(score_candidate("gugal krom", "Chrome"), 0.90)
-        self.assertLess(score_candidate("Notepad", "Notepad++"), 0.80)
+        self.assertFalse(ToolManager._same_runtime_target("Notepad", "Notepad++"))
 
 
 class KnownUserFolderTests(unittest.TestCase):
